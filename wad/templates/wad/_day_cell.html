@@ -1,4 +1,51 @@
-{% if is_booked and is_half %}
+{% if is_past and is_booked and is_half %}
+<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
+     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+
+     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-half-day text-[#222] opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
+     {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
+    {{ day_num }}
+</div>
+{% elif is_past and is_booked %}
+<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
+     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+
+     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold bg-booked text-booked-light opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
+     {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
+    {{ day_num }}
+</div>
+{% elif is_past and is_overlap %}
+<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
+     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+
+     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold text-white cursor-pointer select-none bg-overlap opacity-50 hover:scale-110 hover:shadow-md transition"
+     title="{{ home_title }} | {{ client_title }}">
+    {{ day_num }}
+</div>
+{% elif is_past and home_name %}
+<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
+     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+
+     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-home-holiday text-white opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
+     title="{{ home_title }}">
+    {{ day_num }}
+</div>
+{% elif is_past and client_name %}
+<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
+     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+
+     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-client-holiday text-white opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
+     title="{{ client_title }}">
+    {{ day_num }}
+</div>
+{% elif is_past %}
+<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
+     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+
+     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-weekend text-[#aaa] opacity-70 cursor-pointer select-none hover:scale-110 hover:shadow-md transition">
+    {{ day_num }}
+</div>
+{% elif is_booked and is_half %}
 <div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
      hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
 

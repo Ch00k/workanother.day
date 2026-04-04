@@ -334,13 +334,14 @@ def bulk_book(request: HttpRequest, pk: str) -> HttpResponse:
     mode = request.POST.get("mode", "")
     dates_to_book = _holiday_dates_for_mode(contract, mode)
 
-    weekday_dates = [d for d in dates_to_book if not is_weekend(d)]
+    today = datetime.datetime.now(tz=datetime.UTC).date()
+    weekday_dates = [d for d in dates_to_book if not is_weekend(d) and d >= today]
     TimeOff.objects.bulk_create(
         [TimeOff(contract=contract, date=d, hours=contract.working_hours_per_day) for d in weekday_dates],
         ignore_conflicts=True,
     )
 
-    return _htmx_or_redirect(request, contract)
+    return _bulk_days_response(request, contract, weekday_dates)
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
@@ -351,11 +352,12 @@ def clear_time_off(request: HttpRequest, pk: str) -> HttpResponse:
 
     mode = request.POST.get("mode", "")
     dates_to_clear = _holiday_dates_for_mode(contract, mode)
-    weekday_dates = [d for d in dates_to_clear if not is_weekend(d)]
+    today = datetime.datetime.now(tz=datetime.UTC).date()
+    weekday_dates = [d for d in dates_to_clear if not is_weekend(d) and d >= today]
 
     contract.time_off.filter(date__in=weekday_dates).delete()  # ty: ignore[unresolved-attribute]
 
-    return _htmx_or_redirect(request, contract)
+    return _bulk_days_response(request, contract, weekday_dates)
 
 
 def export_calendar(request: HttpRequest, pk: str) -> HttpResponse:
@@ -421,10 +423,12 @@ def _toggle_day_response(request: HttpRequest, contract: Contract, target_date: 
     toggle_url = reverse("toggle_day", kwargs={"pk": contract.pk, "date": day_str})
     is_half = time_off and time_off.hours < contract.working_hours_per_day if time_off else False
 
+    today = datetime.datetime.now(tz=datetime.UTC).date()
     cell_context = {
         "day_str": day_str,
         "day_num": target_date.day,
-        "is_today": target_date == datetime.datetime.now(tz=datetime.UTC).date(),
+        "is_today": target_date == today,
+        "is_past": target_date < today,
         "is_booked": bool(time_off),
         "is_half": is_half,
         "is_overlap": bool(home_name and client_name),
@@ -448,6 +452,65 @@ def _toggle_day_response(request: HttpRequest, contract: Contract, target_date: 
     oob_stats = stats_html.replace('id="stats-bar"', 'id="stats-bar" hx-swap-oob="true"', 1)
 
     return HttpResponse(cell_html + oob_stats)
+
+
+def _bulk_days_response(request: HttpRequest, contract: Contract, affected_dates: list[datetime.date]) -> HttpResponse:
+    """Return minimal HTMX response for bulk book/clear operations.
+
+    Renders only the affected day cells as OOB swaps + OOB stats bar,
+    instead of the full calendar grid.
+    """
+    if not request.headers.get("HX-Request"):
+        return redirect("calendar", pk=contract.pk)
+
+    home_holidays = Holiday.objects.filter(country_code=contract.home_country, date__in=affected_dates)
+    client_holidays = Holiday.objects.filter(country_code=contract.client_country, date__in=affected_dates)
+    home_by_date = {h.date: h.name for h in home_holidays}
+    client_by_date = {h.date: h.name for h in client_holidays}
+
+    time_off_by_date = {t.date: t for t in TimeOff.objects.filter(contract=contract, date__in=affected_dates)}
+
+    today = datetime.datetime.now(tz=datetime.UTC).date()
+
+    cells_html = []
+    for d in affected_dates:
+        day_str = d.isoformat()
+        time_off = time_off_by_date.get(d)
+        home_name = home_by_date.get(d, "")
+        client_name = client_by_date.get(d, "")
+
+        cell_context = {
+            "day_str": day_str,
+            "day_num": d.day,
+            "is_today": d == today,
+            "is_past": d < today,
+            "is_booked": bool(time_off),
+            "is_half": time_off and time_off.hours < contract.working_hours_per_day if time_off else False,
+            "is_overlap": bool(home_name and client_name),
+            "home_name": home_name,
+            "client_name": client_name,
+            "home_title": f"{contract.home_country}: {home_name}",
+            "client_title": f"{contract.client_country}: {client_name}",
+            "toggle_url": reverse("toggle_day", kwargs={"pk": contract.pk, "date": day_str}),
+        }
+        cell_html = render_to_string("wad/_day_cell.html", cell_context)
+        cell_html = cell_html.replace(
+            f'id="day-{day_str}"',
+            f'id="day-{day_str}" hx-swap-oob="true"',
+            1,
+        )
+        cells_html.append(cell_html)
+
+    time_off_entries = list(contract.time_off.all())  # ty: ignore[unresolved-attribute]
+    stats = compute_stats(contract, time_off_entries, [], [])
+    stats_html = render_to_string(
+        "wad/calendar.html#stats-bar",
+        {"stats": stats, "contract": contract},
+        request=request,
+    )
+    oob_stats = stats_html.replace('id="stats-bar"', 'id="stats-bar" hx-swap-oob="true"', 1)
+
+    return HttpResponse("".join(cells_html) + oob_stats)
 
 
 def _htmx_or_redirect(

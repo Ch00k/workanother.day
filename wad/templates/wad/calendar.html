@@ -22,11 +22,11 @@
         </div>
         <div class="flex gap-2">
             <a href="{% url 'export_calendar' pk=contract.pk %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] transition">
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Export .ics
             </a>
             <button onclick="document.getElementById('import-file-{{ contract.pk }}').click()"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] transition">
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Import .ics
             </button>
             <form id="import-form-{{ contract.pk }}" method="post" action="{% url 'import_calendar' pk=contract.pk %}" enctype="multipart/form-data" class="hidden">
@@ -34,7 +34,7 @@
                 <input type="file" id="import-file-{{ contract.pk }}" name="file" accept=".ics" onchange="this.form.submit()">
             </form>
             <a href="{% url 'contract_edit' pk=contract.pk %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] transition">
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Edit
             </a>
         </div>
@@ -117,23 +117,23 @@
             <option value="union">All holidays (both)</option>
         </select>
         <button hx-post="{% url 'bulk_book' pk=contract.pk %}"
-                hx-target="#calendar-grid" hx-swap="outerHTML"
+                hx-swap="none"
                 hx-include="#bulk-book-mode"
                 class="rounded-[10px] bg-[#333] text-white px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
             Book
         </button>
         <button hx-post="{% url 'clear_time_off' pk=contract.pk %}"
-                hx-target="#calendar-grid" hx-swap="outerHTML"
+                hx-swap="none"
                 hx-include="#bulk-book-mode"
                 class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50">
             Clear
         </button>
         <button onclick="htmx.ajax('GET', '{% url 'monthly_summary' pk=contract.pk %}', '#monthly-summary-content'); document.getElementById('monthly-dialog').showModal()"
-                class="sm:ml-auto rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb]">
+                class="sm:ml-auto rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
             Monthly summary
         </button>
         <button onclick="htmx.ajax('GET', '{% url 'holiday_comparison' pk=contract.pk %}', '#holiday-comparison-content'); document.getElementById('holiday-dialog').showModal()"
-                class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb]">
+                class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
             Holiday comparison
         </button>
     </div>
@@ -215,17 +215,44 @@
                                     {{ day.day }}
                                 </div>
                             {% elif day < today and half_day_dates|lookup:day_str %}
-                                <div class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-half-day text-[#222] opacity-50 select-none"
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-half-day text-[#222] opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
                                      {% if home_holidays|lookup:day_str and client_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }} | {{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% elif home_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }}"{% elif client_holidays|lookup:day_str %}title="{{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% endif %}>
                                     {{ day.day }}
                                 </div>
                             {% elif day < today and time_off_by_date|lookup:day_str %}
-                                <div class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold bg-booked text-booked-light opacity-50 select-none"
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold bg-booked text-booked-light opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
                                      {% if home_holidays|lookup:day_str and client_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }} | {{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% elif home_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }}"{% elif client_holidays|lookup:day_str %}title="{{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% endif %}>
                                     {{ day.day }}
                                 </div>
+                            {% elif day < today and home_holidays|lookup:day_str and client_holidays|lookup:day_str %}
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold text-white cursor-pointer select-none bg-overlap opacity-50 hover:scale-110 hover:shadow-md transition"
+                                     title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }} | {{ contract.client_country }}: {{ client_holidays|lookup:day_str }}">
+                                    {{ day.day }}
+                                </div>
+                            {% elif day < today and home_holidays|lookup:day_str %}
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-home-holiday text-white opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
+                                     title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }}">
+                                    {{ day.day }}
+                                </div>
+                            {% elif day < today and client_holidays|lookup:day_str %}
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-client-holiday text-white opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
+                                     title="{{ contract.client_country }}: {{ client_holidays|lookup:day_str }}">
+                                    {{ day.day }}
+                                </div>
                             {% elif day < today %}
-                                <div class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-weekend text-[#aaa] opacity-70">
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-weekend text-[#aaa] opacity-70 cursor-pointer select-none hover:scale-110 hover:shadow-md transition">
                                     {{ day.day }}
                                 </div>
                             {% elif half_day_dates|lookup:day_str %}

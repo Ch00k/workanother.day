@@ -15,7 +15,7 @@
     <div class="mt-5 grid gap-3">
         {% for contract in contracts %}
         <a href="{% url 'calendar' pk=contract.pk %}"
-           class="rounded-[14px] bg-white p-5 shadow-sm border border-black/5 flex items-center justify-between flex-wrap gap-4 hover:border-[#bbb] transition">
+           class="rounded-[14px] bg-white p-5 shadow-sm border border-black/5 flex items-center justify-between flex-wrap gap-4 hover:border-[#bbb] hover:bg-gray-100 transition">
             <div>
                 <div class="font-semibold text-[#222]">{{ contract.name }}</div>
                 <div class="text-xs text-[#888] mt-1">
@@ -41,7 +41,7 @@
         <div class="flex items-center gap-4 flex-wrap">
             <a href="{{ calendar_url }}" class="text-sm text-[#666] underline underline-offset-2 break-all hover:text-[#333] transition">{{ calendar_url }}</a>
             <button onclick="navigator.clipboard.writeText('{{ calendar_url }}')"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] transition shrink-0">
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition shrink-0">
                 Copy
             </button>
             <form method="post" action="{% url 'reset_calendar_token' %}" class="inline">
@@ -56,7 +56,7 @@
         <form method="post" action="{% url 'create_calendar_token' %}">
             {% csrf_token %}
             <button type="submit"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] transition">
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Generate subscription URL
             </button>
         </form>
