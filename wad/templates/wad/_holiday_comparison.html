@@ -1,4 +1,34 @@
-<table class="w-full text-[13px]">
+<!-- Mobile: card layout -->
+<div class="sm:hidden flex flex-col gap-2 text-[13px]">
+    {% for h in holiday_comparison %}
+    <div class="border-b border-[#f0f0f0] pb-2">
+        <div class="flex items-center justify-between">
+            <span class="font-medium">{{ h.date|date:"D, M j" }}</span>
+            <span class="flex gap-1.5">
+                {% if h.is_overlap %}
+                <span class="text-[11px] px-2.5 py-0.5 rounded-lg bg-overlap text-white font-medium">Overlap</span>
+                {% endif %}
+                {% if h.is_weekend %}
+                <span class="text-[11px] text-[#aaa]">Weekend</span>
+                {% elif h.is_booked %}
+                <span class="text-[11px] px-2.5 py-0.5 rounded-lg bg-booked text-booked-light font-medium">Booked</span>
+                {% endif %}
+            </span>
+        </div>
+        <div class="mt-1 text-[12px] text-[#555]">
+            {% if h.home_name %}
+            <div>{{ contract.home_country }}: {{ h.home_name }}</div>
+            {% endif %}
+            {% if h.client_name %}
+            <div>{{ contract.client_country }}: {{ h.client_name }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Desktop: table layout -->
+<table class="hidden sm:table w-full text-[13px]">
     <thead>
         <tr>
             <th class="text-left px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Date</th>

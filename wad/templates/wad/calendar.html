@@ -12,7 +12,7 @@
 <div class="mx-auto max-w-[960px] px-4 mt-6">
     <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-4">
-        <div class="flex items-baseline gap-8">
+        <div class="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-8">
             <h1 class="text-[28px] font-bold tracking-tight leading-tight">{{ contract.name }}</h1>
             <div class="text-xs text-[#888]">
                 {{ contract.home_country }} / {{ contract.client_country }}
@@ -114,7 +114,7 @@
             Clear all bookings
         </button>
         <button onclick="htmx.ajax('GET', '{% url 'monthly_summary' pk=contract.pk %}', '#monthly-summary-content'); document.getElementById('monthly-dialog').showModal()"
-                class="ml-auto rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] font-medium text-[#999] transition hover:border-[#bbb] hover:text-[#666]">
+                class="sm:ml-auto rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] font-medium text-[#999] transition hover:border-[#bbb] hover:text-[#666]">
             Monthly Summary
         </button>
         <button onclick="htmx.ajax('GET', '{% url 'holiday_comparison' pk=contract.pk %}', '#holiday-comparison-content'); document.getElementById('holiday-dialog').showModal()"
@@ -267,7 +267,7 @@
     {% endpartialdef %}
 
     <!-- Monthly summary dialog -->
-    <dialog id="monthly-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-full mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
+    <dialog id="monthly-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
             onclick="if(event.target===this)this.close()">
         <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
             <h2 class="text-xl font-bold">Monthly Summary</h2>
@@ -279,7 +279,7 @@
     </dialog>
 
     <!-- Holiday comparison dialog -->
-    <dialog id="holiday-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-full mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
+    <dialog id="holiday-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
             onclick="if(event.target===this)this.close()">
         <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
             <h2 class="text-xl font-bold">Holiday Comparison</h2>

@@ -1,4 +1,19 @@
-<table class="w-full text-[13px]">
+<!-- Mobile: card layout -->
+<div class="sm:hidden flex flex-col gap-2 text-[13px]">
+    {% for month in months %}
+    <div class="border-b border-[#f0f0f0] pb-2">
+        <div class="font-medium">{{ month.month_name }} {{ month.year }}</div>
+        <div class="mt-1 flex gap-4 text-[12px] text-[#555]">
+            <span>Weekdays: {{ month.summary.weekdays }}</span>
+            <span>Off: {{ month.summary.time_off_days|floatformat:"1" }}</span>
+            <span class="font-semibold">Net: {{ month.summary.net_working_days|floatformat:"1" }}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Desktop: table layout -->
+<table class="hidden sm:table w-full text-[13px]">
     <thead>
         <tr>
             <th class="text-left px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Month</th>
