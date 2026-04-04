@@ -401,7 +401,7 @@ class CreateCalendarTokenTests(TestCase):
     def test_guest_cannot_create(self) -> None:
         self.client.logout()
         # Visit to create a guest session
-        self.client.get("/")
+        self.client.get("/contracts/")
         response = self.client.post("/calendar/create-token/")
         self.assertRedirects(response, "/contracts/")
         assert not CalendarToken.objects.exists()
@@ -437,7 +437,7 @@ class ResetCalendarTokenTests(TestCase):
 
     def test_guest_cannot_reset(self) -> None:
         self.client.logout()
-        self.client.get("/")
+        self.client.get("/contracts/")
         response = self.client.post("/calendar/reset-token/")
         self.assertRedirects(response, "/contracts/")
         # Original token should still work
@@ -461,6 +461,5 @@ class ContractListCalendarUrlTests(TestCase):
 
     def test_guest_does_not_see_calendar_section(self) -> None:
         self.client.logout()
-        self.client.get("/")
         response = self.client.get("/contracts/")
         self.assertNotContains(response, "Calendar Subscription")

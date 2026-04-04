@@ -14,30 +14,32 @@
     </script>
 </head>
 <body class="min-h-screen bg-bg text-[#222] flex flex-col">
-    {% if user.is_authenticated %}
     <nav class="bg-[#333] text-white">
-        <div class="mx-auto max-w-[960px] px-4 flex items-center justify-between h-10">
-            <a href="{% url 'contract_list' %}" class="text-xl font-bold hover:opacity-80 transition">Work Another Day</a>
+        <div class="mx-auto max-w-[960px] px-4 flex items-center justify-between py-2">
+            <a href="{% url 'index' %}" class="text-xl font-bold hover:opacity-80 transition">Work Another Day</a>
             <div class="flex items-center gap-3 sm:gap-6">
+            {% if user.is_authenticated %}
                 <button onclick="document.getElementById('about-modal').showModal()" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">About</button>
-            {% if user.guest %}
+                {% if user.guest %}
                 <a href="{% url 'login' %}" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">Log in</a>
                 <form method="post" action="{% url 'save_account' %}">
                     {% csrf_token %}
                     <button type="submit" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">Sign up</button>
                 </form>
-            {% else %}
+                {% else %}
                 <form method="post" action="{% url 'logout' %}">
                     {% csrf_token %}
                     <button type="submit" class="text-base text-white/70 hover:text-white transition">Log out</button>
                 </form>
+                {% endif %}
+            {% else %}
+                <a href="{% url 'login' %}" class="text-base text-white/70 hover:text-white transition">Log in</a>
             {% endif %}
             </div>
         </div>
     </nav>
-    {% endif %}
     <main class="flex-1">{% block body %}{% endblock %}</main>
-    <footer class="text-center text-xs text-[#999] py-4">
+    <footer class="text-center text-xs text-[#999] py-2">
         &copy; {% now "Y" %} workanother.day
     </footer>
     <dialog id="about-modal" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-md w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"

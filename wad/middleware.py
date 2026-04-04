@@ -23,8 +23,10 @@ class GuestUserMiddleware:
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
 
+    GUEST_PATHS = ("/contracts/",)
+
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        if not request.user.is_authenticated:
+        if not request.user.is_authenticated and request.path in self.GUEST_PATHS:
             username = f"guest-{uuid.uuid4().hex[:12]}"
             user = User.objects.create_user(username=username)
             user.set_unusable_password()

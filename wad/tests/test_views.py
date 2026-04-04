@@ -36,7 +36,7 @@ class LoginViewTests(TestCase):
 
     def test_login_transfers_guest_data(self) -> None:
         # Create a guest with a contract
-        self.client.get("/")
+        self.client.get("/contracts/")
         self.client.post(
             "/contracts/new/",
             {
@@ -73,7 +73,7 @@ class LogoutViewTests(TestCase):
     def test_post_logs_out_and_redirects(self) -> None:
         self.client.force_login(self.user)
         response = self.client.post("/logout/")
-        self.assertRedirects(response, "/", target_status_code=302)
+        self.assertRedirects(response, "/", target_status_code=200)
 
     def test_get_redirects_without_logging_out(self) -> None:
         self.client.force_login(self.user)
@@ -84,7 +84,7 @@ class LogoutViewTests(TestCase):
 class SaveAccountTests(TestCase):
     def test_save_creates_token_and_shows_it(self) -> None:
         # Create a guest
-        self.client.get("/")
+        self.client.get("/contracts/")
         assert Guest.objects.exists()
 
         response = self.client.post("/save-account/")
@@ -96,7 +96,7 @@ class SaveAccountTests(TestCase):
         assert AccountToken.objects.count() == 1
 
     def test_save_twice_redirects(self) -> None:
-        self.client.get("/")
+        self.client.get("/contracts/")
         self.client.post("/save-account/")
         response = self.client.post("/save-account/")
         self.assertRedirects(response, "/contracts/")
@@ -104,13 +104,13 @@ class SaveAccountTests(TestCase):
         assert AccountToken.objects.count() == 1
 
     def test_get_not_allowed(self) -> None:
-        self.client.get("/")
+        self.client.get("/contracts/")
         response = self.client.get("/save-account/")
         assert response.status_code == 405
 
     def test_token_can_be_used_to_log_in(self) -> None:
         # Create guest and save account
-        self.client.get("/")
+        self.client.get("/contracts/")
         response = self.client.post("/save-account/")
         # Extract token from response
         content = response.content.decode()
@@ -128,11 +128,11 @@ class SaveAccountTests(TestCase):
 
 
 class IndexTests(TestCase):
-    def test_anonymous_user_becomes_guest_and_redirects(self) -> None:
+    def test_anonymous_user_sees_landing_page(self) -> None:
         response = self.client.get("/")
-        self.assertRedirects(response, "/contracts/")
-        # A guest user should have been created
-        assert Guest.objects.exists()
+        assert response.status_code == 200
+        self.assertContains(response, "Stay under your")
+        assert not Guest.objects.exists()
 
     def test_registered_user_redirects_to_contract_list(self) -> None:
         user = User.objects.create_user(username="auth")
@@ -506,7 +506,7 @@ class ClearTimeOffTests(TestCase):
 
 class GuestUserMiddlewareTests(TestCase):
     def test_anonymous_request_creates_guest_user(self) -> None:
-        self.client.get("/")
+        self.client.get("/contracts/")
         assert Guest.objects.count() == 1
         guest = Guest.objects.first()
         assert guest is not None
@@ -516,12 +516,16 @@ class GuestUserMiddlewareTests(TestCase):
     def test_authenticated_user_does_not_create_guest(self) -> None:
         user = User.objects.create_user(username="real")
         self.client.force_login(user)
-        self.client.get("/")
+        self.client.get("/contracts/")
         assert not Guest.objects.exists()
+
+    def test_anonymous_request_to_landing_does_not_create_guest(self) -> None:
+        self.client.get("/")
+        assert Guest.objects.count() == 0
 
     def test_guest_can_create_contract(self) -> None:
         # First request creates a guest
-        self.client.get("/")
+        self.client.get("/contracts/")
         response = self.client.post(
             "/contracts/new/",
             {
@@ -538,7 +542,7 @@ class GuestUserMiddlewareTests(TestCase):
         assert hasattr(contract.user, "guest")
 
     def test_subsequent_requests_reuse_guest(self) -> None:
-        self.client.get("/")
+        self.client.get("/contracts/")
         self.client.get("/contracts/")
         # Only one guest should exist -- the session keeps them logged in
         assert Guest.objects.count() == 1

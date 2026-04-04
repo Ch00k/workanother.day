@@ -73,8 +73,10 @@ class HolidayComparisonContext(TypedDict):
     holiday_comparison: list[HolidayComparisonEntry]
 
 
-def index(request: HttpRequest) -> HttpResponse:  # noqa: ARG001
-    return redirect("contract_list")
+def index(request: HttpRequest) -> HttpResponse:
+    if request.user.is_authenticated:
+        return redirect("contract_list")
+    return render(request, "wad/landing.html")
 
 
 def login_view(request: HttpRequest) -> HttpResponse:
