@@ -196,9 +196,10 @@ class ContractCreateTests(TestCase):
             "end_date": "2026-12-31",
         }
 
-    def test_get_redirects_to_contract_list(self) -> None:
+    def test_get_renders_create_form(self) -> None:
         response = self.client.get("/contracts/new/")
-        self.assertRedirects(response, "/contracts/")
+        assert response.status_code == 200
+        self.assertContains(response, "New Contract")
 
     def test_post_creates_contract_and_redirects(self) -> None:
         response = self.client.post("/contracts/new/", self.valid_data)

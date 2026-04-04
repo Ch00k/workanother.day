@@ -5,10 +5,10 @@
 <div class="mx-auto max-w-[960px] px-4 mt-6">
     <div class="flex items-baseline justify-between">
         <h1 class="text-[28px] font-bold tracking-tight">Your Contracts</h1>
-        <button onclick="document.getElementById('new-contract-dialog').showModal()"
-                class="rounded-[10px] bg-[#333] text-white px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+        <a href="{% url 'contract_create' %}"
+           class="rounded-[10px] bg-[#333] text-white px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
             New Contract
-        </button>
+        </a>
     </div>
 
     {% if contracts %}
@@ -64,86 +64,4 @@
     </div>
     {% endif %}
 </div>
-
-<!-- New contract dialog -->
-<dialog id="new-contract-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden"
-        onclick="if(event.target===this)this.close()">
-    <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
-        <h2 class="text-xl font-bold">New Contract</h2>
-        <button onclick="this.closest('dialog').close()"
-                class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
-    </div>
-    <div class="px-5 py-4">
-        {% if errors %}
-        <div class="mb-4 rounded-[10px] bg-[#f5f5f5] border border-[#ddd] px-4 py-2 text-sm text-[#666]">
-            {% for error in errors %}
-            <div>{{ error }}</div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        <form method="post" action="{% url 'contract_create' %}" class="grid gap-4 sm:grid-cols-2">
-            {% csrf_token %}
-            <div class="sm:col-span-2">
-                <label for="name" class="block text-sm font-medium text-[#666] mb-1">Name</label>
-                <input type="text" id="name" name="name" value="{{ form_data.name|default:'' }}" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
-            </div>
-            <div>
-                <label for="home_country" class="block text-sm font-medium text-[#666] mb-1">Home Country</label>
-                <select id="home_country" name="home_country" required
-                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
-                    <option value="">Select country...</option>
-                    {% for code, name in countries %}
-                    <option value="{{ code }}" {% if form_data.home_country|upper == code %}selected{% endif %}>{{ name }} ({{ code }})</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label for="client_country" class="block text-sm font-medium text-[#666] mb-1">Client Country</label>
-                <select id="client_country" name="client_country" required
-                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
-                    <option value="">Select country...</option>
-                    {% for code, name in countries %}
-                    <option value="{{ code }}" {% if form_data.client_country|upper == code %}selected{% endif %}>{{ name }} ({{ code }})</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label for="max_working_days" class="block text-sm font-medium text-[#666] mb-1">Max Working Days</label>
-                <input type="number" id="max_working_days" name="max_working_days" min="1"
-                       value="{{ form_data.max_working_days|default:'' }}" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
-            </div>
-            <div>
-                <label for="working_hours_per_day" class="block text-sm font-medium text-[#666] mb-1">Working Hours Per Day</label>
-                <input type="number" id="working_hours_per_day" name="working_hours_per_day" min="1" max="24"
-                       value="{{ form_data.working_hours_per_day|default:'8' }}"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
-            </div>
-            <div>
-                <label for="start_date" class="block text-sm font-medium text-[#666] mb-1">Start Date</label>
-                <input type="date" id="start_date" name="start_date"
-                       value="{{ form_data.start_date|default:'' }}" required
-                       class="w-full max-w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
-            </div>
-            <div>
-                <label for="end_date" class="block text-sm font-medium text-[#666] mb-1">End Date</label>
-                <input type="date" id="end_date" name="end_date"
-                       value="{{ form_data.end_date|default:'' }}" required
-                       class="w-full max-w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
-            </div>
-            <div class="sm:col-span-2">
-                <button type="submit"
-                        class="rounded-[10px] bg-[#333] text-white px-6 py-2.5 text-sm font-semibold hover:opacity-90 transition">
-                    Create Contract
-                </button>
-            </div>
-        </form>
-    </div>
-</dialog>
-
-{% if errors %}
-<script>document.getElementById('new-contract-dialog').showModal();</script>
-{% endif %}
 {% endblock %}

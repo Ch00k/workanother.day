@@ -159,7 +159,7 @@ def reset_calendar_token(request: HttpRequest) -> HttpResponse:
 
 def contract_list(request: HttpRequest) -> HttpResponse:
     contracts = Contract.objects.filter(user=request.user).order_by("-start_date")
-    context: dict[str, object] = {"contracts": contracts, "countries": COUNTRIES}
+    context: dict[str, object] = {"contracts": contracts}
 
     if not hasattr(request.user, "guest"):
         cal_token = CalendarToken.objects.filter(user=request.user).first()
@@ -173,16 +173,14 @@ def contract_list(request: HttpRequest) -> HttpResponse:
 
 def contract_create(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
-        return redirect("contract_list")
+        return render(request, "wad/contract_create.html", {"countries": COUNTRIES})
 
     errors = _validate_contract_form(request.POST)
     if errors:
-        contracts = Contract.objects.filter(user=request.user).order_by("-start_date")
         return render(
             request,
-            "wad/contracts.html",
+            "wad/contract_create.html",
             {
-                "contracts": contracts,
                 "countries": COUNTRIES,
                 "errors": errors,
                 "form_data": request.POST,
