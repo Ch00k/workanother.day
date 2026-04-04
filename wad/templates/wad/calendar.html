@@ -1,0 +1,294 @@
+{% extends "wad/base.html" %}
+{% load wad_filters %}
+{% block title %}{{ contract.name }} - Work Another Day{% endblock %}
+
+{% block body %}
+{% if user.guest %}
+<div class="bg-amber-50 border-b border-amber-300 px-4 py-2 text-sm text-amber-800 text-center">
+    Your data is not saved yet. <form method="post" action="{% url 'save_account' %}" class="inline">{% csrf_token %}<button type="submit" class="font-semibold underline hover:no-underline">Sign up</button></form> to keep it.
+</div>
+{% endif %}
+
+<div class="mx-auto max-w-[960px] px-4 mt-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between flex-wrap gap-4">
+        <div class="flex items-baseline gap-8">
+            <h1 class="text-[28px] font-bold tracking-tight leading-tight">{{ contract.name }}</h1>
+            <div class="text-xs text-[#888]">
+                {{ contract.home_country }} / {{ contract.client_country }}
+                &middot; {{ contract.max_working_days }} days
+                &middot; {{ contract.start_date|date:"M j, Y" }} - {{ contract.end_date|date:"M j, Y" }}
+            </div>
+        </div>
+        <a href="{% url 'contract_edit' pk=contract.pk %}"
+           class="rounded-[10px] border border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] transition">
+            Edit
+        </a>
+    </div>
+
+    {% if contracts|length > 1 %}
+    <div class="mt-4 flex gap-2 flex-wrap">
+        {% for c in contracts %}
+        <a href="{% url 'calendar' pk=c.pk %}"
+           class="rounded-[10px] border border-[#ddd] px-3 py-1 text-sm transition
+                  {% if c.pk == contract.pk %}bg-[#333] text-white border-[#333]{% else %}text-[#666] hover:border-[#bbb]{% endif %}">
+            {{ c.name }}
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Stats cards -->
+    {% partialdef stats-bar inline %}
+    <div id="stats-bar" class="mt-5">
+        <div class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+            <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Total weekdays</div>
+                <div class="text-[32px] font-bold leading-none text-[#666]">{{ stats.total_weekdays }}</div>
+            </div>
+            <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Days off booked</div>
+                <div class="text-[32px] font-bold leading-none text-booked">{{ stats.budget_used|floatformat:"-1" }}</div>
+                <div class="text-xs text-[#999] mt-1">of {{ stats.budget }} budget</div>
+            </div>
+            <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Working days</div>
+                <div class="text-[32px] font-bold leading-none
+                            {% if stats.days_over_or_under > 0 %}text-[#222]{% else %}text-[#666]{% endif %}">
+                    {{ stats.effective_working_days|floatformat:"-1" }}
+                </div>
+                <div class="text-xs text-[#999] mt-1">
+                    {% if stats.days_over_or_under > 0 %}
+                        {{ stats.days_over_or_under|floatformat:"-1" }} over limit
+                    {% else %}
+                        {{ stats.days_over_or_under|floatformat:"-1"|cut:"-" }} under limit
+                    {% endif %}
+                </div>
+            </div>
+            <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Budget remaining</div>
+                <div class="text-[32px] font-bold leading-none
+                            {% if stats.budget_remaining <= 0 %}text-[#222]{% else %}text-[#666]{% endif %}">
+                    {% if stats.budget_remaining > 0 %}{{ stats.budget_remaining|floatformat:"-1" }}{% else %}0{% endif %}
+                </div>
+                <div class="text-xs text-[#999] mt-1">
+                    {% if stats.budget_remaining < 0 %}Budget exceeded{% elif stats.budget_remaining == 0 %}Fully allocated{% else %}days to book off{% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress bar -->
+        <div class="mt-5 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+            <div class="flex justify-between mb-2 text-xs text-[#888]">
+                <span>Days-off budget usage</span>
+                <span>{{ stats.budget_used|floatformat:"-1" }} / {% if stats.budget > 0 %}{{ stats.budget }}{% else %}0{% endif %}</span>
+            </div>
+            <div class="h-2 bg-[#eee] rounded overflow-hidden">
+                {% if stats.budget > 0 %}
+                <div class="h-full rounded transition-all duration-300 bg-[#555]"
+                     style="width: {% widthratio stats.budget_used stats.budget 100 %}%"></div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endpartialdef %}
+
+    <!-- Controls -->
+    <div class="mt-5 flex flex-wrap gap-2.5 items-stretch">
+        <select id="bulk-book-mode" name="mode"
+                class="rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] text-[#666] focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            <option value="home">{{ contract.home_country }} holidays</option>
+            <option value="client">{{ contract.client_country }} holidays</option>
+            <option value="overlap" selected>Overlapping holidays</option>
+            <option value="union">All holidays (both)</option>
+        </select>
+        <button hx-post="{% url 'bulk_book' pk=contract.pk %}"
+                hx-target="#calendar-grid" hx-swap="outerHTML"
+                hx-include="#bulk-book-mode"
+                class="rounded-[10px] border border-booked px-4 py-2 text-[13px] font-semibold text-booked transition hover:bg-booked hover:text-white">
+            Book
+        </button>
+        <button hx-post="{% url 'clear_time_off' pk=contract.pk %}"
+                hx-target="#calendar-grid" hx-swap="outerHTML"
+                class="rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] font-medium text-[#999] transition hover:border-[#bbb] hover:text-[#666]">
+            Clear all bookings
+        </button>
+        <button onclick="htmx.ajax('GET', '{% url 'monthly_summary' pk=contract.pk %}', '#monthly-summary-content'); document.getElementById('monthly-dialog').showModal()"
+                class="ml-auto rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] font-medium text-[#999] transition hover:border-[#bbb] hover:text-[#666]">
+            Monthly Summary
+        </button>
+        <button onclick="htmx.ajax('GET', '{% url 'holiday_comparison' pk=contract.pk %}', '#holiday-comparison-content'); document.getElementById('holiday-dialog').showModal()"
+                class="rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] font-medium text-[#999] transition hover:border-[#bbb] hover:text-[#666]">
+            Holiday Comparison
+        </button>
+    </div>
+
+    <!-- Legend -->
+    <div class="mt-3.5 flex flex-wrap gap-4 text-xs text-[#888]">
+        <div class="flex items-center gap-1.5">
+            <div class="w-3.5 h-3.5 rounded bg-home-holiday"></div>
+            <span>{{ contract.home_country }} holiday</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <div class="w-3.5 h-3.5 rounded bg-client-holiday"></div>
+            <span>{{ contract.client_country }} holiday</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <div class="w-3.5 h-3.5 rounded bg-overlap"></div>
+            <span>Overlapping holidays</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <div class="w-3.5 h-3.5 rounded bg-half-day"></div>
+            <span>Half day</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <div class="w-3.5 h-3.5 rounded bg-booked"></div>
+            <span>Full day</span>
+        </div>
+    </div>
+
+    {% if holidays_stale %}
+    <div class="mt-4 rounded-[10px] bg-[#f5f5f5] border border-[#ddd] px-4 py-2 text-sm text-[#666]">
+        Holiday data may be outdated. Could not refresh from the holiday API.
+    </div>
+    {% endif %}
+
+    <!-- Calendar grid -->
+    {% partialdef calendar-grid inline %}
+    <div id="calendar-grid" class="mt-5 grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-4">
+        {% for month in months %}
+        <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+            <div class="flex justify-between items-baseline mb-3">
+                <div class="font-semibold text-[15px]">{{ month.month_name }} {{ month.year }}</div>
+                {% if month.time_off_count > 0 %}
+                <div class="text-[11px] text-booked font-semibold bg-booked-light px-2 py-0.5 rounded-[10px]">
+                    {{ month.time_off_count }} off
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Day headers -->
+            <div class="grid grid-cols-7 gap-0.5 justify-items-center mb-1">
+                {% for label in "Mo,Tu,We,Th,Fr,Sa,Su"|split:"," %}
+                <div class="w-9 h-5 flex items-center justify-center text-[10px] font-semibold text-[#bbb] uppercase tracking-wide">
+                    {{ label }}
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- Day cells -->
+            <div class="grid grid-cols-7 gap-0.5 justify-items-center">
+                {% for week in month.weeks %}
+                    {% for day in week %}
+                        {% if day is None %}
+                            <div class="w-9 h-9"></div>
+                        {% else %}
+                            {% with day_str=day|date:"Y-m-d" %}
+                            {% if day|date:"D" == "Sat" or day|date:"D" == "Sun" %}
+                                <div class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-weekend text-[#aaa] opacity-70"
+                                     title="Weekend">
+                                    {{ day.day }}
+                                </div>
+                            {% elif day < contract.start_date or day > contract.end_date %}
+                                <div class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-weekend text-[#aaa] opacity-70">
+                                    {{ day.day }}
+                                </div>
+                            {% elif day < today and half_day_dates|lookup:day_str %}
+                                <div class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-half-day text-[#222] opacity-50 select-none"
+                                     {% if home_holidays|lookup:day_str and client_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }} | {{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% elif home_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }}"{% elif client_holidays|lookup:day_str %}title="{{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% endif %}>
+                                    {{ day.day }}
+                                </div>
+                            {% elif day < today and time_off_by_date|lookup:day_str %}
+                                <div class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold bg-booked text-booked-light opacity-50 select-none"
+                                     {% if home_holidays|lookup:day_str and client_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }} | {{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% elif home_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }}"{% elif client_holidays|lookup:day_str %}title="{{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% endif %}>
+                                    {{ day.day }}
+                                </div>
+                            {% elif day < today %}
+                                <div class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-weekend text-[#aaa] opacity-70">
+                                    {{ day.day }}
+                                </div>
+                            {% elif half_day_dates|lookup:day_str %}
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-half-day text-[#222] cursor-pointer select-none hover:scale-110 hover:shadow-md transition
+                                            {% if day == today %}ring-2 ring-[#222]{% endif %}"
+                                     {% if home_holidays|lookup:day_str and client_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }} | {{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% elif home_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }}"{% elif client_holidays|lookup:day_str %}title="{{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% endif %}>
+                                    {{ day.day }}
+                                </div>
+                            {% elif time_off_by_date|lookup:day_str %}
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold bg-booked text-booked-light cursor-pointer select-none hover:scale-110 hover:shadow-md transition
+                                            {% if day == today %}ring-2 ring-[#222]{% endif %}"
+                                     {% if home_holidays|lookup:day_str and client_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }} | {{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% elif home_holidays|lookup:day_str %}title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }}"{% elif client_holidays|lookup:day_str %}title="{{ contract.client_country }}: {{ client_holidays|lookup:day_str }}"{% endif %}>
+                                    {{ day.day }}
+                                </div>
+                            {% elif home_holidays|lookup:day_str and client_holidays|lookup:day_str %}
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold text-white cursor-pointer select-none bg-overlap hover:scale-110 hover:shadow-md transition
+                                            {% if day == today %}ring-2 ring-[#222]{% endif %}"
+                                     title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }} | {{ contract.client_country }}: {{ client_holidays|lookup:day_str }}">
+                                    {{ day.day }}
+                                </div>
+                            {% elif home_holidays|lookup:day_str %}
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-home-holiday text-white cursor-pointer select-none hover:scale-110 hover:shadow-md transition
+                                            {% if day == today %}ring-2 ring-[#222]{% endif %}"
+                                     title="{{ contract.home_country }}: {{ home_holidays|lookup:day_str }}">
+                                    {{ day.day }}
+                                </div>
+                            {% elif client_holidays|lookup:day_str %}
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-client-holiday text-white cursor-pointer select-none hover:scale-110 hover:shadow-md transition
+                                            {% if day == today %}ring-2 ring-[#222]{% endif %}"
+                                     title="{{ contract.client_country }}: {{ client_holidays|lookup:day_str }}">
+                                    {{ day.day }}
+                                </div>
+                            {% else %}
+                                <div id="day-{{ day_str }}" hx-post="{% url 'toggle_day' pk=contract.pk date=day_str %}"
+                                     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+                                     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] cursor-pointer select-none hover:scale-110 hover:shadow-md transition
+                                            {% if day == today %}ring-2 ring-[#222]{% endif %}"
+                                     >
+                                    {{ day.day }}
+                                </div>
+                            {% endif %}
+                            {% endwith %}
+                        {% endif %}
+                    {% endfor %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endpartialdef %}
+
+    <!-- Monthly summary dialog -->
+    <dialog id="monthly-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-full mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
+            onclick="if(event.target===this)this.close()">
+        <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
+            <h2 class="text-xl font-bold">Monthly Summary</h2>
+            <button onclick="this.closest('dialog').close()"
+                    class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
+        </div>
+        <div id="monthly-summary-content" class="px-5 py-4 overflow-y-auto max-h-[70vh]">
+        </div>
+    </dialog>
+
+    <!-- Holiday comparison dialog -->
+    <dialog id="holiday-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-full mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
+            onclick="if(event.target===this)this.close()">
+        <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
+            <h2 class="text-xl font-bold">Holiday Comparison</h2>
+            <button onclick="this.closest('dialog').close()"
+                    class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
+        </div>
+        <div id="holiday-comparison-content" class="px-5 py-4 overflow-y-auto max-h-[70vh]">
+        </div>
+    </dialog>
+
+</div>
+{% endblock %}

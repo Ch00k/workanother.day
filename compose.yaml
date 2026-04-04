@@ -1,0 +1,57 @@
+services:
+  migrate:
+    build:
+      context: .
+    command: /app/manage.py migrate
+    pull_policy: build
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      DJANGO_DB_PATH: /app/data/db.sqlite3
+      DJANGO_STATIC_ROOT: /app/data/staticfiles
+    volumes:
+      - ./data:/app/data
+
+  collectstatic:
+    build:
+      context: .
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      DJANGO_DB_PATH: /app/data/db.sqlite3
+      DJANGO_STATIC_ROOT: /app/data/staticfiles
+    pull_policy: build
+    command: /app/manage.py collectstatic --noinput
+    volumes:
+      - ./data:/app/data
+
+  app:
+    build:
+      context: .
+    depends_on:
+      collectstatic:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    pull_policy: build
+    restart: unless-stopped
+    command: gunicorn config.wsgi:application --bind [::]:8080
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS}
+      DJANGO_DB_PATH: /app/data/db.sqlite3
+      DJANGO_STATIC_ROOT: /app/data/staticfiles
+    volumes:
+      - ./data:/app/data
+    networks:
+      - caddy_network
+    labels:
+      caddy: workanother.day
+      caddy.encode: zstd gzip
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+      caddy_1: www.workanother.day
+      caddy_1.redir: "https://workanother.day{uri} permanent"
+
+networks:
+  caddy_network:
+    external: true

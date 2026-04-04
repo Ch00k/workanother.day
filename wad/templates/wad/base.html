@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Work Another Day{% endblock %}</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/output.css' %}">
+    <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
+    <script>
+    document.addEventListener('htmx:configRequest', function(event) {
+        event.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
+    });
+    </script>
+</head>
+<body class="min-h-screen bg-bg text-[#222] flex flex-col">
+    {% if user.is_authenticated %}
+    <nav class="bg-[#333] text-white">
+        <div class="mx-auto max-w-[960px] px-4 flex items-center justify-between h-10">
+            <a href="{% url 'contract_list' %}" class="text-xl font-bold hover:opacity-80 transition">Work Another Day</a>
+            <div class="flex items-center gap-6">
+                <button onclick="document.getElementById('about-modal').showModal()" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">About</button>
+            {% if user.guest %}
+                <a href="{% url 'login' %}" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">Log in</a>
+                <form method="post" action="{% url 'save_account' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">Sign up</button>
+                </form>
+            {% else %}
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="text-base text-white/70 hover:text-white transition">Log out</button>
+                </form>
+            {% endif %}
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+    <main class="flex-1">{% block body %}{% endblock %}</main>
+    <footer class="text-center text-xs text-[#999] py-4">
+        &copy; {% now "Y" %} workanother.day
+    </footer>
+    <dialog id="about-modal" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-md w-full mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
+            onclick="if(event.target===this)this.close()">
+        <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
+            <h2 class="text-xl font-bold">About</h2>
+            <button onclick="this.closest('dialog').close()"
+                    class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
+        </div>
+        <div class="px-5 py-4 text-sm text-[#444] leading-relaxed">
+            <p class="mb-2">A tool for contractors and freelancers who need to stay under a contractual working-day limit. If your contract caps your working days per year, this helps you figure out how many days off you still need to book.</p>
+            <p class="mb-2">Set your home and client countries, and public holidays for both are loaded automatically. Overlapping holidays - days that are public holidays in both countries - are highlighted so you can prioritise booking those first.</p>
+            <p>The dashboard tracks your days-off budget: the number of weekdays you need to take off to stay within your limit. Mark days off on the calendar and watch your budget update in real time.</p>
+        </div>
+    </dialog>
+</body>
+</html>

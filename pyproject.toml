@@ -1,0 +1,40 @@
+[project]
+name = "wad"
+version = "0.1.0"
+description = "workanother.day"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "django>=6.0.3",
+    "gunicorn>=25.3.0",
+    "httpx>=0.28.1",
+    "whitenoise>=6.12.0",
+]
+
+[dependency-groups]
+dev = [
+    "django-stubs>=6.0.2",
+    "pytest>=9.0.2",
+    "ruff>=0.15.9",
+    "ty>=0.0.28",
+]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+ignore = [
+    "D", # Docstrings
+    "COM812",
+    "TD",
+    "TRY003",
+    "EM101",
+    "C901",
+    "PLC0415",
+    "PLR2004",
+    "PLR0912",
+]
+select = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S101"]

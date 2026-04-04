@@ -1,0 +1,26 @@
+{% extends "wad/base.html" %}
+{% block title %}Login - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="flex items-center justify-center bg-bg px-4" style="min-height: calc(100vh - 5rem)">
+    <div class="w-full max-w-sm">
+        <h1 class="text-3xl font-bold text-[#222] mb-2">Log in</h1>
+        <p class="text-sm text-[#666] mb-4">Enter your access token to log in.</p>
+
+        {% if error %}
+            <p class="text-sm text-red-600 mb-3">{{ error }}</p>
+        {% endif %}
+
+        <form method="post" action="{% url 'login' %}" class="mt-4">
+            {% csrf_token %}
+            <label for="token" class="block text-sm font-medium text-[#666] mb-1">Access token</label>
+            <input type="text" id="token" name="token" required autofocus autocomplete="off"
+                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            <button type="submit"
+                    class="mt-3 w-full rounded-[10px] bg-[#333] text-white px-4 py-2.5 text-sm font-semibold hover:opacity-90 transition">
+                Log in
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

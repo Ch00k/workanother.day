@@ -1,0 +1,20 @@
+<table class="w-full text-[13px]">
+    <thead>
+        <tr>
+            <th class="text-left px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Month</th>
+            <th class="text-right px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Weekdays</th>
+            <th class="text-right px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Time Off</th>
+            <th class="text-right px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Net Working</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for month in months %}
+        <tr class="border-b border-[#f0f0f0]">
+            <td class="px-3 py-2 font-medium">{{ month.month_name }} {{ month.year }}</td>
+            <td class="px-3 py-2 text-right">{{ month.summary.weekdays }}</td>
+            <td class="px-3 py-2 text-right">{{ month.summary.time_off_days|floatformat:"1" }}</td>
+            <td class="px-3 py-2 text-right font-semibold">{{ month.summary.net_working_days|floatformat:"1" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

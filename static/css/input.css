@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@source "../../wad/templates/";
+
+a, button, summary { cursor: pointer; }
+@theme {
+  --color-weekend: #f0f0f0;
+  --color-home-holiday: #2b6cb0;
+  --color-client-holiday: #6b46c1;
+  --color-booked: #c53030;
+  --color-booked-light: #fee2e2;
+  --color-bg: #fafafa;
+}
+
+@utility bg-overlap {
+  background: linear-gradient(135deg, var(--color-home-holiday) 50%, var(--color-client-holiday) 50%);
+}
+
+@utility bg-half-day {
+  background: linear-gradient(135deg, var(--color-booked) 50%, white 50%);
+}
+
+.htmx-request {
+  opacity: 0.4;
+  transition: opacity 200ms ease-in;
+}
+button.htmx-request, [hx-post].htmx-request {
+  pointer-events: none;
+}

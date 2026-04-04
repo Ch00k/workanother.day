@@ -1,0 +1,88 @@
+{% extends "wad/base.html" %}
+{% block title %}Edit {{ contract.name }} - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="mx-auto max-w-[960px] px-4 mt-6">
+    <a href="{% url 'calendar' pk=contract.pk %}" class="text-sm text-[#999] hover:text-[#666] transition">&larr; Back to calendar</a>
+    <h1 class="text-[28px] font-bold tracking-tight mt-2">Edit Contract</h1>
+
+    <div class="mt-5 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
+        {% if errors %}
+        <div class="mb-4 rounded-[10px] bg-[#f5f5f5] border border-[#ddd] px-4 py-2 text-sm text-[#666]">
+            {% for error in errors %}
+            <div>{{ error }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <form method="post" action="{% url 'contract_edit' pk=contract.pk %}" class="grid gap-4 sm:grid-cols-2">
+            {% csrf_token %}
+            <div class="sm:col-span-2">
+                <label for="name" class="block text-sm font-medium text-[#666] mb-1">Name</label>
+                <input type="text" id="name" name="name"
+                       value="{{ form_data.name|default:contract.name }}" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="home_country" class="block text-sm font-medium text-[#666] mb-1">Home Country</label>
+                <select id="home_country" name="home_country" required
+                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                    <option value="">Select country...</option>
+                    {% for code, name in countries %}
+                    <option value="{{ code }}" {% if form_data.home_country|default:contract.home_country|upper == code %}selected{% endif %}>{{ name }} ({{ code }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="client_country" class="block text-sm font-medium text-[#666] mb-1">Client Country</label>
+                <select id="client_country" name="client_country" required
+                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                    <option value="">Select country...</option>
+                    {% for code, name in countries %}
+                    <option value="{{ code }}" {% if form_data.client_country|default:contract.client_country|upper == code %}selected{% endif %}>{{ name }} ({{ code }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="max_working_days" class="block text-sm font-medium text-[#666] mb-1">Max Working Days</label>
+                <input type="number" id="max_working_days" name="max_working_days" min="1"
+                       value="{{ form_data.max_working_days|default:contract.max_working_days }}" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="working_hours_per_day" class="block text-sm font-medium text-[#666] mb-1">Working Hours Per Day</label>
+                <input type="number" id="working_hours_per_day" name="working_hours_per_day" min="1" max="24"
+                       value="{{ form_data.working_hours_per_day|default:contract.working_hours_per_day }}"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="start_date" class="block text-sm font-medium text-[#666] mb-1">Start Date</label>
+                <input type="date" id="start_date" name="start_date"
+                       value="{{ form_data.start_date|default:contract.start_date|date:'Y-m-d' }}" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="end_date" class="block text-sm font-medium text-[#666] mb-1">End Date</label>
+                <input type="date" id="end_date" name="end_date"
+                       value="{{ form_data.end_date|default:contract.end_date|date:'Y-m-d' }}" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div class="sm:col-span-2 flex gap-3 items-center">
+                <button type="submit"
+                        class="rounded-[10px] bg-[#333] text-white px-6 py-2.5 text-sm font-semibold hover:opacity-90 transition">
+                    Save Changes
+                </button>
+                <a href="{% url 'calendar' pk=contract.pk %}" class="text-sm text-[#999] hover:text-[#666] transition">Cancel</a>
+                <button type="submit" form="delete-form"
+                        class="ml-auto rounded-[10px] border border-[#ddd] px-6 py-2.5 text-sm font-medium text-[#999] hover:border-[#bbb] hover:text-[#666] transition">
+                    Delete Contract
+                </button>
+            </div>
+        </form>
+        <form id="delete-form" method="post" action="{% url 'contract_delete' pk=contract.pk %}"
+              onsubmit="return confirm('Delete this contract and all its bookings?')">
+            {% csrf_token %}
+        </form>
+    </div>
+</div>
+{% endblock %}

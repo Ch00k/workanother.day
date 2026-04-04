@@ -1,0 +1,36 @@
+<table class="w-full text-[13px]">
+    <thead>
+        <tr>
+            <th class="text-left px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Date</th>
+            <th class="text-left px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">{{ contract.home_country }}</th>
+            <th class="text-left px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">{{ contract.client_country }}</th>
+            <th class="text-center px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Overlap</th>
+            <th class="text-center px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for h in holiday_comparison %}
+        <tr class="border-b border-[#f0f0f0]">
+            <td class="px-3 py-2 font-medium">{{ h.date|date:"D, M j" }}</td>
+            <td class="px-3 py-2 {% if h.home_name %}text-[#555]{% else %}text-[#ddd]{% endif %}">
+                {% if h.home_name %}{{ h.home_name }}{% else %}-{% endif %}
+            </td>
+            <td class="px-3 py-2 {% if h.client_name %}text-[#555]{% else %}text-[#ddd]{% endif %}">
+                {% if h.client_name %}{{ h.client_name }}{% else %}-{% endif %}
+            </td>
+            <td class="px-3 py-2 text-center">
+                {% if h.is_overlap %}
+                <span class="text-[11px] px-2.5 py-0.5 rounded-lg bg-overlap text-white font-medium">Yes</span>
+                {% endif %}
+            </td>
+            <td class="px-3 py-2 text-center text-[11px]">
+                {% if h.is_weekend %}
+                <span class="text-[#aaa]">Weekend</span>
+                {% elif h.is_booked %}
+                <span class="px-2.5 py-0.5 rounded-lg bg-booked text-booked-light font-medium">Booked</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
