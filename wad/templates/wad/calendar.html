@@ -5,7 +5,7 @@
 {% block body %}
 {% if user.guest %}
 <div class="bg-amber-50 border-b border-amber-300 px-4 py-2 text-sm text-amber-800 text-center">
-    Your data is not saved yet. <form method="post" action="{% url 'save_account' %}" class="inline">{% csrf_token %}<button type="submit" class="font-semibold underline hover:no-underline">Sign up</button></form> to keep it.
+    Want to come back later? <form method="post" action="{% url 'save_account' %}" class="inline">{% csrf_token %}<button type="submit" class="font-semibold underline hover:no-underline">Get a token</button></form> to access your data again.
 </div>
 {% endif %}
 
@@ -315,7 +315,7 @@
     {% endpartialdef %}
 
     <!-- Monthly summary dialog -->
-    <dialog id="monthly-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
+    <dialog id="monthly-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
             onclick="if(event.target===this)this.close()">
         <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
             <h2 class="text-xl font-bold">Monthly Summary</h2>
@@ -327,7 +327,7 @@
     </dialog>
 
     <!-- Holiday comparison dialog -->
-    <dialog id="holiday-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
+    <dialog id="holiday-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
             onclick="if(event.target===this)this.close()">
         <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
             <h2 class="text-xl font-bold">Holiday Comparison</h2>

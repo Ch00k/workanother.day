@@ -66,7 +66,7 @@
 </div>
 
 <!-- New contract dialog -->
-<dialog id="new-contract-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto open:h-fit"
+<dialog id="new-contract-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden"
         onclick="if(event.target===this)this.close()">
     <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
         <h2 class="text-xl font-bold">New Contract</h2>
@@ -125,13 +125,13 @@
                 <label for="start_date" class="block text-sm font-medium text-[#666] mb-1">Start Date</label>
                 <input type="date" id="start_date" name="start_date"
                        value="{{ form_data.start_date|default:'' }}" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full max-w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div>
                 <label for="end_date" class="block text-sm font-medium text-[#666] mb-1">End Date</label>
                 <input type="date" id="end_date" name="end_date"
                        value="{{ form_data.end_date|default:'' }}" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full max-w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div class="sm:col-span-2">
                 <button type="submit"

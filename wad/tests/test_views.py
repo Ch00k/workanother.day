@@ -89,7 +89,7 @@ class SaveAccountTests(TestCase):
 
         response = self.client.post("/save-account/")
         assert response.status_code == 200
-        self.assertContains(response, "You're signed up")
+        self.assertContains(response, "Here's your token")
         # Guest record should be removed
         assert not Guest.objects.exists()
         # AccountToken should exist
@@ -131,7 +131,7 @@ class IndexTests(TestCase):
     def test_anonymous_user_sees_landing_page(self) -> None:
         response = self.client.get("/")
         assert response.status_code == 200
-        self.assertContains(response, "Stay under your")
+        self.assertContains(response, "We do the math")
         assert not Guest.objects.exists()
 
     def test_registered_user_redirects_to_contract_list(self) -> None:
