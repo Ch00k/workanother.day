@@ -20,10 +20,24 @@
                 &middot; {{ contract.start_date|date:"M j, Y" }} - {{ contract.end_date|date:"M j, Y" }}
             </div>
         </div>
-        <a href="{% url 'contract_edit' pk=contract.pk %}"
-           class="rounded-[10px] border border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] transition">
-            Edit
-        </a>
+        <div class="flex gap-2">
+            <a href="{% url 'export_calendar' pk=contract.pk %}"
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] transition">
+                Export .ics
+            </a>
+            <button onclick="document.getElementById('import-file-{{ contract.pk }}').click()"
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] transition">
+                Import .ics
+            </button>
+            <form id="import-form-{{ contract.pk }}" method="post" action="{% url 'import_calendar' pk=contract.pk %}" enctype="multipart/form-data" class="hidden">
+                {% csrf_token %}
+                <input type="file" id="import-file-{{ contract.pk }}" name="file" accept=".ics" onchange="this.form.submit()">
+            </form>
+            <a href="{% url 'contract_edit' pk=contract.pk %}"
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] transition">
+                Edit
+            </a>
+        </div>
     </div>
 
     {% if contracts|length > 1 %}
@@ -96,7 +110,7 @@
     <!-- Controls -->
     <div class="mt-5 flex flex-wrap gap-2.5 items-stretch">
         <select id="bulk-book-mode" name="mode"
-                class="rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] text-[#666] focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                class="rounded-[10px] border border-[#ddd] px-4 py-2 text-sm text-[#666] focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             <option value="home">{{ contract.home_country }} holidays</option>
             <option value="client">{{ contract.client_country }} holidays</option>
             <option value="overlap" selected>Overlapping holidays</option>
@@ -105,21 +119,22 @@
         <button hx-post="{% url 'bulk_book' pk=contract.pk %}"
                 hx-target="#calendar-grid" hx-swap="outerHTML"
                 hx-include="#bulk-book-mode"
-                class="rounded-[10px] border border-booked px-4 py-2 text-[13px] font-semibold text-booked transition hover:bg-booked hover:text-white">
+                class="rounded-[10px] bg-[#333] text-white px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
             Book
         </button>
         <button hx-post="{% url 'clear_time_off' pk=contract.pk %}"
                 hx-target="#calendar-grid" hx-swap="outerHTML"
-                class="rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] font-medium text-[#999] transition hover:border-[#bbb] hover:text-[#666]">
-            Clear all bookings
+                hx-include="#bulk-book-mode"
+                class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50">
+            Clear
         </button>
         <button onclick="htmx.ajax('GET', '{% url 'monthly_summary' pk=contract.pk %}', '#monthly-summary-content'); document.getElementById('monthly-dialog').showModal()"
-                class="sm:ml-auto rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] font-medium text-[#999] transition hover:border-[#bbb] hover:text-[#666]">
-            Monthly Summary
+                class="sm:ml-auto rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb]">
+            Monthly summary
         </button>
         <button onclick="htmx.ajax('GET', '{% url 'holiday_comparison' pk=contract.pk %}', '#holiday-comparison-content'); document.getElementById('holiday-dialog').showModal()"
-                class="rounded-[10px] border border-[#ddd] px-4 py-2 text-[13px] font-medium text-[#999] transition hover:border-[#bbb] hover:text-[#666]">
-            Holiday Comparison
+                class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb]">
+            Holiday comparison
         </button>
     </div>
 
@@ -146,6 +161,12 @@
             <span>Full day</span>
         </div>
     </div>
+
+    {% if import_error %}
+    <div class="mt-4 rounded-[10px] bg-red-50 border border-red-300 px-4 py-2 text-sm text-red-800">
+        Import failed: {{ import_error }}
+    </div>
+    {% endif %}
 
     {% if holidays_stale %}
     <div class="mt-4 rounded-[10px] bg-[#f5f5f5] border border-[#ddd] px-4 py-2 text-sm text-[#666]">

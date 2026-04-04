@@ -17,12 +17,16 @@ from wad.calendar_utils import (
     is_weekend,
 )
 from wad.countries import COUNTRIES
+from wad.ical import ImportError as ICalImportError
+from wad.ical import export_time_off, export_user_time_off, import_time_off
 from wad.models import (
     AccountToken,
+    CalendarToken,
     Contract,
     Guest,
     Holiday,
     TimeOff,
+    generate_calendar_token,
     generate_token,
     hash_token,
 )
@@ -61,6 +65,7 @@ class CalendarContext(TypedDict):
     holidays_stale: bool
     today: datetime.date
     contracts: NotRequired[object]
+    import_error: NotRequired[str]
 
 
 class HolidayComparisonContext(TypedDict):
@@ -122,9 +127,46 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     return redirect("index")
 
 
+def calendar_feed(request: HttpRequest, token: str) -> HttpResponse:  # noqa: ARG001
+    cal_token = get_object_or_404(CalendarToken, token=token)
+    ics_content = export_user_time_off(cal_token.user)
+    return HttpResponse(ics_content, content_type="text/calendar; charset=utf-8")
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def create_calendar_token(request: HttpRequest) -> HttpResponse:
+    if hasattr(request.user, "guest"):
+        return redirect("contract_list")
+
+    if not CalendarToken.objects.filter(user=request.user).exists():
+        CalendarToken.objects.create(user=request.user, token=generate_calendar_token())
+
+    return redirect("contract_list")
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def reset_calendar_token(request: HttpRequest) -> HttpResponse:
+    if hasattr(request.user, "guest"):
+        return redirect("contract_list")
+
+    CalendarToken.objects.filter(user=request.user).delete()
+    CalendarToken.objects.create(user=request.user, token=generate_calendar_token())
+
+    return redirect("contract_list")
+
+
 def contract_list(request: HttpRequest) -> HttpResponse:
     contracts = Contract.objects.filter(user=request.user).order_by("-start_date")
-    return render(request, "wad/contracts.html", {"contracts": contracts, "countries": COUNTRIES})
+    context: dict[str, object] = {"contracts": contracts, "countries": COUNTRIES}
+
+    if not hasattr(request.user, "guest"):
+        cal_token = CalendarToken.objects.filter(user=request.user).first()
+        if cal_token:
+            context["calendar_url"] = request.build_absolute_uri(
+                reverse("calendar_feed", kwargs={"token": cal_token.token})
+            )
+
+    return render(request, "wad/contracts.html", context)
 
 
 def contract_create(request: HttpRequest) -> HttpResponse:
@@ -261,14 +303,7 @@ def toggle_day(request: HttpRequest, pk: str, date: str, portion: str | None = N
     return redirect("calendar", pk=contract.pk)
 
 
-@require_POST  # ty: ignore[invalid-argument-type]
-def bulk_book(request: HttpRequest, pk: str) -> HttpResponse:
-    contract = get_object_or_404(Contract, pk=pk)
-    if contract.user != request.user:
-        raise Http404
-
-    mode = request.POST.get("mode", "")
-
+def _holiday_dates_for_mode(contract: Contract, mode: str) -> set[datetime.date]:
     years = range(contract.start_date.year, contract.end_date.year + 1)
     home_holidays, _ = get_holidays_for_years(contract.home_country, years)
     client_holidays, _ = get_holidays_for_years(contract.client_country, years)
@@ -280,15 +315,24 @@ def bulk_book(request: HttpRequest, pk: str) -> HttpResponse:
     client_dates = {h.date for h in client_holidays}
 
     if mode == "home":
-        dates_to_book = home_dates
-    elif mode == "client":
-        dates_to_book = client_dates
-    elif mode == "overlap":
-        dates_to_book = home_dates & client_dates
-    elif mode == "union":
-        dates_to_book = home_dates | client_dates
-    else:
-        dates_to_book = set()
+        return home_dates
+    if mode == "client":
+        return client_dates
+    if mode == "overlap":
+        return home_dates & client_dates
+    if mode == "union":
+        return home_dates | client_dates
+    return set()
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def bulk_book(request: HttpRequest, pk: str) -> HttpResponse:
+    contract = get_object_or_404(Contract, pk=pk)
+    if contract.user != request.user:
+        raise Http404
+
+    mode = request.POST.get("mode", "")
+    dates_to_book = _holiday_dates_for_mode(contract, mode)
 
     weekday_dates = [d for d in dates_to_book if not is_weekend(d)]
     TimeOff.objects.bulk_create(
@@ -305,9 +349,57 @@ def clear_time_off(request: HttpRequest, pk: str) -> HttpResponse:
     if contract.user != request.user:
         raise Http404
 
-    contract.time_off.all().delete()  # ty: ignore[unresolved-attribute]
+    mode = request.POST.get("mode", "")
+    dates_to_clear = _holiday_dates_for_mode(contract, mode)
+    weekday_dates = [d for d in dates_to_clear if not is_weekend(d)]
 
-    return _htmx_or_redirect(request, contract, time_off_entries=[])
+    contract.time_off.filter(date__in=weekday_dates).delete()  # ty: ignore[unresolved-attribute]
+
+    return _htmx_or_redirect(request, contract)
+
+
+def export_calendar(request: HttpRequest, pk: str) -> HttpResponse:
+    contract = get_object_or_404(Contract, pk=pk)
+    if contract.user != request.user:
+        raise Http404
+
+    time_off_entries = list(contract.time_off.all())  # ty: ignore[unresolved-attribute]
+    ics_content = export_time_off(contract, time_off_entries)
+
+    filename = f"{contract.name.replace(' ', '_')}_time_off.ics"
+    response = HttpResponse(ics_content, content_type="text/calendar; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def import_calendar(request: HttpRequest, pk: str) -> HttpResponse:
+    contract = get_object_or_404(Contract, pk=pk)
+    if contract.user != request.user:
+        raise Http404
+
+    uploaded = request.FILES.get("file")
+    if not uploaded:
+        return redirect("calendar", pk=contract.pk)
+
+    try:
+        ics_content = uploaded.read().decode("utf-8")
+    except UnicodeDecodeError:
+        return _calendar_with_error(request, contract, "File is not valid text.")
+
+    try:
+        import_time_off(contract, ics_content)
+    except ICalImportError as e:
+        return _calendar_with_error(request, contract, str(e))
+
+    return redirect("calendar", pk=contract.pk)
+
+
+def _calendar_with_error(request: HttpRequest, contract: Contract, error: str) -> HttpResponse:
+    context = _build_calendar_context(contract)
+    context["contracts"] = Contract.objects.filter(user=request.user).order_by("-start_date")
+    context["import_error"] = error
+    return render(request, "wad/calendar.html", context)
 
 
 def _toggle_day_response(request: HttpRequest, contract: Contract, target_date: datetime.date) -> HttpResponse:

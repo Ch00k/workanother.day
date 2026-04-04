@@ -72,9 +72,9 @@
                         class="rounded-[10px] bg-[#333] text-white px-6 py-2.5 text-sm font-semibold hover:opacity-90 transition">
                     Save Changes
                 </button>
-                <a href="{% url 'calendar' pk=contract.pk %}" class="text-sm text-[#999] hover:text-[#666] transition">Cancel</a>
+                <a href="{% url 'calendar' pk=contract.pk %}" class="rounded-[10px] border-2 border-[#ddd] px-6 py-2.5 text-sm text-[#666] hover:border-[#bbb] transition">Cancel</a>
                 <button type="submit" form="delete-form"
-                        class="ml-auto rounded-[10px] border border-[#ddd] px-6 py-2.5 text-sm font-medium text-[#999] hover:border-[#bbb] hover:text-[#666] transition">
+                        class="ml-auto rounded-[10px] border-2 border-red-600 px-6 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
                     Delete Contract
                 </button>
             </div>

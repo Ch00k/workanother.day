@@ -15,6 +15,13 @@ def generate_token() -> str:
     return "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
 
 
+CALENDAR_TOKEN_ALPHABET = string.ascii_lowercase + string.digits
+
+
+def generate_calendar_token() -> str:
+    return "".join(secrets.choice(CALENDAR_TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
+
+
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -33,6 +40,14 @@ class AccountToken(models.Model):
 
     def __str__(self) -> str:
         return f"AccountToken: {self.user.username}"
+
+
+class CalendarToken(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="calendar_token")
+    token = models.CharField(max_length=TOKEN_LENGTH, unique=True)
+
+    def __str__(self) -> str:
+        return f"CalendarToken: {self.user.username}"
 
 
 class Contract(models.Model):

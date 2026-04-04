@@ -32,6 +32,37 @@
         No contracts yet. Click "New Contract" to create one.
     </div>
     {% endif %}
+
+    {% if not user.guest %}
+    <div class="mt-5 rounded-[14px] bg-white p-5 shadow-sm border border-black/5">
+        <div class="font-semibold text-[15px] mb-2">Calendar Subscription</div>
+        <p class="text-xs text-[#888] mb-3">Subscribe to your time-off calendar from any calendar app.</p>
+        {% if calendar_url %}
+        <div class="flex items-center gap-4 flex-wrap">
+            <a href="{{ calendar_url }}" class="text-sm text-[#666] underline underline-offset-2 break-all hover:text-[#333] transition">{{ calendar_url }}</a>
+            <button onclick="navigator.clipboard.writeText('{{ calendar_url }}')"
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] transition shrink-0">
+                Copy
+            </button>
+            <form method="post" action="{% url 'reset_calendar_token' %}" class="inline">
+                {% csrf_token %}
+                <button type="submit"
+                        class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                    Reset URL
+                </button>
+            </form>
+        </div>
+        {% else %}
+        <form method="post" action="{% url 'create_calendar_token' %}">
+            {% csrf_token %}
+            <button type="submit"
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] transition">
+                Generate subscription URL
+            </button>
+        </form>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>
 
 <!-- New contract dialog -->

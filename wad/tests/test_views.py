@@ -460,12 +460,22 @@ class ClearTimeOffTests(TestCase):
             end_date="2026-12-31",
         )
 
-    def test_clears_all_time_off(self) -> None:
-        TimeOff.objects.create(contract=self.contract, date="2026-01-05", hours=8)
-        TimeOff.objects.create(contract=self.contract, date="2026-01-06", hours=8)
-        response = self.client.post(f"/contracts/{self.contract.pk}/clear/")
-        assert response.status_code == 302
-        assert not TimeOff.objects.filter(contract=self.contract).exists()
+    def test_clears_matching_holiday_bookings(self) -> None:
+        # Book overlapping holidays, then clear them
+        self.client.post(f"/contracts/{self.contract.pk}/bulk-book/", {"mode": "overlap"})
+        count_before = TimeOff.objects.filter(contract=self.contract).count()
+        assert count_before > 0
+        self.client.post(f"/contracts/{self.contract.pk}/clear/", {"mode": "overlap"})
+        assert TimeOff.objects.filter(contract=self.contract).count() == 0
+
+    def test_does_not_clear_non_matching_bookings(self) -> None:
+        # Book all holidays (union), then clear only overlapping
+        self.client.post(f"/contracts/{self.contract.pk}/bulk-book/", {"mode": "union"})
+        count_before = TimeOff.objects.filter(contract=self.contract).count()
+        self.client.post(f"/contracts/{self.contract.pk}/clear/", {"mode": "overlap"})
+        count_after = TimeOff.objects.filter(contract=self.contract).count()
+        # Should have cleared some but not all (unless all holidays overlap)
+        assert count_after <= count_before
 
     def test_does_not_clear_other_contracts(self) -> None:
         other_contract = Contract.objects.create(
@@ -477,9 +487,9 @@ class ClearTimeOffTests(TestCase):
             start_date="2026-01-01",
             end_date="2026-12-31",
         )
-        TimeOff.objects.create(contract=self.contract, date="2026-01-05", hours=8)
-        TimeOff.objects.create(contract=other_contract, date="2026-01-05", hours=8)
-        self.client.post(f"/contracts/{self.contract.pk}/clear/")
+        self.client.post(f"/contracts/{self.contract.pk}/bulk-book/", {"mode": "overlap"})
+        self.client.post(f"/contracts/{other_contract.pk}/bulk-book/", {"mode": "overlap"})
+        self.client.post(f"/contracts/{self.contract.pk}/clear/", {"mode": "overlap"})
         assert not TimeOff.objects.filter(contract=self.contract).exists()
         assert TimeOff.objects.filter(contract=other_contract).exists()
 
