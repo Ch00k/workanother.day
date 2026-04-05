@@ -42,7 +42,7 @@
     <footer class="text-center text-xs text-[#999] py-2">
         &copy; {% now "Y" %} workanother.day
     </footer>
-    <dialog id="about-modal" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-md w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
+    <dialog id="about-modal" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
             onclick="if(event.target===this)this.close()">
         <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
             <h2 class="text-xl font-bold">About</h2>
@@ -50,9 +50,58 @@
                     class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
         </div>
         <div class="px-5 py-4 text-sm text-[#444] leading-relaxed">
-            <p class="mb-2">A tool for contractors and freelancers who need to stay under a contractual working-day limit. If your contract caps your working days per year, this helps you figure out how many days off you still need to book.</p>
-            <p class="mb-2">Set your home and client countries, and public holidays for both are loaded automatically. Overlapping holidays - days that are public holidays in both countries - are highlighted so you can prioritise booking those first.</p>
-            <p>The dashboard tracks your days-off budget: the number of weekdays you need to take off to stay within your limit. Mark days off on the calendar and watch your budget update in real time.</p>
+            <p class="text-lg font-semibold text-[#222] mb-2 text-center">
+                Your contract has a day cap. Two countries have different holidays. We do the math.
+            </p>
+            <p class="mb-6 text-center">
+                When you work across borders on a capped contract, two countries means two holiday calendars.
+                Work Another Day shows you both, highlights the overlaps, and tracks your remaining budget.
+            </p>
+            <h3 class="text-base font-bold text-[#222] mb-3 text-center">How it works</h3>
+            <div class="grid gap-4 sm:grid-cols-3 mb-6">
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">Step 1</div>
+                    <div class="font-semibold text-[#222] mb-1">Set up your contract</div>
+                    <p class="text-sm text-[#666] leading-relaxed">Enter your home and client countries, contract dates, and the maximum working days allowed.</p>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">Step 2</div>
+                    <div class="font-semibold text-[#222] mb-1">See both holiday calendars</div>
+                    <p class="text-sm text-[#666] leading-relaxed">Public holidays for both countries are loaded automatically. Overlapping holidays are highlighted - those are the ones to book first.</p>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">Step 3</div>
+                    <div class="font-semibold text-[#222] mb-1">Book days off, track your budget</div>
+                    <p class="text-sm text-[#666] leading-relaxed">Mark full days or half-days off on the calendar individually or in bulk. Your remaining budget updates in real time.</p>
+                </div>
+            </div>
+            <h3 class="text-base font-bold text-[#222] mb-3 text-center">Features</h3>
+            <div class="grid gap-4 sm:grid-cols-2">
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="font-semibold text-[#222] mb-1">Dual-country holiday view</div>
+                    <p class="text-sm text-[#666] leading-relaxed">See public holidays of your home country and your client's country side by side. Overlapping holidays are highlighted so you can book those first.</p>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="font-semibold text-[#222] mb-1">One-click day-off booking</div>
+                    <p class="text-sm text-[#666] leading-relaxed">Book all home holidays, all client holidays, only the overlaps, or all holidays from both countries combined - one click each.</p>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="font-semibold text-[#222] mb-1">Day-off budget tracking</div>
+                    <p class="text-sm text-[#666] leading-relaxed">See at a glance how many working days you've used, how many days off you've booked, and how many more you need to take to stay under your cap.</p>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="font-semibold text-[#222] mb-1">Import and export</div>
+                    <p class="text-sm text-[#666] leading-relaxed">Export your days off as an .ics file, or import existing bookings from one.</p>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="font-semibold text-[#222] mb-1">Live calendar sync</div>
+                    <p class="text-sm text-[#666] leading-relaxed">Subscribe to a calendar URL that updates automatically. Your days off stay in sync with Apple Calendar, Google Calendar, or Outlook.</p>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="font-semibold text-[#222] mb-1">Privacy-first</div>
+                    <p class="text-sm text-[#666] leading-relaxed">No account needed. Start using the app the moment you arrive. Save a random access token if you want to come back later - no email, no password, no personal data.</p>
+                </div>
+            </div>
         </div>
     </dialog>
 </body>
