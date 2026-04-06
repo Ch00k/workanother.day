@@ -19,6 +19,7 @@ from wad.calendar_utils import (
 from wad.countries import COUNTRIES
 from wad.ical import ImportError as ICalImportError
 from wad.ical import export_time_off, export_user_time_off, import_time_off
+from wad.middleware import create_guest_user
 from wad.models import (
     AccountToken,
     CalendarToken,
@@ -108,6 +109,9 @@ def login_view(request: HttpRequest) -> HttpResponse:
 
 @require_POST  # ty: ignore[invalid-argument-type]
 def save_account(request: HttpRequest) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return redirect("contract_list")
+
     user = request.user
 
     # Already saved
@@ -137,7 +141,7 @@ def calendar_feed(request: HttpRequest, token: str) -> HttpResponse:  # noqa: AR
 
 @require_POST  # ty: ignore[invalid-argument-type]
 def create_calendar_token(request: HttpRequest) -> HttpResponse:
-    if hasattr(request.user, "guest"):
+    if not request.user.is_authenticated or hasattr(request.user, "guest"):
         return redirect("contract_list")
 
     if not CalendarToken.objects.filter(user=request.user).exists():
@@ -148,7 +152,7 @@ def create_calendar_token(request: HttpRequest) -> HttpResponse:
 
 @require_POST  # ty: ignore[invalid-argument-type]
 def reset_calendar_token(request: HttpRequest) -> HttpResponse:
-    if hasattr(request.user, "guest"):
+    if not request.user.is_authenticated or hasattr(request.user, "guest"):
         return redirect("contract_list")
 
     CalendarToken.objects.filter(user=request.user).delete()
@@ -158,6 +162,9 @@ def reset_calendar_token(request: HttpRequest) -> HttpResponse:
 
 
 def contract_list(request: HttpRequest) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return render(request, "wad/contracts.html", {"contracts": []})
+
     contracts = Contract.objects.filter(user=request.user).order_by("-start_date")
     context: dict[str, object] = {"contracts": contracts}
 
@@ -186,6 +193,9 @@ def contract_create(request: HttpRequest) -> HttpResponse:
                 "form_data": request.POST,
             },
         )
+
+    if not request.user.is_authenticated:
+        create_guest_user(request)
 
     contract = Contract.objects.create(
         user=request.user,

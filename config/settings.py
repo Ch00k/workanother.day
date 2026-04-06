@@ -26,7 +26,6 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "wad.middleware.GuestUserMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "wad.middleware.HtmxRedirectMiddleware",
 ]

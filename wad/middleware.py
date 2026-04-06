@@ -13,27 +13,15 @@ if TYPE_CHECKING:
 from wad.models import Guest
 
 
-class GuestUserMiddleware:
-    """Auto-create a guest user for anonymous visitors.
-
-    Creates a real User + Guest record and logs them in so that all
-    views work identically for guests and registered users.
-    """
-
-    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
-        self.get_response = get_response
-
-    GUEST_PATHS = ("/contracts/",)
-
-    def __call__(self, request: HttpRequest) -> HttpResponse:
-        if not request.user.is_authenticated and request.path in self.GUEST_PATHS:
-            username = f"guest-{uuid.uuid4().hex[:12]}"
-            user = User.objects.create_user(username=username)
-            user.set_unusable_password()
-            user.save()
-            Guest.objects.create(user=user)
-            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        return self.get_response(request)
+def create_guest_user(request: HttpRequest) -> User:
+    """Create a guest user and log them into the current request."""
+    username = f"guest-{uuid.uuid4().hex[:12]}"
+    user = User.objects.create_user(username=username)
+    user.set_unusable_password()
+    user.save()
+    Guest.objects.create(user=user)
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    return user
 
 
 class HtmxRedirectMiddleware:

@@ -33,7 +33,7 @@
     </div>
     {% endif %}
 
-    {% if not user.guest %}
+    {% if user.is_authenticated and not user.guest %}
     <div class="mt-5 rounded-[14px] bg-white p-5 shadow-sm border border-black/5">
         <div class="font-semibold text-[15px] mb-2">Calendar Subscription</div>
         <p class="text-xs text-[#888] mb-3">Subscribe to your time-off calendar from any calendar app.</p>

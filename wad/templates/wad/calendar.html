@@ -3,12 +3,6 @@
 {% block title %}{{ contract.name }} - Work Another Day{% endblock %}
 
 {% block body %}
-{% if user.guest %}
-<div class="bg-amber-50 border-b border-amber-300 px-4 py-2 text-sm text-amber-800 text-center">
-    Want to come back later? <form method="post" action="{% url 'save_account' %}" class="inline">{% csrf_token %}<button type="submit" class="font-semibold underline hover:no-underline">Get a token</button></form> to access your data again.
-</div>
-{% endif %}
-
 <div class="mx-auto max-w-[960px] px-4 mt-6">
     <!-- Header -->
     <div class="flex items-center justify-between flex-wrap gap-4">

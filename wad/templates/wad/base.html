@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Work Another Day{% endblock %}</title>
     {% load static %}
+    <link rel="icon" type="image/png" href="{% static 'favicon.png' %}">
     <link rel="stylesheet" href="{% static 'css/output.css' %}">
     <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
     <script>
@@ -22,10 +23,6 @@
                 <button onclick="document.getElementById('about-modal').showModal()" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">About</button>
                 {% if user.guest %}
                 <a href="{% url 'login' %}" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">Log in</a>
-                <form method="post" action="{% url 'save_account' %}">
-                    {% csrf_token %}
-                    <button type="submit" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">Get token</button>
-                </form>
                 {% else %}
                 <form method="post" action="{% url 'logout' %}">
                     {% csrf_token %}
@@ -38,7 +35,14 @@
             </div>
         </div>
     </nav>
-    <main class="flex-1">{% block body %}{% endblock %}</main>
+    <main class="flex-1">
+    {% if user.guest %}
+    <div class="bg-amber-50 border-b border-amber-300 px-4 py-2 text-sm text-amber-800 text-center">
+        Want to come back later? <form method="post" action="{% url 'save_account' %}" class="inline">{% csrf_token %}<button type="submit" class="font-semibold underline hover:no-underline">Get a token</button></form> to access your data again.
+    </div>
+    {% endif %}
+    {% block body %}{% endblock %}
+    </main>
     <footer class="text-center text-xs text-[#999] py-2">
         &copy; {% now "Y" %} workanother.day
     </footer>

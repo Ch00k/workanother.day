@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.models import User
 from django.test import TestCase
 
@@ -9,6 +11,14 @@ from wad.models import (
     generate_token,
     hash_token,
 )
+
+
+def _create_guest_user() -> User:
+    user = User.objects.create_user(username=f"guest-{uuid.uuid4().hex[:12]}")
+    user.set_unusable_password()
+    user.save()
+    Guest.objects.create(user=user)
+    return user
 
 
 class LoginViewTests(TestCase):
@@ -35,8 +45,7 @@ class LoginViewTests(TestCase):
         self.assertRedirects(response, "/contracts/")
 
     def test_login_transfers_guest_data(self) -> None:
-        # Create a guest with a contract
-        self.client.get("/contracts/")
+        # Create a guest with a contract (guest is created on first contract POST)
         self.client.post(
             "/contracts/new/",
             {
@@ -83,9 +92,8 @@ class LogoutViewTests(TestCase):
 
 class SaveAccountTests(TestCase):
     def test_save_creates_token_and_shows_it(self) -> None:
-        # Create a guest
-        self.client.get("/contracts/")
-        assert Guest.objects.exists()
+        guest_user = _create_guest_user()
+        self.client.force_login(guest_user)
 
         response = self.client.post("/save-account/")
         assert response.status_code == 200
@@ -96,7 +104,8 @@ class SaveAccountTests(TestCase):
         assert AccountToken.objects.count() == 1
 
     def test_save_twice_redirects(self) -> None:
-        self.client.get("/contracts/")
+        guest_user = _create_guest_user()
+        self.client.force_login(guest_user)
         self.client.post("/save-account/")
         response = self.client.post("/save-account/")
         self.assertRedirects(response, "/contracts/")
@@ -104,13 +113,14 @@ class SaveAccountTests(TestCase):
         assert AccountToken.objects.count() == 1
 
     def test_get_not_allowed(self) -> None:
-        self.client.get("/contracts/")
+        guest_user = _create_guest_user()
+        self.client.force_login(guest_user)
         response = self.client.get("/save-account/")
         assert response.status_code == 405
 
     def test_token_can_be_used_to_log_in(self) -> None:
-        # Create guest and save account
-        self.client.get("/contracts/")
+        guest_user = _create_guest_user()
+        self.client.force_login(guest_user)
         response = self.client.post("/save-account/")
         # Extract token from response
         content = response.content.decode()
@@ -146,12 +156,12 @@ class ContractListTests(TestCase):
         self.user = User.objects.create_user(username="test")
         self.client.force_login(self.user)
 
-    def test_anonymous_user_gets_guest_session(self) -> None:
+    def test_anonymous_user_sees_empty_state(self) -> None:
         self.client.logout()
         response = self.client.get("/contracts/")
         assert response.status_code == 200
-        # A guest user should have been created
-        assert Guest.objects.exists()
+        assert not Guest.objects.exists()
+        self.assertContains(response, "No contracts yet")
 
     def test_shows_user_contracts(self) -> None:
         Contract.objects.create(
@@ -505,28 +515,13 @@ class ClearTimeOffTests(TestCase):
         assert response.status_code == 404
 
 
-class GuestUserMiddlewareTests(TestCase):
-    def test_anonymous_request_creates_guest_user(self) -> None:
-        self.client.get("/contracts/")
-        assert Guest.objects.count() == 1
-        guest = Guest.objects.first()
-        assert guest is not None
-        assert guest.user.username.startswith("guest-")
-        assert not guest.user.has_usable_password()
-
-    def test_authenticated_user_does_not_create_guest(self) -> None:
-        user = User.objects.create_user(username="real")
-        self.client.force_login(user)
-        self.client.get("/contracts/")
-        assert not Guest.objects.exists()
-
-    def test_anonymous_request_to_landing_does_not_create_guest(self) -> None:
-        self.client.get("/")
+class GuestCreationTests(TestCase):
+    def test_anonymous_contract_list_shows_empty_state(self) -> None:
+        response = self.client.get("/contracts/")
+        assert response.status_code == 200
         assert Guest.objects.count() == 0
 
-    def test_guest_can_create_contract(self) -> None:
-        # First request creates a guest
-        self.client.get("/contracts/")
+    def test_anonymous_contract_create_creates_guest(self) -> None:
         response = self.client.post(
             "/contracts/new/",
             {
@@ -539,11 +534,53 @@ class GuestUserMiddlewareTests(TestCase):
             },
         )
         assert response.status_code == 302
-        contract = Contract.objects.get(name="Guest Contract")
-        assert hasattr(contract.user, "guest")
-
-    def test_subsequent_requests_reuse_guest(self) -> None:
-        self.client.get("/contracts/")
-        self.client.get("/contracts/")
-        # Only one guest should exist -- the session keeps them logged in
         assert Guest.objects.count() == 1
+        guest = Guest.objects.first()
+        assert guest is not None
+        assert guest.user.username.startswith("guest-")
+        assert not guest.user.has_usable_password()
+        contract = Contract.objects.get(name="Guest Contract")
+        assert contract.user == guest.user
+
+    def test_authenticated_user_does_not_create_guest(self) -> None:
+        user = User.objects.create_user(username="real")
+        self.client.force_login(user)
+        self.client.post(
+            "/contracts/new/",
+            {
+                "name": "Real Contract",
+                "home_country": "NL",
+                "client_country": "CH",
+                "max_working_days": "200",
+                "start_date": "2026-01-01",
+                "end_date": "2026-12-31",
+            },
+        )
+        assert not Guest.objects.exists()
+
+    def test_guest_session_persists_across_requests(self) -> None:
+        self.client.post(
+            "/contracts/new/",
+            {
+                "name": "Guest Contract",
+                "home_country": "NL",
+                "client_country": "CH",
+                "max_working_days": "200",
+                "start_date": "2026-01-01",
+                "end_date": "2026-12-31",
+            },
+        )
+        # Second contract reuses the guest session
+        self.client.post(
+            "/contracts/new/",
+            {
+                "name": "Second Contract",
+                "home_country": "DE",
+                "client_country": "US",
+                "max_working_days": "100",
+                "start_date": "2026-01-01",
+                "end_date": "2026-12-31",
+            },
+        )
+        assert Guest.objects.count() == 1
+        assert Contract.objects.count() == 2
