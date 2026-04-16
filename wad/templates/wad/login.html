@@ -14,7 +14,7 @@
         <form method="post" action="{% url 'login' %}" class="mt-4">
             {% csrf_token %}
             <label for="token" class="block text-sm font-medium text-[#666] mb-1">Access token</label>
-            <input type="text" id="token" name="token" required autofocus autocomplete="off"
+            <input type="password" id="token" name="token" required autofocus autocomplete="off"
                    class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             <button type="submit"
                     class="mt-3 w-full rounded-[10px] bg-[#333] text-white px-4 py-2.5 text-sm font-semibold hover:opacity-90 transition">
