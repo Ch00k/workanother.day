@@ -21,6 +21,7 @@ urlpatterns = [
     path("contracts/<uuid:pk>/clear/", views.clear_time_off, name="clear_time_off"),  # ty: ignore[no-matching-overload]
     path("contracts/<uuid:pk>/export/", views.export_calendar, name="export_calendar"),
     path("contracts/<uuid:pk>/import/", views.import_calendar, name="import_calendar"),  # ty: ignore[no-matching-overload]
+    path("contracts/<uuid:pk>/invoice/<int:year>/<int:month>/", views.invoice_view, name="invoice"),  # ty: ignore[no-matching-overload]
     # Calendar subscription
     path("calendar/<str:token>.ics", views.calendar_feed, name="calendar_feed"),
     path("calendar/create-token/", views.create_calendar_token, name="create_calendar_token"),  # ty: ignore[no-matching-overload]
