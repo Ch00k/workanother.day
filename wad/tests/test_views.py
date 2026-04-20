@@ -1,7 +1,8 @@
+import datetime
 import uuid
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from wad.models import (
     AccountToken,
@@ -584,3 +585,96 @@ class GuestCreationTests(TestCase):
         )
         assert Guest.objects.count() == 1
         assert Contract.objects.count() == 2
+
+
+class InvoiceViewTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test")
+        self.client.force_login(self.user)
+        today = datetime.datetime.now(tz=datetime.UTC).date()
+        self.past_year = today.year - 1
+        self.future_year = today.year + 10
+        self.contract = Contract.objects.create(
+            user=self.user,
+            name="Test",
+            home_country="NL",
+            client_country="CH",
+            max_working_days=200,
+            working_hours_per_day=8,
+            start_date=datetime.date(self.past_year, 1, 1),
+            end_date=datetime.date(self.future_year, 12, 31),
+        )
+
+    def _url(self, year: int | None = None, month: int = 1) -> str:
+        year = year if year is not None else self.past_year
+        return f"/contracts/{self.contract.pk}/invoice/{year}/{month}/"
+
+    def test_get_renders_form_for_ended_month(self) -> None:
+        response = self.client.get(self._url(month=1))
+        assert response.status_code == 200
+        self.assertContains(response, f"Invoice - January {self.past_year}")
+        self.assertContains(response, "Preview invoice")
+
+    def test_get_embeds_invoice_context_json(self) -> None:
+        response = self.client.get(self._url(month=2))
+        self.assertContains(response, 'id="invoice-context"')
+        self.assertContains(response, '"month_name": "February"')
+        self.assertContains(response, f'"year": {self.past_year}')
+        self.assertContains(response, '"net_working_days":')
+
+    def test_server_rejects_post(self) -> None:
+        # Endpoint is GET-only; server never processes invoice fields.
+        response = self.client.post(
+            self._url(month=1),
+            {"from_name": "LEAKED", "iban": "NL00 BANK 0000 0000 00"},
+        )
+        assert response.status_code == 405
+        self.assertNotContains(response, "LEAKED", status_code=405)
+        self.assertNotContains(response, "NL00 BANK 0000 0000 00", status_code=405)
+
+    def test_in_progress_month_returns_404(self) -> None:
+        today = datetime.datetime.now(tz=datetime.UTC).date()
+        response = self.client.get(self._url(year=today.year, month=today.month))
+        assert response.status_code == 404
+
+    def test_future_month_returns_404(self) -> None:
+        response = self.client.get(self._url(year=self.future_year, month=1))
+        assert response.status_code == 404
+
+    def test_month_before_contract_returns_404(self) -> None:
+        response = self.client.get(self._url(year=self.past_year - 5, month=1))
+        assert response.status_code == 404
+
+    def test_invalid_month_returns_404(self) -> None:
+        response = self.client.get(self._url(month=13))
+        assert response.status_code == 404
+
+    def test_other_user_cannot_view(self) -> None:
+        other = User.objects.create_user(username="other")
+        self.client.force_login(other)
+        response = self.client.get(self._url(month=1))
+        assert response.status_code == 404
+
+    @override_settings(DEBUG=True)
+    def test_future_month_allowed_when_debug(self) -> None:
+        response = self.client.get(self._url(year=self.future_year, month=1))
+        assert response.status_code == 200
+        self.assertContains(response, f"Invoice - January {self.future_year}")
+
+    def test_monthly_summary_shows_invoice_link_for_ended_month(self) -> None:
+        response = self.client.get(f"/contracts/{self.contract.pk}/monthly-summary/")
+        self.assertContains(response, "Generate invoice")
+        self.assertContains(response, f"/invoice/{self.past_year}/1/")
+
+    def test_monthly_summary_hides_invoice_link_for_future_months(self) -> None:
+        response = self.client.get(f"/contracts/{self.contract.pk}/monthly-summary/")
+        self.assertNotContains(response, f"/invoice/{self.future_year}/1/")
+
+    @override_settings(DEBUG=True)
+    def test_monthly_summary_shows_invoice_link_for_all_months_when_debug(self) -> None:
+        response = self.client.get(f"/contracts/{self.contract.pk}/monthly-summary/")
+        self.assertContains(response, f"/invoice/{self.future_year}/1/")
+
+    def test_calendar_does_not_offer_invoice_selector(self) -> None:
+        response = self.client.get(f"/contracts/{self.contract.pk}/")
+        self.assertNotContains(response, "Generate invoice")

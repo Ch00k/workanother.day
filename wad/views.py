@@ -1,12 +1,14 @@
+import calendar
 import datetime
 from typing import NotRequired, TypedDict
 
+from django.conf import settings
 from django.contrib.auth import login, logout
 from django.http import Http404, HttpRequest, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from wad.calendar_utils import (
     MonthlySummary,
@@ -548,6 +550,58 @@ def calendar_view(request: HttpRequest, pk: str) -> HttpResponse:
     return render(request, "wad/calendar.html", context)
 
 
+@require_GET  # ty: ignore[invalid-argument-type]
+def invoice_view(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Render the invoice page with the month context embedded as JSON.
+
+    The server only returns auth-gated context (contract name, month name,
+    net working days for prefill). All form handling, validation, money
+    math, and preview rendering happen in the browser. The endpoint is
+    GET-only — POST is explicitly rejected so it's impossible to accidentally
+    route invoice fields through server code.
+    """
+    contract = get_object_or_404(Contract, pk=pk)
+    if contract.user != request.user:
+        raise Http404
+
+    try:
+        month_start = datetime.date(year, month, 1)
+    except ValueError as e:
+        raise Http404 from e
+    month_end = _month_end(year, month)
+
+    if not _can_invoice_month(year, month):
+        raise Http404
+    if month_end < contract.start_date or month_start > contract.end_date:
+        raise Http404
+
+    time_off_entries = list(contract.time_off.all())  # ty: ignore[unresolved-attribute]
+    summary = compute_monthly_summary(contract, time_off_entries)
+    month_info = next((m for m in summary if m["year"] == year and m["month"] == month), None)
+    net_days = float(month_info["net_working_days"]) if month_info else 0.0
+
+    invoice_context = {
+        "contract_id": str(contract.pk),
+        "contract_name": contract.name,
+        "year": year,
+        "month": month,
+        "month_name": month_start.strftime("%B"),
+        "net_working_days": net_days,
+    }
+
+    return render(
+        request,
+        "wad/invoice.html",
+        {
+            "contract": contract,
+            "year": year,
+            "month": month,
+            "month_name": invoice_context["month_name"],
+            "invoice_context": invoice_context,
+        },
+    )
+
+
 def monthly_summary(request: HttpRequest, pk: str) -> HttpResponse:
     contract = get_object_or_404(Contract, pk=pk)
     if contract.user != request.user:
@@ -560,12 +614,32 @@ def monthly_summary(request: HttpRequest, pk: str) -> HttpResponse:
         {
             "month_name": datetime.date(month_info["year"], month_info["month"], 1).strftime("%B"),
             "year": month_info["year"],
+            "month": month_info["month"],
             "summary": month_info,
+            "can_invoice": _can_invoice_month(month_info["year"], month_info["month"]),
         }
         for month_info in summary
     ]
 
-    return render(request, "wad/_monthly_summary.html", {"months": months})
+    return render(request, "wad/_monthly_summary.html", {"months": months, "contract": contract})
+
+
+def _month_end(year: int, month: int) -> datetime.date:
+    last_day = calendar.monthrange(year, month)[1]
+    return datetime.date(year, month, last_day)
+
+
+def _can_invoice_month(year: int, month: int) -> bool:
+    """Whether an invoice can be generated for this month.
+
+    In production, only months whose last day is strictly before today are
+    invoiceable. In development (DEBUG=True) all months are invoiceable so
+    future months can be exercised locally.
+    """
+    if settings.DEBUG:
+        return True
+    today = datetime.datetime.now(tz=datetime.UTC).date()
+    return _month_end(year, month) < today
 
 
 def holiday_comparison(request: HttpRequest, pk: str) -> HttpResponse:

@@ -14,8 +14,8 @@
     });
     </script>
 </head>
-<body class="min-h-screen bg-bg text-[#222] flex flex-col">
-    <nav class="bg-[#333] text-white">
+<body class="min-h-screen bg-bg text-[#222] flex flex-col print:bg-white">
+    <nav class="bg-[#333] text-white print:hidden">
         <div class="mx-auto max-w-[960px] px-4 flex items-center justify-between py-2">
             <a href="{% url 'index' %}" class="text-base sm:text-xl font-bold hover:opacity-80 transition">Work Another Day</a>
             <div class="flex items-center gap-3 sm:gap-6">
@@ -37,13 +37,13 @@
     </nav>
     <main class="flex-1">
     {% if user.guest %}
-    <div class="bg-amber-50 border-b border-amber-300 px-4 py-2 text-sm text-amber-800 text-center">
+    <div class="bg-amber-50 border-b border-amber-300 px-4 py-2 text-sm text-amber-800 text-center print:hidden">
         Want to come back later? <form method="post" action="{% url 'save_account' %}" class="inline">{% csrf_token %}<button type="submit" class="font-semibold underline hover:no-underline">Get a token</button></form> to access your data again.
     </div>
     {% endif %}
     {% block body %}{% endblock %}
     </main>
-    <footer class="text-center text-xs text-[#999] py-2">
+    <footer class="text-center text-xs text-[#999] py-2 print:hidden">
         &copy; {% now "Y" %} workanother.day
     </footer>
     <dialog id="about-modal" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"

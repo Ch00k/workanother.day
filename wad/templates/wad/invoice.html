@@ -1,0 +1,521 @@
+{% extends "wad/base.html" %}
+{% block title %}Invoice - {{ month_name }} {{ year }} - Work Another Day{% endblock %}
+
+{% block body %}
+<style>
+    .invoice-page .money { font-variant-numeric: tabular-nums; }
+    @media print {
+        #invoice-form-view { display: none !important; }
+        .invoice-wrap { max-width: none !important; margin: 0 !important; padding: 0 !important; }
+        .invoice-page {
+            margin: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            max-width: none !important;
+            padding: 20mm 18mm !important;
+        }
+        @page { size: A4; margin: 0; }
+    }
+</style>
+
+{{ invoice_context|json_script:"invoice-context" }}
+
+<div id="invoice-form-view" class="mx-auto max-w-[960px] px-4 mt-6">
+    <h1 class="text-[28px] font-bold tracking-tight">Invoice - {{ month_name }} {{ year }}</h1>
+    <div class="text-xs text-[#888] mt-1">{{ contract.name }}</div>
+
+    <div class="mt-5 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
+        <form id="invoice-form" class="grid gap-4 sm:grid-cols-2">
+            <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-2">From</div>
+            <div class="sm:col-span-2">
+                <label for="from_name" class="block text-sm font-medium text-[#666] mb-1">Business / legal name</label>
+                <input type="text" id="from_name" name="from_name" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div class="sm:col-span-2">
+                <label for="from_address" class="block text-sm font-medium text-[#666] mb-1">Address (one line per row)</label>
+                <textarea id="from_address" name="from_address" rows="3" required
+                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+            </div>
+            <div class="sm:col-span-2">
+                <label for="from_tax_ids" class="block text-sm font-medium text-[#666] mb-1">Tax IDs (optional, one per row)</label>
+                <textarea id="from_tax_ids" name="from_tax_ids" rows="2" placeholder="KVK: 12345678&#10;BTW-ID: NL000000000B01"
+                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+            </div>
+
+            <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Billed to</div>
+            <div class="sm:col-span-2">
+                <label for="to_name" class="block text-sm font-medium text-[#666] mb-1">Client name</label>
+                <input type="text" id="to_name" name="to_name" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div class="sm:col-span-2">
+                <label for="to_address" class="block text-sm font-medium text-[#666] mb-1">Client address (one line per row)</label>
+                <textarea id="to_address" name="to_address" rows="3" required
+                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+            </div>
+            <div class="sm:col-span-2">
+                <label for="to_tax_ids" class="block text-sm font-medium text-[#666] mb-1">Client tax IDs (optional, one per row)</label>
+                <textarea id="to_tax_ids" name="to_tax_ids" rows="2"
+                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+            </div>
+
+            <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Invoice</div>
+            <div>
+                <label for="invoice_number" class="block text-sm font-medium text-[#666] mb-1">Invoice number</label>
+                <input type="text" id="invoice_number" name="invoice_number" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="currency" class="block text-sm font-medium text-[#666] mb-1">Currency</label>
+                <input type="text" id="currency" name="currency" maxlength="3" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="issue_date" class="block text-sm font-medium text-[#666] mb-1">Issue date</label>
+                <input type="date" id="issue_date" name="issue_date" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="due_date" class="block text-sm font-medium text-[#666] mb-1">Due date</label>
+                <input type="date" id="due_date" name="due_date" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+
+            <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Line items</div>
+            <div class="sm:col-span-2">
+                <div class="hidden sm:flex gap-2 mb-2 text-sm font-medium text-[#666] pr-[44px]">
+                    <div class="flex-[66]">Description</div>
+                    <div class="flex-[17]">Qty</div>
+                    <div class="flex-[17]">Price</div>
+                </div>
+                <div class="space-y-3" id="line-items"></div>
+                <button type="button" id="add-line-button"
+                        class="mt-3 text-sm text-[#666] underline hover:no-underline bg-transparent border-none p-0">
+                    + Add line
+                </button>
+            </div>
+
+            <template id="line-item-template">
+                <div class="line-item flex gap-3 items-end sm:items-center">
+                    <div class="flex-1 min-w-0 flex flex-col gap-3 sm:flex-row sm:gap-2">
+                        <label class="block sm:flex-[66] min-w-0">
+                            <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Description</span>
+                            <input type="text" data-line="description" required
+                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        </label>
+                        <label class="block sm:flex-[17]">
+                            <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Qty</span>
+                            <input type="number" inputmode="decimal" data-line="days" required min="0" step="0.5"
+                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        </label>
+                        <label class="block sm:flex-[17]">
+                            <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Price</span>
+                            <input type="number" inputmode="decimal" data-line="rate" required min="0" step="any"
+                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        </label>
+                    </div>
+                    <button type="button" class="remove-line-button text-[#999] hover:text-[#666] text-xl leading-none h-11 w-8 bg-transparent border-none p-0 shrink-0" aria-label="Remove line">&times;</button>
+                </div>
+            </template>
+
+            <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">VAT</div>
+            <div>
+                <label for="vat_rate" class="block text-sm font-medium text-[#666] mb-1">VAT rate (%)</label>
+                <input type="text" inputmode="decimal" id="vat_rate" name="vat_rate" pattern="^\s*\d+(\.\d+)?\s*$"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div class="sm:col-span-2">
+                <label for="vat_note" class="block text-sm font-medium text-[#666] mb-1">VAT note (optional)</label>
+                <textarea id="vat_note" name="vat_note" rows="2" placeholder="e.g. No VAT charged - reverse charge applies"
+                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+            </div>
+
+            <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Payment</div>
+            <div class="sm:col-span-2">
+                <label for="account_holder" class="block text-sm font-medium text-[#666] mb-1">Account holder</label>
+                <input type="text" id="account_holder" name="account_holder" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="iban" class="block text-sm font-medium text-[#666] mb-1">IBAN</label>
+                <input type="text" id="iban" name="iban" required
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="bic" class="block text-sm font-medium text-[#666] mb-1">BIC / SWIFT (optional)</label>
+                <input type="text" id="bic" name="bic"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div class="sm:col-span-2">
+                <label for="reference" class="block text-sm font-medium text-[#666] mb-1">Payment reference (optional, defaults to invoice number)</label>
+                <input type="text" id="reference" name="reference"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+
+            <div class="sm:col-span-2 flex gap-3 items-center mt-2">
+                <button type="submit"
+                        class="rounded-[10px] bg-[#333] text-white px-6 py-2.5 text-sm font-semibold hover:opacity-90 transition">
+                    Preview invoice
+                </button>
+                <a href="{% url 'calendar' pk=contract.pk %}" class="rounded-[10px] border-2 border-[#ddd] px-6 py-2.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="invoice-preview-view" class="invoice-wrap mx-auto max-w-[860px] px-4 mt-6 mb-8" style="display:none">
+    <div id="invoice-controls" class="flex items-center justify-between flex-wrap gap-2 mb-4 print:hidden">
+        <div>
+            <h1 class="text-[28px] font-bold tracking-tight leading-tight">Invoice <span data-field="header_number"></span></h1>
+            <div class="text-xs text-[#888]">{{ contract.name }} &middot; <span data-field="header_period"></span></div>
+        </div>
+        <div class="flex gap-2">
+            <button type="button" id="edit-button"
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                Edit
+            </button>
+            <button type="button" onclick="window.print()"
+                    class="rounded-[10px] bg-[#333] text-white px-4 py-1.5 text-sm font-semibold hover:opacity-90 transition">
+                Download PDF
+            </button>
+        </div>
+    </div>
+
+    <div class="invoice-page bg-white rounded-[14px] shadow-sm border border-black/5 px-8 py-10 sm:px-14 sm:py-14 text-[#222]">
+        <div class="flex items-start justify-between pb-7 border-b border-[#eee] gap-6">
+            <div>
+                <h2 class="text-[24px] font-bold tracking-tight leading-tight" data-field="from_name"></h2>
+            </div>
+            <div class="text-right">
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1">Invoice</div>
+                <div class="text-[20px] font-bold leading-none mb-3">#<span data-field="number"></span></div>
+                <div class="inline-block text-left text-sm space-y-0.5">
+                    <div><span class="inline-block w-[110px] text-[#888]">Issue date</span><span data-field="issue_date"></span></div>
+                    <div><span class="inline-block w-[110px] text-[#888]">Service period</span><span data-field="service_period"></span></div>
+                    <div><span class="inline-block w-[110px] text-[#888]">Due date</span><span data-field="due_date"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-10 mt-8 mb-10">
+            <div>
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">From</div>
+                <div class="font-semibold text-[15px] mb-1" data-field="from_name_body"></div>
+                <div class="text-sm leading-relaxed" data-field="from_address"></div>
+                <div class="mt-2 text-sm text-[#888] leading-relaxed" data-show="from_tax_ids" data-field="from_tax_ids" style="display:none"></div>
+            </div>
+            <div>
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">Billed to</div>
+                <div class="font-semibold text-[15px] mb-1" data-field="to_name"></div>
+                <div class="text-sm leading-relaxed" data-field="to_address"></div>
+                <div class="mt-2 text-sm text-[#888] leading-relaxed" data-show="to_tax_ids" data-field="to_tax_ids" style="display:none"></div>
+            </div>
+        </div>
+
+        <table class="w-full border-collapse mb-6">
+            <thead>
+                <tr>
+                    <th class="text-left py-2.5 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333] w-[55%]">Description</th>
+                    <th class="text-right py-2.5 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333]">Qty</th>
+                    <th class="text-right py-2.5 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333]">Price</th>
+                    <th class="text-right py-2.5 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333]">Amount</th>
+                </tr>
+            </thead>
+            <tbody class="text-[15px]" id="preview-line-rows"></tbody>
+        </table>
+
+        <template id="preview-line-template">
+            <tr class="border-b border-[#eee]">
+                <td class="py-4 px-3 align-top">
+                    <div class="font-semibold" data-line-preview="description"></div>
+                </td>
+                <td class="py-4 px-3 text-right align-top money" data-line-preview="days"></td>
+                <td class="py-4 px-3 text-right align-top money" data-line-preview="rate"></td>
+                <td class="py-4 px-3 text-right align-top money" data-line-preview="amount"></td>
+            </tr>
+        </template>
+
+        <div class="flex justify-end mb-8">
+            <table class="min-w-[320px]">
+                <tr>
+                    <td class="py-1.5 px-3 text-right text-[#888] text-sm">Subtotal</td>
+                    <td class="py-1.5 px-3 text-right text-sm money min-w-[140px]" data-field="subtotal"></td>
+                </tr>
+                <tr>
+                    <td class="py-1.5 px-3 text-right text-[#888] text-sm">VAT</td>
+                    <td class="py-1.5 px-3 text-right text-sm money" data-field="vat"></td>
+                </tr>
+                <tr>
+                    <td class="pt-3 px-3 text-right font-semibold text-[15px] border-t-2 border-[#333]">Total due</td>
+                    <td class="pt-3 px-3 text-right font-semibold text-[15px] money border-t-2 border-[#333]" data-field="total"></td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="bg-bg border-l-[3px] border-[#333] px-5 py-3 mb-8 text-sm leading-relaxed" data-show="vat_note" data-field="vat_note" style="display:none"></div>
+
+        <div class="pt-6 border-t border-[#eee]">
+            <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-3">Payment details</div>
+            <div class="space-y-1 text-sm">
+                <div class="flex"><span class="w-[110px] text-[#888]">Account holder</span><span data-field="account_holder"></span></div>
+                <div class="flex"><span class="w-[110px] text-[#888]">IBAN</span><span class="money" data-field="iban"></span></div>
+                <div class="flex" data-show="bic" style="display:none"><span class="w-[110px] text-[#888]">BIC / SWIFT</span><span class="money" data-field="bic"></span></div>
+                <div class="flex"><span class="w-[110px] text-[#888]">Reference</span><span data-field="reference"></span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+    const ctx = JSON.parse(document.getElementById('invoice-context').textContent);
+    const form = document.getElementById('invoice-form');
+    const formView = document.getElementById('invoice-form-view');
+    const previewView = document.getElementById('invoice-preview-view');
+
+    const pad2 = n => String(n).padStart(2, '0');
+    const isoDate = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+    const dateFmt = new Intl.DateTimeFormat('en', { day: 'numeric', month: 'long', year: 'numeric' });
+    const moneyFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtMoney = (currency, n) => `${currency} ${moneyFmt.format(n)}`;
+    const fmtDays = n => n.toFixed(2).replace(/\.?0+$/, '');
+    const fmtDate = iso => {
+        const [y, m, d] = iso.split('-').map(Number);
+        return dateFmt.format(new Date(y, m - 1, d));
+    };
+    const round2 = n => Math.round(n * 100) / 100;
+
+    const STORAGE_KEY = `wad.invoice.${ctx.contract_id}`;
+    const SAVED_FIELDS = [
+        'from_name', 'from_address', 'from_tax_ids',
+        'to_name', 'to_address', 'to_tax_ids',
+        'currency', 'vat_rate', 'vat_note',
+        'account_holder', 'iban', 'bic',
+    ];
+
+    const linesContainer = document.getElementById('line-items');
+    const lineTemplate = document.getElementById('line-item-template');
+
+    function addLine() {
+        const row = lineTemplate.content.cloneNode(true).firstElementChild;
+        linesContainer.appendChild(row);
+        updateRemoveButtons();
+        return row;
+    }
+
+    function removeLine(row) {
+        if (linesContainer.children.length <= 1) return;
+        row.remove();
+        updateRemoveButtons();
+    }
+
+    function updateRemoveButtons() {
+        const onlyOne = linesContainer.children.length === 1;
+        linesContainer.querySelectorAll('.remove-line-button').forEach(btn => {
+            btn.disabled = onlyOne;
+            btn.style.opacity = onlyOne ? '0.3' : '';
+            btn.style.cursor = onlyOne ? 'not-allowed' : '';
+        });
+    }
+
+    function readLines() {
+        return [...linesContainer.children].map(row => ({
+            description: row.querySelector('[data-line="description"]').value.trim(),
+            days: Number(row.querySelector('[data-line="days"]').value) || 0,
+            rate: Number(row.querySelector('[data-line="rate"]').value) || 0,
+        }));
+    }
+
+    function loadSaved() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            return raw ? JSON.parse(raw) : null;
+        } catch {
+            return null;
+        }
+    }
+
+    function saveState(invoiceNumber) {
+        const data = {};
+        for (const name of SAVED_FIELDS) {
+            const field = form.elements[name];
+            if (field) data[name] = field.value;
+        }
+        // Persist every line (raw input values, unparsed, to preserve formatting).
+        data.lines = [...linesContainer.children].map(row => ({
+            description: row.querySelector('[data-line="description"]').value,
+            days: row.querySelector('[data-line="days"]').value,
+            rate: row.querySelector('[data-line="rate"]').value,
+        }));
+
+        const existing = loadSaved();
+        const counters = { ...(existing?.invoice_counters ?? {}) };
+        const match = invoiceNumber.match(/^\s*(\d{4})(\d{1,2})-(\d+)\s*$/);
+        if (match) {
+            const key = `${match[1]}${pad2(parseInt(match[2], 10))}`;
+            const seq = parseInt(match[3], 10);
+            counters[key] = Math.max(counters[key] ?? 0, seq);
+        }
+        data.invoice_counters = counters;
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch {
+            // Storage unavailable (private mode, quota); silently skip.
+        }
+    }
+
+    function prefill() {
+        const saved = loadSaved();
+        const today = new Date();
+        const due = new Date(today);
+        due.setDate(due.getDate() + 30);
+
+        // Saved fields: fall back to sane defaults for currency/vat_rate only.
+        const savedDefaults = {
+            currency: saved?.currency ?? 'EUR',
+            vat_rate: saved?.vat_rate ?? '0',
+        };
+        for (const name of SAVED_FIELDS) {
+            const field = form.elements[name];
+            if (!field || field.value) continue;
+            const value = saved?.[name] ?? savedDefaults[name] ?? '';
+            if (value !== '') field.value = value;
+        }
+
+        // Restore saved lines (or synthesize one from a legacy `rate`-only save).
+        const savedLines = saved?.lines ?? (saved?.rate ? [{ rate: saved.rate }] : []);
+        while (linesContainer.children.length < Math.max(1, savedLines.length)) addLine();
+        updateRemoveButtons();
+        [...linesContainer.children].forEach((row, i) => {
+            const savedLine = savedLines[i];
+            if (!savedLine) return;
+            const descInput = row.querySelector('[data-line="description"]');
+            const daysInput = row.querySelector('[data-line="days"]');
+            const rateInput = row.querySelector('[data-line="rate"]');
+            if (!descInput.value && savedLine.description) descInput.value = savedLine.description;
+            if (!daysInput.value && savedLine.days) daysInput.value = savedLine.days;
+            if (!rateInput.value && savedLine.rate) rateInput.value = savedLine.rate;
+        });
+
+        // First line's description and qty always reflect the current month.
+        const firstLine = linesContainer.children[0];
+        firstLine.querySelector('[data-line="description"]').value =
+            `Software development services - ${ctx.month_name} ${ctx.year}`;
+        firstLine.querySelector('[data-line="days"]').value = fmtDays(Number(ctx.net_working_days));
+
+        // Month-specific: always overwrite on each open.
+        const periodKey = `${ctx.year}${pad2(ctx.month)}`;
+        const counters = saved?.invoice_counters ?? {};
+        const nextSeq = (counters[periodKey] ?? 0) + 1;
+        form.elements.invoice_number.value = `${periodKey}-${nextSeq}`;
+        form.elements.issue_date.value = isoDate(today);
+        form.elements.due_date.value = isoDate(due);
+    }
+
+    const setText = (field, value) => {
+        document.querySelectorAll(`[data-field="${field}"]`).forEach(el => { el.textContent = value; });
+    };
+    const setLines = (field, value) => {
+        const escape = document.createElement('div');
+        escape.textContent = value;
+        const html = escape.innerHTML.replace(/\n/g, '<br>');
+        document.querySelectorAll(`[data-field="${field}"]`).forEach(el => { el.innerHTML = html; });
+    };
+    const setShow = (name, show) => {
+        document.querySelectorAll(`[data-show="${name}"]`).forEach(el => {
+            el.style.display = show ? '' : 'none';
+        });
+    };
+
+    function renderPreview() {
+        const get = name => (form.elements[name] ? form.elements[name].value.trim() : '');
+        const currency = (get('currency') || 'EUR').toUpperCase();
+        const vatRate = Number(get('vat_rate')) || 0;
+
+        const lines = readLines();
+        const lineAmounts = lines.map(line => round2(line.days * line.rate));
+        const subtotal = round2(lineAmounts.reduce((a, b) => a + b, 0));
+        const vat = round2(subtotal * vatRate / 100);
+        const total = round2(subtotal + vat);
+        const invoiceNumber = get('invoice_number');
+        const reference = get('reference') || `Invoice ${invoiceNumber}`;
+        const period = `${ctx.month_name} ${ctx.year}`;
+
+        setText('from_name', get('from_name'));
+        setText('from_name_body', get('from_name'));
+        setLines('from_address', get('from_address'));
+        setLines('from_tax_ids', get('from_tax_ids'));
+        setShow('from_tax_ids', !!get('from_tax_ids'));
+
+        setText('to_name', get('to_name'));
+        setLines('to_address', get('to_address'));
+        setLines('to_tax_ids', get('to_tax_ids'));
+        setShow('to_tax_ids', !!get('to_tax_ids'));
+
+        setText('number', invoiceNumber);
+        setText('header_number', invoiceNumber);
+        setText('issue_date', fmtDate(get('issue_date')));
+        setText('service_period', period);
+        setText('header_period', period);
+        setText('due_date', fmtDate(get('due_date')));
+
+        const tbody = document.getElementById('preview-line-rows');
+        const previewLineTemplate = document.getElementById('preview-line-template');
+        tbody.replaceChildren();
+        lines.forEach((line, i) => {
+            const row = previewLineTemplate.content.cloneNode(true).firstElementChild;
+            row.querySelector('[data-line-preview="description"]').textContent = line.description;
+            row.querySelector('[data-line-preview="days"]').textContent = fmtDays(line.days);
+            row.querySelector('[data-line-preview="rate"]').textContent = fmtMoney(currency, line.rate);
+            row.querySelector('[data-line-preview="amount"]').textContent = fmtMoney(currency, lineAmounts[i]);
+            tbody.appendChild(row);
+        });
+
+        setText('subtotal', fmtMoney(currency, subtotal));
+        setText('vat', fmtMoney(currency, vat));
+        setText('total', fmtMoney(currency, total));
+
+        setLines('vat_note', get('vat_note'));
+        setShow('vat_note', !!get('vat_note'));
+
+        setText('account_holder', get('account_holder'));
+        setText('iban', get('iban'));
+        setText('bic', get('bic'));
+        setShow('bic', !!get('bic'));
+        setText('reference', reference);
+
+        saveState(invoiceNumber);
+
+        formView.style.display = 'none';
+        previewView.style.display = '';
+        window.scrollTo(0, 0);
+    }
+
+    function showForm() {
+        previewView.style.display = 'none';
+        formView.style.display = '';
+        window.scrollTo(0, 0);
+    }
+
+    form.addEventListener('submit', e => {
+        e.preventDefault();
+        renderPreview();
+    });
+    document.getElementById('edit-button').addEventListener('click', showForm);
+    document.getElementById('add-line-button').addEventListener('click', () => {
+        const row = addLine();
+        row.querySelector('[data-line="description"]').focus();
+    });
+    linesContainer.addEventListener('click', e => {
+        const btn = e.target.closest('.remove-line-button');
+        if (!btn || btn.disabled) return;
+        const row = btn.closest('.line-item');
+        if (row) removeLine(row);
+    });
+    prefill();
+})();
+</script>
+{% endblock %}
