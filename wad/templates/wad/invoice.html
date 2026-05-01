@@ -72,15 +72,22 @@
                 <input type="text" id="currency" name="currency" maxlength="3" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
-            <div>
-                <label for="issue_date" class="block text-sm font-medium text-[#666] mb-1">Issue date</label>
-                <input type="date" id="issue_date" name="issue_date" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
-            </div>
-            <div>
-                <label for="due_date" class="block text-sm font-medium text-[#666] mb-1">Due date</label>
-                <input type="date" id="due_date" name="due_date" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            <div class="sm:col-span-2 grid gap-4 sm:grid-cols-3">
+                <div>
+                    <label for="issue_date" class="block text-sm font-medium text-[#666] mb-1">Issue date</label>
+                    <input type="date" id="issue_date" name="issue_date" required
+                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                </div>
+                <div>
+                    <label for="payment_terms" class="block text-sm font-medium text-[#666] mb-1">Payment terms (days)</label>
+                    <input type="number" inputmode="numeric" id="payment_terms" name="payment_terms" min="0" step="1"
+                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                </div>
+                <div>
+                    <label for="due_date" class="block text-sm font-medium text-[#666] mb-1">Due date</label>
+                    <input type="date" id="due_date" name="due_date" required
+                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                </div>
             </div>
 
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Line items</div>
@@ -292,7 +299,7 @@
     const SAVED_FIELDS = [
         'from_name', 'from_address', 'from_tax_ids',
         'to_name', 'to_address', 'to_tax_ids',
-        'currency', 'vat_rate', 'vat_note',
+        'currency', 'vat_rate', 'vat_note', 'payment_terms',
         'account_holder', 'iban', 'bic',
     ];
 
@@ -370,13 +377,12 @@
     function prefill() {
         const saved = loadSaved();
         const today = new Date();
-        const due = new Date(today);
-        due.setDate(due.getDate() + 30);
 
-        // Saved fields: fall back to sane defaults for currency/vat_rate only.
+        // Saved fields: fall back to sane defaults for currency/vat_rate/payment_terms only.
         const savedDefaults = {
             currency: saved?.currency ?? 'EUR',
             vat_rate: saved?.vat_rate ?? '0',
+            payment_terms: saved?.payment_terms ?? '35',
         };
         for (const name of SAVED_FIELDS) {
             const field = form.elements[name];
@@ -412,6 +418,16 @@
         const nextSeq = (counters[periodKey] ?? 0) + 1;
         form.elements.invoice_number.value = `${periodKey}-${nextSeq}`;
         form.elements.issue_date.value = isoDate(today);
+        recomputeDueDate();
+    }
+
+    function recomputeDueDate() {
+        const issueIso = form.elements.issue_date.value;
+        const days = Number(form.elements.payment_terms.value);
+        if (!issueIso || !Number.isFinite(days) || days < 0) return;
+        const [y, m, d] = issueIso.split('-').map(Number);
+        const due = new Date(y, m - 1, d);
+        due.setDate(due.getDate() + days);
         form.elements.due_date.value = isoDate(due);
     }
 
@@ -515,6 +531,8 @@
         const row = btn.closest('.line-item');
         if (row) removeLine(row);
     });
+    form.elements.issue_date.addEventListener('input', recomputeDueDate);
+    form.elements.payment_terms.addEventListener('input', recomputeDueDate);
     prefill();
 })();
 </script>
