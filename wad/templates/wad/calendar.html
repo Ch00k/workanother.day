@@ -175,9 +175,9 @@
         <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
             <div class="flex justify-between items-baseline mb-3">
                 <div class="font-semibold text-[15px]">{{ month.month_name }} {{ month.year }}</div>
-                {% if month.time_off_count > 0 %}
+                {% if month.summary.time_off_days > 0 %}
                 <div class="text-[11px] text-booked font-semibold bg-booked-light px-2 py-0.5 rounded-[10px]">
-                    {{ month.time_off_count }} off
+                    {{ month.summary.time_off_days|floatformat:"-1" }} off
                 </div>
                 {% endif %}
             </div>

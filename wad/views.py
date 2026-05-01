@@ -52,7 +52,6 @@ class MonthContext(TypedDict):
     month_name: str
     weeks: list[list[datetime.date | None]]
     summary: MonthlySummary
-    time_off_count: int
 
 
 class CalendarContext(TypedDict):
@@ -702,8 +701,6 @@ def _build_calendar_context(contract: Contract, time_off_entries: list[TimeOff] 
         year, month = month_info["year"], month_info["month"]
         weeks = get_month_calendar(year, month)
 
-        month_time_off_count = sum(1 for e in time_off_entries if e.date.year == year and e.date.month == month)
-
         months.append(
             {
                 "year": year,
@@ -711,7 +708,6 @@ def _build_calendar_context(contract: Contract, time_off_entries: list[TimeOff] 
                 "month_name": datetime.date(year, month, 1).strftime("%B"),
                 "weeks": weeks,
                 "summary": month_info,
-                "time_off_count": month_time_off_count,
             }
         )
 
