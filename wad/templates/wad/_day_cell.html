@@ -50,7 +50,7 @@
      hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
 
      class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-half-day text-[#222] cursor-pointer select-none hover:scale-110 hover:shadow-md transition
-            {% if is_today %}ring-2 ring-[#222]{% endif %}"
+            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
      {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
     {{ day_num }}
 </div>
@@ -59,7 +59,7 @@
      hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
 
      class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold bg-booked text-booked-light cursor-pointer select-none hover:scale-110 hover:shadow-md transition
-            {% if is_today %}ring-2 ring-[#222]{% endif %}"
+            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
      {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
     {{ day_num }}
 </div>
@@ -68,7 +68,7 @@
      hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
 
      class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold text-white cursor-pointer select-none bg-overlap hover:scale-110 hover:shadow-md transition
-            {% if is_today %}ring-2 ring-[#222]{% endif %}"
+            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
      title="{{ home_title }} | {{ client_title }}">
     {{ day_num }}
 </div>
@@ -77,7 +77,7 @@
      hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
 
      class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-home-holiday text-white cursor-pointer select-none hover:scale-110 hover:shadow-md transition
-            {% if is_today %}ring-2 ring-[#222]{% endif %}"
+            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
      title="{{ home_title }}">
     {{ day_num }}
 </div>
@@ -86,7 +86,7 @@
      hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
 
      class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-client-holiday text-white cursor-pointer select-none hover:scale-110 hover:shadow-md transition
-            {% if is_today %}ring-2 ring-[#222]{% endif %}"
+            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
      title="{{ client_title }}">
     {{ day_num }}
 </div>
@@ -95,7 +95,7 @@
      hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
 
      class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] cursor-pointer select-none hover:scale-110 hover:shadow-md transition
-            {% if is_today %}ring-2 ring-[#222]{% endif %}"
+            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
      {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
     {{ day_num }}
 </div>
