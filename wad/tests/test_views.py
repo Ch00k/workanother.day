@@ -1,6 +1,9 @@
 import datetime
+import socket
 import uuid
+from unittest.mock import MagicMock, patch
 
+import httpx
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 
@@ -678,3 +681,347 @@ class InvoiceViewTests(TestCase):
     def test_calendar_does_not_offer_invoice_selector(self) -> None:
         response = self.client.get(f"/contracts/{self.contract.pk}/")
         self.assertNotContains(response, "Generate invoice")
+
+
+CALAMARI_SAMPLE = (
+    "BEGIN:VCALENDAR\r\n"
+    "VERSION:2.0\r\n"
+    "BEGIN:VEVENT\r\n"
+    "DTSTART;VALUE=DATE:20260406\r\n"
+    "DTEND;VALUE=DATE:20260407\r\n"
+    "END:VEVENT\r\n"
+    "BEGIN:VEVENT\r\n"
+    "DTSTART:20260417T120000Z\r\n"
+    "DTEND:20260417T160000Z\r\n"
+    "END:VEVENT\r\n"
+    "END:VCALENDAR\r\n"
+)
+
+
+def _patch_public_resolver(test_case: TestCase) -> None:
+    """Resolve any external calendar host to a public IP for the duration of a test.
+
+    Keeps the SSRF guard's DNS lookup deterministic and offline; the guard itself is
+    exercised directly in the service-layer tests.
+    """
+    resolver = patch(
+        "wad.services.socket.getaddrinfo",
+        return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))],
+    )
+    resolver.start()
+    test_case.addCleanup(resolver.stop)
+
+
+def _mock_httpx_response(text: str, status_code: int = 200) -> MagicMock:
+    response = MagicMock()
+    response.text = text
+    response.status_code = status_code
+    response.raise_for_status = MagicMock()
+    if status_code >= 400:
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "boom",
+            request=MagicMock(),
+            response=response,
+        )
+    return response
+
+
+class ContractCreateUrlFieldTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test", is_staff=True)
+        self.client.force_login(self.user)
+        self.valid_data = {
+            "name": "Acme",
+            "home_country": "NL",
+            "client_country": "CH",
+            "max_working_days": "200",
+            "working_hours_per_day": "8",
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+        }
+
+    def test_post_persists_external_calendar_url(self) -> None:
+        data = {**self.valid_data, "external_calendar_url": "https://example.com/feed.ics"}
+        self.client.post("/contracts/new/", data)
+        contract = Contract.objects.get(name="Acme")
+        assert contract.external_calendar_url == "https://example.com/feed.ics"
+
+    def test_post_without_url_stores_empty(self) -> None:
+        self.client.post("/contracts/new/", self.valid_data)
+        contract = Contract.objects.get(name="Acme")
+        assert contract.external_calendar_url == ""
+
+    def test_post_rejects_malformed_url(self) -> None:
+        data = {**self.valid_data, "external_calendar_url": "not a url"}
+        response = self.client.post("/contracts/new/", data)
+        assert response.status_code == 200
+        self.assertContains(response, "External calendar URL is not a valid URL.")
+        assert not Contract.objects.exists()
+
+
+class ContractEditUrlFieldTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test", is_staff=True)
+        self.client.force_login(self.user)
+        self.contract = Contract.objects.create(
+            user=self.user,
+            name="Acme",
+            home_country="NL",
+            client_country="CH",
+            max_working_days=200,
+            start_date="2026-01-01",
+            end_date="2026-12-31",
+        )
+
+    def test_post_updates_external_calendar_url(self) -> None:
+        data = {
+            "name": "Acme",
+            "home_country": "NL",
+            "client_country": "CH",
+            "max_working_days": "200",
+            "working_hours_per_day": "8",
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+            "external_calendar_url": "https://example.com/feed.ics",
+        }
+        self.client.post(f"/contracts/{self.contract.pk}/edit/", data)
+        self.contract.refresh_from_db()
+        assert self.contract.external_calendar_url == "https://example.com/feed.ics"
+
+    def test_post_clears_external_calendar_url(self) -> None:
+        self.contract.external_calendar_url = "https://example.com/feed.ics"
+        self.contract.save()
+        data = {
+            "name": "Acme",
+            "home_country": "NL",
+            "client_country": "CH",
+            "max_working_days": "200",
+            "working_hours_per_day": "8",
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+            "external_calendar_url": "",
+        }
+        self.client.post(f"/contracts/{self.contract.pk}/edit/", data)
+        self.contract.refresh_from_db()
+        assert self.contract.external_calendar_url == ""
+
+
+class SyncExternalCalendarTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test", is_staff=True)
+        self.client.force_login(self.user)
+        self.contract = Contract.objects.create(
+            user=self.user,
+            name="Acme",
+            home_country="NL",
+            client_country="CH",
+            max_working_days=200,
+            working_hours_per_day=8,
+            start_date="2026-01-01",
+            end_date="2026-12-31",
+            external_calendar_url="https://example.com/feed.ics",
+        )
+        _patch_public_resolver(self)
+
+    def _url(self) -> str:
+        return f"/contracts/{self.contract.pk}/sync-external/"
+
+    @patch("wad.services.httpx.get")
+    def test_in_sync_when_calendars_match(self, mock_get: MagicMock) -> None:
+        TimeOff.objects.create(contract=self.contract, date="2026-04-06", hours=8)
+        TimeOff.objects.create(contract=self.contract, date="2026-04-17", hours=4)
+        mock_get.return_value = _mock_httpx_response(CALAMARI_SAMPLE)
+        response = self.client.get(self._url())
+        assert response.status_code == 200
+        self.assertContains(response, "External calendar matches your bookings")
+
+    @patch("wad.services.httpx.get")
+    def test_reports_external_only(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _mock_httpx_response(CALAMARI_SAMPLE)
+        response = self.client.get(self._url())
+        self.assertContains(response, "Missing from Acme")
+        self.assertContains(response, "Apr 6, 2026")
+        self.assertContains(response, "Apr 17, 2026")
+
+    @patch("wad.services.httpx.get")
+    def test_reports_wad_only(self, mock_get: MagicMock) -> None:
+        TimeOff.objects.create(contract=self.contract, date="2026-05-12", hours=8)
+        # Sample has 2026-04-06 and 2026-04-17 only.
+        mock_get.return_value = _mock_httpx_response(CALAMARI_SAMPLE)
+        response = self.client.get(self._url())
+        self.assertContains(response, "Missing from external calendar")
+        self.assertContains(response, "May 12, 2026")  # Tue, May 12 — matches D, M j, Y format
+
+    @patch("wad.services.httpx.get")
+    def test_reports_mismatch(self, mock_get: MagicMock) -> None:
+        # Sample says 4h on Apr 17; create a full 8h WAD entry to mismatch.
+        TimeOff.objects.create(contract=self.contract, date="2026-04-06", hours=8)
+        TimeOff.objects.create(contract=self.contract, date="2026-04-17", hours=8)
+        mock_get.return_value = _mock_httpx_response(CALAMARI_SAMPLE)
+        response = self.client.get(self._url())
+        self.assertContains(response, "Different hours on same day")
+        self.assertContains(response, "8h here vs 4h in external")
+
+    @patch("wad.services.httpx.get")
+    def test_fetch_error_renders_message(self, mock_get: MagicMock) -> None:
+        mock_get.side_effect = httpx.ConnectError("no route to host")
+        response = self.client.get(self._url())
+        assert response.status_code == 200
+        self.assertContains(response, "Could not fetch external calendar")
+
+    @patch("wad.services.httpx.get")
+    def test_malformed_feed_renders_message(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _mock_httpx_response("not iCalendar content")
+        response = self.client.get(self._url())
+        assert response.status_code == 200
+        self.assertContains(response, "not valid iCalendar")
+
+    def test_404_when_url_not_set(self) -> None:
+        self.contract.external_calendar_url = ""
+        self.contract.save()
+        response = self.client.get(self._url())
+        assert response.status_code == 404
+
+    def test_404_for_other_user(self) -> None:
+        other = User.objects.create_user(username="other")
+        self.client.force_login(other)
+        response = self.client.get(self._url())
+        assert response.status_code == 404
+
+    def test_calendar_page_shows_sync_button_when_url_set(self) -> None:
+        response = self.client.get(f"/contracts/{self.contract.pk}/")
+        self.assertContains(response, "Sync with external calendar")
+
+    def test_calendar_page_hides_sync_button_when_no_url(self) -> None:
+        self.contract.external_calendar_url = ""
+        self.contract.save()
+        response = self.client.get(f"/contracts/{self.contract.pk}/")
+        self.assertNotContains(response, "Sync with external calendar")
+
+
+class InvoiceExternalSyncTests(TestCase):
+    """The invoice page surfaces sync warnings scoped to the invoice month."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test", is_staff=True)
+        self.client.force_login(self.user)
+        self.contract = Contract.objects.create(
+            user=self.user,
+            name="Acme",
+            home_country="NL",
+            client_country="CH",
+            max_working_days=200,
+            working_hours_per_day=8,
+            start_date="2026-01-01",
+            end_date="2026-12-31",
+            external_calendar_url="https://example.com/feed.ics",
+        )
+        _patch_public_resolver(self)
+
+    @override_settings(DEBUG=True)
+    @patch("wad.services.httpx.get")
+    def test_invoice_page_renders_sync_warnings(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _mock_httpx_response(CALAMARI_SAMPLE)
+        response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/4/")
+        assert response.status_code == 200
+        # April invoice: both April events appear, no May events.
+        self.assertContains(response, "Missing from Acme")
+        self.assertContains(response, "Apr 6, 2026")
+
+    @override_settings(DEBUG=True)
+    @patch("wad.services.httpx.get")
+    def test_invoice_page_clips_to_invoice_month(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _mock_httpx_response(CALAMARI_SAMPLE)
+        response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/5/")
+        # May invoice: external has nothing in May -> should be in sync.
+        self.assertContains(response, "External calendar matches your bookings")
+
+    @override_settings(DEBUG=True)
+    @patch("wad.services.httpx.get")
+    def test_invoice_page_clips_to_contract_period(self, mock_get: MagicMock) -> None:
+        """Time off before the contract starts isn't reported as missing on the invoice.
+
+        The contract starts Apr 15, so the external Apr 6 event falls outside the
+        invoiceable portion of April and must be excluded from the comparison.
+        """
+        self.contract.start_date = datetime.date(2026, 4, 15)
+        self.contract.save()
+        TimeOff.objects.create(contract=self.contract, date="2026-04-17", hours=4)
+        mock_get.return_value = _mock_httpx_response(CALAMARI_SAMPLE)
+
+        response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/4/")
+
+        assert response.status_code == 200
+        self.assertNotContains(response, "Apr 6, 2026")
+        self.assertContains(response, "External calendar matches your bookings")
+
+    @override_settings(DEBUG=True)
+    def test_invoice_page_omits_panel_when_no_url(self) -> None:
+        self.contract.external_calendar_url = ""
+        self.contract.save()
+        response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/4/")
+        assert response.status_code == 200
+        self.assertNotContains(response, "Missing from Acme")
+        self.assertNotContains(response, "External calendar matches")
+
+
+class ExternalCalendarNonStaffTests(TestCase):
+    """For non-staff (public) users, external calendar sync is fully inaccessible."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test")
+        self.client.force_login(self.user)
+        self.contract = Contract.objects.create(
+            user=self.user,
+            name="Acme",
+            home_country="NL",
+            client_country="CH",
+            max_working_days=200,
+            working_hours_per_day=8,
+            start_date="2026-01-01",
+            end_date="2026-12-31",
+            external_calendar_url="https://example.com/feed.ics",
+        )
+        self.valid_data = {
+            "name": "Acme",
+            "home_country": "NL",
+            "client_country": "CH",
+            "max_working_days": "200",
+            "working_hours_per_day": "8",
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+        }
+
+    def test_sync_endpoint_404(self) -> None:
+        response = self.client.get(f"/contracts/{self.contract.pk}/sync-external/")
+        assert response.status_code == 404
+
+    def test_create_form_hides_url_field(self) -> None:
+        response = self.client.get("/contracts/new/")
+        self.assertNotContains(response, "external_calendar_url")
+
+    def test_edit_form_hides_url_field(self) -> None:
+        response = self.client.get(f"/contracts/{self.contract.pk}/edit/")
+        self.assertNotContains(response, "external_calendar_url")
+
+    def test_create_ignores_posted_url(self) -> None:
+        data = {**self.valid_data, "name": "Beta", "external_calendar_url": "https://evil.example/feed.ics"}
+        self.client.post("/contracts/new/", data)
+        contract = Contract.objects.get(name="Beta")
+        assert contract.external_calendar_url == ""
+
+    def test_edit_preserves_existing_url(self) -> None:
+        data = {**self.valid_data, "external_calendar_url": ""}
+        self.client.post(f"/contracts/{self.contract.pk}/edit/", data)
+        self.contract.refresh_from_db()
+        assert self.contract.external_calendar_url == "https://example.com/feed.ics"
+
+    def test_calendar_page_hides_sync_button(self) -> None:
+        response = self.client.get(f"/contracts/{self.contract.pk}/")
+        self.assertNotContains(response, "Sync with external calendar")
+
+    @override_settings(DEBUG=True)
+    def test_invoice_page_omits_panel(self) -> None:
+        response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/4/")
+        assert response.status_code == 200
+        self.assertNotContains(response, "External calendar matches")

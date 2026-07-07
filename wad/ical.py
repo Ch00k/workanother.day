@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+from wad.calendar_utils import is_weekend
 from wad.models import Contract, TimeOff
 
 
@@ -123,3 +124,89 @@ def import_time_off(contract: Contract, ics_content: str) -> list[TimeOff]:
 
     time_off_objects = [TimeOff(id=uuid.uuid4(), contract=contract, date=date, hours=hours) for date, hours in entries]
     return TimeOff.objects.bulk_create(time_off_objects)
+
+
+def _parse_ical_date(value: str) -> datetime.date:
+    return datetime.date(int(value[:4]), int(value[4:6]), int(value[6:8]))
+
+
+def _parse_ical_datetime(value: str) -> datetime.datetime:
+    # Forms seen in the wild: "20260417T120000Z", "20260417T120000".
+    # Trailing "Z" means UTC; bare datetime is "floating" — for duration math both work the same.
+    naked = value.rstrip("Z")
+    return datetime.datetime(
+        int(naked[0:4]),
+        int(naked[4:6]),
+        int(naked[6:8]),
+        int(naked[9:11]),
+        int(naked[11:13]),
+        int(naked[13:15]),
+        tzinfo=datetime.UTC if value.endswith("Z") else None,
+    )
+
+
+def parse_external_time_off(
+    ics_content: str,
+    working_hours_per_day: int,
+    date_range: tuple[datetime.date, datetime.date],
+) -> dict[datetime.date, int]:
+    """Parse a third-party iCal feed (e.g. Calamari) into per-day time-off hours.
+
+    - All-day VEVENT (DTSTART;VALUE=DATE): expanded across DTSTART..DTEND-1 (DTEND is exclusive),
+      one full-day entry per weekday inside date_range.
+    - Timed VEVENT: one entry on the start date; duration <= half-day -> half day, else full day.
+    - Weekend dates and dates outside date_range are skipped.
+    - On overlapping events for the same date, the last event in the feed wins.
+
+    Raises ImportError if the content is not a valid iCalendar file.
+    """
+    if "BEGIN:VCALENDAR" not in ics_content:
+        raise ImportError("Not a valid iCalendar file.")
+
+    start_range, end_range = date_range
+    half_hours = working_hours_per_day // 2
+    result: dict[datetime.date, int] = {}
+
+    in_event = False
+    dtstart_raw: str | None = None
+    dtend_raw: str | None = None
+
+    for raw_line in ics_content.splitlines():
+        line = raw_line.strip()
+
+        if line == "BEGIN:VEVENT":
+            in_event = True
+            dtstart_raw = None
+            dtend_raw = None
+        elif line == "END:VEVENT":
+            if in_event and dtstart_raw is not None:
+                is_all_day = "VALUE=DATE" in dtstart_raw.split(":", 1)[0]
+                start_value = dtstart_raw.split(":", 1)[1]
+                end_value = dtend_raw.split(":", 1)[1] if dtend_raw else None
+
+                if is_all_day:
+                    start = _parse_ical_date(start_value)
+                    end = _parse_ical_date(end_value) if end_value else start + datetime.timedelta(days=1)
+                    day = start
+                    while day < end:
+                        if not is_weekend(day) and start_range <= day <= end_range:
+                            result[day] = working_hours_per_day
+                        day += datetime.timedelta(days=1)
+                else:
+                    start_dt = _parse_ical_datetime(start_value)
+                    day = start_dt.date()
+                    if not is_weekend(day) and start_range <= day <= end_range:
+                        if end_value is None:
+                            result[day] = working_hours_per_day
+                        else:
+                            end_dt = _parse_ical_datetime(end_value)
+                            duration_hours = (end_dt - start_dt).total_seconds() / 3600
+                            result[day] = half_hours if duration_hours <= half_hours else working_hours_per_day
+            in_event = False
+        elif in_event:
+            if line.startswith("DTSTART"):
+                dtstart_raw = line
+            elif line.startswith("DTEND"):
+                dtend_raw = line
+
+    return result

@@ -2,8 +2,11 @@ import calendar
 import datetime
 from typing import NotRequired, TypedDict
 
+import httpx
 from django.conf import settings
 from django.contrib.auth import login, logout
+from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.http import Http404, HttpRequest, HttpResponse, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
@@ -33,7 +36,12 @@ from wad.models import (
     generate_token,
     hash_token,
 )
-from wad.services import get_holidays_for_years, get_overlapping_holidays
+from wad.services import (
+    ExternalCalendarURLError,
+    fetch_external_time_off,
+    get_holidays_for_years,
+    get_overlapping_holidays,
+)
 
 
 class HolidayComparisonEntry(TypedDict):
@@ -73,6 +81,70 @@ class CalendarContext(TypedDict):
 class HolidayComparisonContext(TypedDict):
     contract: Contract
     holiday_comparison: list[HolidayComparisonEntry]
+
+
+class ExternalSyncMismatch(TypedDict):
+    date: datetime.date
+    wad_hours: int
+    external_hours: int
+
+
+class ExternalSyncContext(TypedDict):
+    contract: Contract
+    external_only: list[tuple[datetime.date, int]]
+    wad_only: list[tuple[datetime.date, int]]
+    mismatched: list[ExternalSyncMismatch]
+    in_sync: bool
+    fetch_error: NotRequired[str]
+
+
+def _build_external_sync_context(
+    contract: Contract,
+    date_range: tuple[datetime.date, datetime.date] | None = None,
+) -> ExternalSyncContext:
+    """Fetch external calendar and compare against WAD's TimeOff. Errors are captured, not raised."""
+    try:
+        external = fetch_external_time_off(contract, date_range)
+    except (httpx.HTTPError, ExternalCalendarURLError) as e:
+        return {
+            "contract": contract,
+            "external_only": [],
+            "wad_only": [],
+            "mismatched": [],
+            "in_sync": False,
+            "fetch_error": f"Could not fetch external calendar: {e}",
+        }
+    except ICalImportError as e:
+        return {
+            "contract": contract,
+            "external_only": [],
+            "wad_only": [],
+            "mismatched": [],
+            "in_sync": False,
+            "fetch_error": f"External calendar is not valid iCalendar: {e}",
+        }
+
+    time_off_qs = contract.time_off.all()  # ty: ignore[unresolved-attribute]
+    if date_range is not None:
+        start, end = date_range
+        time_off_qs = time_off_qs.filter(date__gte=start, date__lte=end)
+    wad: dict[datetime.date, int] = {t.date: t.hours for t in time_off_qs}
+
+    external_only = sorted((d, h) for d, h in external.items() if d not in wad)
+    wad_only = sorted((d, h) for d, h in wad.items() if d not in external)
+    mismatched: list[ExternalSyncMismatch] = [
+        {"date": d, "wad_hours": wad[d], "external_hours": external[d]}
+        for d in sorted(external)
+        if d in wad and wad[d] != external[d]
+    ]
+
+    return {
+        "contract": contract,
+        "external_only": external_only,
+        "wad_only": wad_only,
+        "mismatched": mismatched,
+        "in_sync": not (external_only or wad_only or mismatched),
+    }
 
 
 def index(request: HttpRequest) -> HttpResponse:
@@ -183,7 +255,7 @@ def contract_create(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         return render(request, "wad/contract_create.html", {"countries": COUNTRIES})
 
-    errors = _validate_contract_form(request.POST)
+    errors = _validate_contract_form(request.POST, external_sync_enabled=request.user.is_staff)  # ty: ignore[unresolved-attribute]
     if errors:
         return render(
             request,
@@ -207,6 +279,11 @@ def contract_create(request: HttpRequest) -> HttpResponse:
         working_hours_per_day=int(request.POST.get("working_hours_per_day", 8)),
         start_date=request.POST["start_date"],
         end_date=request.POST["end_date"],
+        external_calendar_url=(
+            request.POST.get("external_calendar_url", "").strip()
+            if request.user.is_staff  # ty: ignore[unresolved-attribute]
+            else ""
+        ),
     )
 
     # Pre-fetch holidays so the calendar view doesn't block on API calls
@@ -225,7 +302,7 @@ def contract_edit(request: HttpRequest, pk: str) -> HttpResponse:
         raise Http404
 
     if request.method == "POST":
-        errors = _validate_contract_form(request.POST)
+        errors = _validate_contract_form(request.POST, external_sync_enabled=request.user.is_staff)  # ty: ignore[unresolved-attribute]
         if errors:
             return render(
                 request,
@@ -245,6 +322,8 @@ def contract_edit(request: HttpRequest, pk: str) -> HttpResponse:
         contract.working_hours_per_day = int(request.POST.get("working_hours_per_day", 8))
         contract.start_date = request.POST["start_date"]
         contract.end_date = request.POST["end_date"]
+        if request.user.is_staff:  # ty: ignore[unresolved-attribute]
+            contract.external_calendar_url = request.POST.get("external_calendar_url", "").strip()
         contract.save()
         return redirect("calendar", pk=contract.pk)
 
@@ -588,17 +667,25 @@ def invoice_view(request: HttpRequest, pk: str, year: int, month: int) -> HttpRe
         "net_working_days": net_days,
     }
 
-    return render(
-        request,
-        "wad/invoice.html",
-        {
-            "contract": contract,
-            "year": year,
-            "month": month,
-            "month_name": invoice_context["month_name"],
-            "invoice_context": invoice_context,
-        },
-    )
+    template_context: dict[str, object] = {
+        "contract": contract,
+        "year": year,
+        "month": month,
+        "month_name": invoice_context["month_name"],
+        "invoice_context": invoice_context,
+    }
+
+    if request.user.is_staff and contract.external_calendar_url:  # ty: ignore[unresolved-attribute]
+        # Compare only the invoiceable portion of the month: a contract may start or
+        # end mid-month, and time off outside the contract period isn't invoiced.
+        sync_start = max(month_start, contract.start_date)
+        sync_end = min(month_end, contract.end_date)
+        template_context["external_sync"] = _build_external_sync_context(
+            contract,
+            date_range=(sync_start, sync_end),
+        )
+
+    return render(request, "wad/invoice.html", template_context)
 
 
 def monthly_summary(request: HttpRequest, pk: str) -> HttpResponse:
@@ -648,6 +735,20 @@ def holiday_comparison(request: HttpRequest, pk: str) -> HttpResponse:
 
     context = _build_holiday_comparison_context(contract)
     return render(request, "wad/_holiday_comparison.html", context)
+
+
+def sync_external_calendar(request: HttpRequest, pk: str) -> HttpResponse:
+    if not request.user.is_staff:  # ty: ignore[unresolved-attribute]
+        raise Http404
+
+    contract = get_object_or_404(Contract, pk=pk)
+    if contract.user != request.user:
+        raise Http404
+    if not contract.external_calendar_url:
+        raise Http404
+
+    context = _build_external_sync_context(contract)
+    return render(request, "wad/_external_sync.html", context)
 
 
 def _build_calendar_context(contract: Contract, time_off_entries: list[TimeOff] | None = None) -> CalendarContext:
@@ -764,7 +865,7 @@ def _build_holiday_comparison_context(contract: Contract) -> HolidayComparisonCo
     }
 
 
-def _validate_contract_form(post_data: QueryDict) -> list[str]:
+def _validate_contract_form(post_data: QueryDict, *, external_sync_enabled: bool) -> list[str]:
     required = [
         "name",
         "home_country",
@@ -800,5 +901,12 @@ def _validate_contract_form(post_data: QueryDict) -> list[str]:
                 errors.append("Max working days must be positive.")
         except ValueError:
             errors.append("Max working days must be a number.")
+
+        external_url = str(post_data.get("external_calendar_url", "")).strip()
+        if external_sync_enabled and external_url:
+            try:
+                URLValidator()(external_url)
+            except ValidationError:
+                errors.append("External calendar URL is not a valid URL.")
 
     return errors

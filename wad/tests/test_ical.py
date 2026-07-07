@@ -6,7 +6,13 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from wad.ical import ImportError as ICalImportError
-from wad.ical import export_time_off, export_user_time_off, import_time_off, parse_time_off
+from wad.ical import (
+    export_time_off,
+    export_user_time_off,
+    import_time_off,
+    parse_external_time_off,
+    parse_time_off,
+)
 from wad.models import CalendarToken, Contract, TimeOff, generate_calendar_token
 
 
@@ -191,6 +197,120 @@ class ImportTimeOffTests(TestCase):
         assert imported[0].hours == 8
         assert imported[1].date == datetime.date(2026, 6, 1)
         assert imported[1].hours == 4
+
+
+class ParseExternalTimeOffTests(TestCase):
+    """Parser for third-party iCal feeds like Calamari (no X-WAD-HOURS)."""
+
+    range = (datetime.date(2026, 1, 1), datetime.date(2026, 12, 31))
+
+    def _wrap(self, events: str) -> str:
+        return f"BEGIN:VCALENDAR\r\nVERSION:2.0\r\n{events}END:VCALENDAR\r\n"
+
+    def test_all_day_single_day(self) -> None:
+        ics = self._wrap("BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260406\r\nDTEND;VALUE=DATE:20260407\r\nEND:VEVENT\r\n")
+        result = parse_external_time_off(ics, 8, self.range)
+        assert result == {datetime.date(2026, 4, 6): 8}
+
+    def test_all_day_multi_day_expands_weekdays(self) -> None:
+        """Mon 6th -> Fri 10th (DTEND=Sat 11th, exclusive) yields 5 entries."""
+        ics = self._wrap("BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260406\r\nDTEND;VALUE=DATE:20260411\r\nEND:VEVENT\r\n")
+        result = parse_external_time_off(ics, 8, self.range)
+        assert result == {
+            datetime.date(2026, 4, 6): 8,
+            datetime.date(2026, 4, 7): 8,
+            datetime.date(2026, 4, 8): 8,
+            datetime.date(2026, 4, 9): 8,
+            datetime.date(2026, 4, 10): 8,
+        }
+
+    def test_all_day_skips_weekend(self) -> None:
+        """Fri 10th -> Tue 14th (DTEND=Wed 15th) yields Fri, Mon, Tue (Sat/Sun dropped)."""
+        ics = self._wrap("BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20260410\r\nDTEND;VALUE=DATE:20260415\r\nEND:VEVENT\r\n")
+        result = parse_external_time_off(ics, 8, self.range)
+        assert set(result.keys()) == {
+            datetime.date(2026, 4, 10),
+            datetime.date(2026, 4, 13),
+            datetime.date(2026, 4, 14),
+        }
+
+    def test_timed_half_day(self) -> None:
+        ics = self._wrap("BEGIN:VEVENT\r\nDTSTART:20260417T120000Z\r\nDTEND:20260417T160000Z\r\nEND:VEVENT\r\n")
+        result = parse_external_time_off(ics, 8, self.range)
+        assert result == {datetime.date(2026, 4, 17): 4}
+
+    def test_timed_full_day(self) -> None:
+        ics = self._wrap("BEGIN:VEVENT\r\nDTSTART:20260417T090000Z\r\nDTEND:20260417T170000Z\r\nEND:VEVENT\r\n")
+        result = parse_external_time_off(ics, 8, self.range)
+        assert result == {datetime.date(2026, 4, 17): 8}
+
+    def test_timed_skips_weekend(self) -> None:
+        # 2026-04-18 is a Saturday
+        ics = self._wrap("BEGIN:VEVENT\r\nDTSTART:20260418T120000Z\r\nDTEND:20260418T160000Z\r\nEND:VEVENT\r\n")
+        result = parse_external_time_off(ics, 8, self.range)
+        assert result == {}
+
+    def test_clips_to_date_range(self) -> None:
+        ics = self._wrap(
+            "BEGIN:VEVENT\r\n"
+            "DTSTART;VALUE=DATE:20260105\r\n"
+            "DTEND;VALUE=DATE:20260106\r\n"
+            "END:VEVENT\r\n"
+            "BEGIN:VEVENT\r\n"
+            "DTSTART;VALUE=DATE:20270105\r\n"
+            "DTEND;VALUE=DATE:20270106\r\n"
+            "END:VEVENT\r\n"
+        )
+        narrow = (datetime.date(2026, 1, 1), datetime.date(2026, 6, 30))
+        result = parse_external_time_off(ics, 8, narrow)
+        assert result == {datetime.date(2026, 1, 5): 8}
+
+    def test_last_event_wins_on_duplicate_date(self) -> None:
+        ics = self._wrap(
+            "BEGIN:VEVENT\r\n"
+            "DTSTART:20260417T120000Z\r\n"
+            "DTEND:20260417T160000Z\r\n"
+            "END:VEVENT\r\n"
+            "BEGIN:VEVENT\r\n"
+            "DTSTART;VALUE=DATE:20260417\r\n"
+            "DTEND;VALUE=DATE:20260418\r\n"
+            "END:VEVENT\r\n"
+        )
+        result = parse_external_time_off(ics, 8, self.range)
+        assert result == {datetime.date(2026, 4, 17): 8}
+
+    def test_not_ical_raises(self) -> None:
+        with pytest.raises(ICalImportError, match="Not a valid iCalendar"):
+            parse_external_time_off("garbage", 8, self.range)
+
+    def test_empty_calendar_returns_empty_dict(self) -> None:
+        result = parse_external_time_off(self._wrap(""), 8, self.range)
+        assert result == {}
+
+    def test_calamari_sample(self) -> None:
+        """End-to-end parse of the exact shape we observed from Calamari."""
+        ics = (
+            "BEGIN:VCALENDAR\r\n"
+            "PRODID:-//Calamari//iCal Calendar//\r\n"
+            "VERSION:2.0\r\n"
+            "BEGIN:VEVENT\r\n"
+            "DTSTAMP:20260516T182503Z\r\n"
+            "DTSTART;VALUE=DATE:20260406\r\n"
+            "DTEND;VALUE=DATE:20260407\r\n"
+            "SUMMARY:Andrii - Unavailable\r\n"
+            "END:VEVENT\r\n"
+            "BEGIN:VEVENT\r\n"
+            "DTSTART:20260417T120000Z\r\n"
+            "DTEND:20260417T160000Z\r\n"
+            "SUMMARY:Andrii - Unavailable\r\n"
+            "END:VEVENT\r\n"
+            "END:VCALENDAR\r\n"
+        )
+        result = parse_external_time_off(ics, 8, self.range)
+        assert result == {
+            datetime.date(2026, 4, 6): 8,
+            datetime.date(2026, 4, 17): 4,
+        }
 
 
 class ExportViewTests(TestCase):

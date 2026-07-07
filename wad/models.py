@@ -60,6 +60,7 @@ class Contract(models.Model):
     working_hours_per_day = models.PositiveIntegerField(default=8)
     start_date = models.DateField()
     end_date = models.DateField()
+    external_calendar_url = models.URLField(blank=True, default="")
 
     def __str__(self) -> str:
         return self.name
