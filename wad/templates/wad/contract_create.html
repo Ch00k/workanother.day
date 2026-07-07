@@ -65,6 +65,15 @@
                        value="{{ form_data.end_date|default:'' }}" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
+            {% if external_calendar_sync_enabled %}
+            <div class="sm:col-span-2">
+                <label for="external_calendar_url" class="block text-sm font-medium text-[#666] mb-1">External Calendar URL <span class="text-[#999]">(optional, iCal feed)</span></label>
+                <input type="url" id="external_calendar_url" name="external_calendar_url"
+                       value="{{ form_data.external_calendar_url|default:'' }}"
+                       placeholder="https://example.com/calendar.ics"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            {% endif %}
             <div class="sm:col-span-2 flex gap-3 items-center">
                 <button type="submit"
                         class="rounded-[10px] bg-[#333] text-white px-6 py-2.5 text-sm font-semibold hover:opacity-90 transition">
