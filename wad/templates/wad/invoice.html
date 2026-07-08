@@ -25,6 +25,12 @@
     <h1 class="text-[28px] font-bold tracking-tight">Invoice - {{ month_name }} {{ year }}</h1>
     <div class="text-xs text-[#888] mt-1">{{ contract.name }}</div>
 
+    {% if external_sync %}
+    <div class="mt-5">
+        {% include "wad/_external_sync.html" with contract=external_sync.contract external_only=external_sync.external_only wad_only=external_sync.wad_only mismatched=external_sync.mismatched in_sync=external_sync.in_sync fetch_error=external_sync.fetch_error %}
+    </div>
+    {% endif %}
+
     <div class="mt-5 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
         <form id="invoice-form" class="grid gap-4 sm:grid-cols-2">
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-2">From</div>

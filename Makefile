@@ -1,10 +1,13 @@
-.PHONY: run makemigrations migrate test tailwind-download tailwind-watch tailwind-build
+.PHONY: run seed makemigrations migrate test tailwind-download tailwind-watch tailwind-build
 
 build:
 	docker build .
 
-run:
+run: migrate seed
 	uv run manage.py runserver
+
+seed:
+	uv run manage.py seed_dev
 
 makemigrations:
 	uv run manage.py makemigrations
