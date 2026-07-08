@@ -1,10 +1,22 @@
 import datetime
+import socket
+from unittest.mock import patch
 
+import pytest
 from django.test import TestCase
 from django.utils import timezone
 
 from wad.models import Holiday
-from wad.services import get_holidays, get_overlapping_holidays
+from wad.services import (
+    ExternalCalendarURLError,
+    get_holidays,
+    get_overlapping_holidays,
+    validate_external_calendar_url,
+)
+
+
+def _resolves_to(ip: str) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, 443))]
 
 
 class GetHolidaysTests(TestCase):
@@ -110,3 +122,47 @@ class GetOverlappingHolidaysTests(TestCase):
         ]
         overlap = get_overlapping_holidays(home, client)
         assert overlap == set()
+
+
+class ValidateExternalCalendarUrlTests(TestCase):
+    """The SSRF guard on external calendar URLs before any fetch happens."""
+
+    def test_public_host_passes(self) -> None:
+        with patch("wad.services.socket.getaddrinfo", return_value=_resolves_to("93.184.216.34")):
+            validate_external_calendar_url("https://example.com/feed.ics")
+
+    def test_rejects_non_http_scheme(self) -> None:
+        with pytest.raises(ExternalCalendarURLError, match="http or https"):
+            validate_external_calendar_url("file:///etc/passwd")
+
+    def test_rejects_missing_host(self) -> None:
+        with pytest.raises(ExternalCalendarURLError, match="no host"):
+            validate_external_calendar_url("https:///feed.ics")
+
+    def test_rejects_loopback(self) -> None:
+        with (
+            patch("wad.services.socket.getaddrinfo", return_value=_resolves_to("127.0.0.1")),
+            pytest.raises(ExternalCalendarURLError, match="disallowed address"),
+        ):
+            validate_external_calendar_url("http://localhost/feed.ics")
+
+    def test_rejects_private(self) -> None:
+        with (
+            patch("wad.services.socket.getaddrinfo", return_value=_resolves_to("10.0.0.5")),
+            pytest.raises(ExternalCalendarURLError, match="disallowed address"),
+        ):
+            validate_external_calendar_url("http://internal.example/feed.ics")
+
+    def test_rejects_link_local_metadata(self) -> None:
+        with (
+            patch("wad.services.socket.getaddrinfo", return_value=_resolves_to("169.254.169.254")),
+            pytest.raises(ExternalCalendarURLError, match="disallowed address"),
+        ):
+            validate_external_calendar_url("http://169.254.169.254/latest/meta-data/")
+
+    def test_rejects_unresolvable_host(self) -> None:
+        with (
+            patch("wad.services.socket.getaddrinfo", side_effect=socket.gaierror),
+            pytest.raises(ExternalCalendarURLError, match="Could not resolve"),
+        ):
+            validate_external_calendar_url("https://nonexistent.invalid/feed.ics")
