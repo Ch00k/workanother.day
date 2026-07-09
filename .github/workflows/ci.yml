@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The deploy job requires a tag ref, so pushes to main and PRs only lint, and a
+# workflow_dispatch from a branch is lint-only: production only ever deploys
+# from a release tag.
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.3.0
+      - run: uv sync --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run ty check
+      - run: uv run manage.py test wad
+
+  deploy:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: lint
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
+      - uses: docker/setup-buildx-action@v4
+
+      # Build in the runner (not Fly's builder). load:true puts the image in the
+      # local Docker daemon so we can push it after authenticating, and gha cache
+      # reuses layers across runs.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: registry.fly.io/workanotherday:${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Authenticate right before pushing: fly auth docker tokens expire in ~5 min,
+      # so doing it after the (slow) build avoids an expired-token push failure.
+      - name: Push image to Fly registry
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl auth docker
+          docker push registry.fly.io/workanotherday:${{ github.ref_name }}
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --app workanotherday --image registry.fly.io/workanotherday:${{ github.ref_name }}
