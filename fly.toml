@@ -1,0 +1,33 @@
+app = "workanotherday"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# A volume attaches to a single machine, so a new machine cannot start
+# alongside the old one during a deploy. Stop and replace in place.
+[deploy]
+  strategy = "immediate"
+
+# migrate and collectstatic run at container startup via run.sh, so no
+# separate release/deploy steps are needed here.
+[env]
+  DJANGO_ALLOWED_HOSTS = "workanother.day,www.workanother.day"
+  DJANGO_CANONICAL_HOST = "workanother.day"
+  DJANGO_DB_PATH = "/app/data/db.sqlite3"
+  DJANGO_STATIC_ROOT = "/app/staticfiles"
+
+# SQLite is a single local file, so the app runs as exactly one machine
+# backed by one persistent volume. Do not scale beyond a single machine.
+[mounts]
+  source = "wad_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

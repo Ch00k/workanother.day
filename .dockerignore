@@ -17,3 +17,6 @@ Dockerfile
 db.sqlite3
 Makefile
 *.md
+fly.toml
+compose.yaml
+.github
