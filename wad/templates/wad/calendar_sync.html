@@ -1,0 +1,43 @@
+{% extends "wad/base.html" %}
+{% block title %}Calendar sync - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+    <h1 class="text-[28px] font-bold tracking-tight leading-tight">Calendar sync</h1>
+
+    <div class="mt-5 rounded-[14px] bg-white p-5 shadow-sm border border-black/5">
+        <p class="text-sm text-[#666] mb-4">
+            Subscribe to your time-off calendar from any calendar app. The feed covers every contract
+            and updates as you book days off.
+        </p>
+        {% if calendar_url %}
+        <div class="flex items-center gap-4 flex-wrap">
+            <a href="{{ calendar_url }}" class="text-sm text-[#666] underline underline-offset-2 break-all hover:text-[#333] transition">{{ calendar_url }}</a>
+            <button onclick="navigator.clipboard.writeText('{{ calendar_url }}')"
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition shrink-0">
+                Copy
+            </button>
+            <form method="post" action="{% url 'reset_calendar_token' %}" class="inline">
+                {% csrf_token %}
+                <button type="submit"
+                        class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                    Reset URL
+                </button>
+            </form>
+        </div>
+        <p class="text-xs text-[#888] mt-3">
+            Resetting issues a new URL and stops the old one working. Any app subscribed to the old URL
+            has to be pointed at the new one.
+        </p>
+        {% else %}
+        <form method="post" action="{% url 'create_calendar_token' %}">
+            {% csrf_token %}
+            <button type="submit"
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                Generate subscription URL
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -4,8 +4,13 @@
 
 {% block body %}
 <div class="mx-auto max-w-[960px] px-4 mt-6">
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'contract_list' %}">Contracts</a> /
+        <span aria-current="page">{{ contract.name }}</span>
+    </nav>
+
     <!-- Header -->
-    <div class="flex items-center justify-between flex-wrap gap-4">
+    <div class="flex items-center justify-between flex-wrap gap-3">
         <div class="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-8">
             <h1 class="text-[28px] font-bold tracking-tight leading-tight">{{ contract.name }}</h1>
             <div class="text-xs text-[#888]">
@@ -14,46 +19,40 @@
                 &middot; {{ contract.start_date|date:"M j, Y" }} - {{ contract.end_date|date:"M j, Y" }}
             </div>
         </div>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
             {% if external_calendar_sync_enabled and contract.external_calendar_url %}
             <button hx-get="{% url 'sync_external_calendar' pk=contract.pk %}"
                     hx-target="#external-sync-panel"
                     hx-swap="innerHTML"
                     hx-indicator="#external-sync-indicator"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Sync with external calendar
             </button>
             {% endif %}
             <a href="{% url 'export_calendar' pk=contract.pk %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Export .ics
             </a>
             <button onclick="document.getElementById('import-file-{{ contract.pk }}').click()"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Import .ics
             </button>
             <form id="import-form-{{ contract.pk }}" method="post" action="{% url 'import_calendar' pk=contract.pk %}" enctype="multipart/form-data" class="hidden">
                 {% csrf_token %}
                 <input type="file" id="import-file-{{ contract.pk }}" name="file" accept=".ics" onchange="this.form.submit()">
             </form>
+            {% if can_store_invoices %}
+            <a href="{% url 'invoice_list' pk=contract.pk %}"
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                Invoices
+            </a>
+            {% endif %}
             <a href="{% url 'contract_edit' pk=contract.pk %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Edit
             </a>
         </div>
     </div>
-
-    {% if contracts|length > 1 %}
-    <div class="mt-4 flex gap-2 flex-wrap">
-        {% for c in contracts %}
-        <a href="{% url 'calendar' pk=c.pk %}"
-           class="rounded-[10px] border border-[#ddd] px-3 py-1 text-sm transition
-                  {% if c.pk == contract.pk %}bg-[#333] text-white border-[#333]{% else %}text-[#666] hover:border-[#bbb]{% endif %}">
-            {{ c.name }}
-        </a>
-        {% endfor %}
-    </div>
-    {% endif %}
 
     <!-- Stats cards -->
     {% partialdef stats-bar inline %}
@@ -122,7 +121,7 @@
         <button hx-post="{% url 'bulk_book' pk=contract.pk %}"
                 hx-swap="none"
                 hx-include="#bulk-book-mode"
-                class="rounded-[10px] bg-[#333] text-white px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
             Book
         </button>
         <button hx-post="{% url 'clear_time_off' pk=contract.pk %}"
@@ -131,12 +130,8 @@
                 class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50">
             Clear
         </button>
-        <button onclick="htmx.ajax('GET', '{% url 'monthly_summary' pk=contract.pk %}', '#monthly-summary-content'); document.getElementById('monthly-dialog').showModal()"
-                class="sm:ml-auto rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
-            Monthly summary
-        </button>
         <button onclick="htmx.ajax('GET', '{% url 'holiday_comparison' pk=contract.pk %}', '#holiday-comparison-content'); document.getElementById('holiday-dialog').showModal()"
-                class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
+                class="sm:ml-auto rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
             Holiday comparison
         </button>
     </div>
@@ -325,18 +320,6 @@
         {% endfor %}
     </div>
     {% endpartialdef %}
-
-    <!-- Monthly summary dialog -->
-    <dialog id="monthly-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
-            onclick="if(event.target===this)this.close()">
-        <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
-            <h2 class="text-xl font-bold">Monthly Summary</h2>
-            <button onclick="this.closest('dialog').close()"
-                    class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
-        </div>
-        <div id="monthly-summary-content" class="px-5 py-4 overflow-y-auto max-h-[70vh]">
-        </div>
-    </dialog>
 
     <!-- Holiday comparison dialog -->
     <dialog id="holiday-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"

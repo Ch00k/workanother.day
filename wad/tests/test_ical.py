@@ -13,7 +13,7 @@ from wad.ical import (
     parse_external_time_off,
     parse_time_off,
 )
-from wad.models import CalendarToken, Contract, TimeOff, generate_calendar_token
+from wad.models import CalendarToken, Contract, Guest, TimeOff, generate_calendar_token
 
 
 class ExportTimeOffTests(TestCase):
@@ -26,8 +26,8 @@ class ExportTimeOffTests(TestCase):
             client_country="CH",
             max_working_days=200,
             working_hours_per_day=8,
-            start_date="2026-01-01",
-            end_date="2026-12-31",
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
 
     def test_export_empty(self) -> None:
@@ -129,8 +129,8 @@ class ImportTimeOffTests(TestCase):
             client_country="CH",
             max_working_days=200,
             working_hours_per_day=8,
-            start_date="2026-01-01",
-            end_date="2026-12-31",
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
         self.valid_ics = (
             "BEGIN:VCALENDAR\r\n"
@@ -186,8 +186,8 @@ class ImportTimeOffTests(TestCase):
             home_country="DE",
             client_country="US",
             max_working_days=180,
-            start_date="2026-01-01",
-            end_date="2026-12-31",
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
         import_time_off(other_contract, ics)
 
@@ -324,8 +324,8 @@ class ExportViewTests(TestCase):
             client_country="CH",
             max_working_days=200,
             working_hours_per_day=8,
-            start_date="2026-01-01",
-            end_date="2026-12-31",
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
 
     def test_export_returns_ics_file(self) -> None:
@@ -363,8 +363,8 @@ class ImportViewTests(TestCase):
             client_country="CH",
             max_working_days=200,
             working_hours_per_day=8,
-            start_date="2026-01-01",
-            end_date="2026-12-31",
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
         self.valid_ics = (
             "BEGIN:VCALENDAR\r\n"
@@ -423,8 +423,8 @@ class ExportUserTimeOffTests(TestCase):
             client_country="CH",
             max_working_days=200,
             working_hours_per_day=8,
-            start_date="2026-01-01",
-            end_date="2026-12-31",
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
         self.contract2 = Contract.objects.create(
             user=self.user,
@@ -432,8 +432,8 @@ class ExportUserTimeOffTests(TestCase):
             home_country="DE",
             client_country="US",
             max_working_days=180,
-            start_date="2026-01-01",
-            end_date="2026-12-31",
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
 
     def test_includes_entries_from_all_contracts(self) -> None:
@@ -455,8 +455,8 @@ class ExportUserTimeOffTests(TestCase):
             home_country="NL",
             client_country="CH",
             max_working_days=200,
-            start_date="2026-01-01",
-            end_date="2026-12-31",
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
         TimeOff.objects.create(contract=other_contract, date="2026-03-05", hours=8)
         TimeOff.objects.create(contract=self.contract1, date="2026-06-01", hours=8)
@@ -477,8 +477,8 @@ class CalendarFeedTests(TestCase):
             client_country="CH",
             max_working_days=200,
             working_hours_per_day=8,
-            start_date="2026-01-01",
-            end_date="2026-12-31",
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
 
     def test_valid_token_returns_ics(self) -> None:
@@ -506,7 +506,7 @@ class CreateCalendarTokenTests(TestCase):
 
     def test_creates_token(self) -> None:
         response = self.client.post("/calendar/create-token/")
-        self.assertRedirects(response, "/contracts/")
+        self.assertRedirects(response, "/calendar/sync/")
         assert CalendarToken.objects.filter(user=self.user).exists()
 
     def test_idempotent(self) -> None:
@@ -534,7 +534,7 @@ class ResetCalendarTokenTests(TestCase):
 
     def test_reset_changes_token(self) -> None:
         response = self.client.post("/calendar/reset-token/")
-        self.assertRedirects(response, "/contracts/")
+        self.assertRedirects(response, "/calendar/sync/")
         new_token = CalendarToken.objects.get(user=self.user).token
         assert new_token != self.original_token
 
@@ -561,7 +561,7 @@ class ResetCalendarTokenTests(TestCase):
         assert CalendarToken.objects.get(user=self.user).token == self.original_token
 
 
-class ContractListCalendarUrlTests(TestCase):
+class CalendarSyncPageTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="test")
         self.client.force_login(self.user)
@@ -569,14 +569,30 @@ class ContractListCalendarUrlTests(TestCase):
     def test_shows_calendar_url_when_token_exists(self) -> None:
         token = generate_calendar_token()
         CalendarToken.objects.create(user=self.user, token=token)
-        response = self.client.get("/contracts/")
+        response = self.client.get("/calendar/sync/")
         self.assertContains(response, f"/calendar/{token}.ics")
 
     def test_shows_generate_button_when_no_token(self) -> None:
-        response = self.client.get("/contracts/")
+        response = self.client.get("/calendar/sync/")
         self.assertContains(response, "Generate subscription URL")
 
-    def test_guest_does_not_see_calendar_section(self) -> None:
+    def test_guest_cannot_open_page(self) -> None:
+        """A guest has no subscription URL to manage, so the page is closed to them."""
+        guest_user = User.objects.create_user(username="guest")
+        Guest.objects.create(user=guest_user)
+        self.client.force_login(guest_user)
+
+        response = self.client.get("/calendar/sync/")
+        assert response.status_code == 404
+
+    def test_anonymous_cannot_open_page(self) -> None:
         self.client.logout()
+        response = self.client.get("/calendar/sync/")
+        assert response.status_code == 404
+
+    def test_contract_list_no_longer_carries_the_subscription_url(self) -> None:
+        """The subscription URL lives on its own page, reached from the sidebar."""
+        token = generate_calendar_token()
+        CalendarToken.objects.create(user=self.user, token=token)
         response = self.client.get("/contracts/")
-        self.assertNotContains(response, "Calendar Subscription")
+        self.assertNotContains(response, f"/calendar/{token}.ics")

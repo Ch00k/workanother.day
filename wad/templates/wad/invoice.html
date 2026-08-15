@@ -13,7 +13,7 @@
             border: none !important;
             border-radius: 0 !important;
             max-width: none !important;
-            padding: 20mm 18mm !important;
+            padding: 14mm 18mm !important;
         }
         @page { size: A4; margin: 0; }
     }
@@ -22,8 +22,18 @@
 {{ invoice_context|json_script:"invoice-context" }}
 
 <div id="invoice-form-view" class="mx-auto max-w-[960px] px-4 mt-6">
-    <h1 class="text-[28px] font-bold tracking-tight">Invoice - {{ month_name }} {{ year }}</h1>
-    <div class="text-xs text-[#888] mt-1">{{ contract.name }}</div>
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'contract_list' %}">Contracts</a> /
+        <a href="{% url 'calendar' pk=contract.pk %}">{{ contract.name }}</a> /
+        {% if editing %}
+        <a href="{% url 'invoice_list' pk=contract.pk %}">Invoices</a> /
+        <a href="{% url 'invoice_detail' pk=editing.pk %}">{{ editing.number }}</a> /
+        <span aria-current="page">Edit</span>
+        {% else %}
+        <span aria-current="page">Invoice - {{ month_name }} {{ year }}</span>
+        {% endif %}
+    </nav>
+    <h1 class="text-[28px] font-bold tracking-tight leading-tight">Invoice - {{ month_name }} {{ year }}</h1>
 
     {% if external_sync %}
     <div class="mt-5">
@@ -33,66 +43,100 @@
 
     <div class="mt-5 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
         <form id="invoice-form" class="grid gap-4 sm:grid-cols-2">
+            {% csrf_token %}
+            <div class="sm:col-span-2 text-xs text-[#999]">
+                <span class="text-red-600" aria-hidden="true">*</span> required
+            </div>
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-2">From</div>
+            {% if can_store_invoices %}
+            <div class="sm:col-span-2 rounded-[10px] border border-[#eee] bg-[#fafafa] px-4 py-3">
+                {% if contract.seller %}
+                <div class="font-semibold text-sm">{{ contract.seller.name }}</div>
+                <div class="text-xs text-[#888] mt-0.5">{{ contract.seller.address|linebreaksbr }}</div>
+                {% if contract.seller.nip %}<div class="text-xs text-[#888] mt-0.5">NIP {{ contract.seller.nip }}</div>{% endif %}
+                {% if contract.seller.tax_ids %}<div class="text-xs text-[#888] mt-0.5">{{ contract.seller.tax_ids|linebreaksbr }}</div>{% endif %}
+                {% else %}
+                <div class="text-sm text-[#666]">This contract has no seller yet, so the invoice would name nobody.</div>
+                {% endif %}
+            </div>
+            {% else %}
             <div class="sm:col-span-2">
-                <label for="from_name" class="block text-sm font-medium text-[#666] mb-1">Business / legal name</label>
+                <label for="from_name" class="block text-sm font-medium text-[#666] mb-1">Business / legal name <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="from_name" name="from_name" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div class="sm:col-span-2">
-                <label for="from_address" class="block text-sm font-medium text-[#666] mb-1">Address (one line per row)</label>
+                <label for="from_address" class="block text-sm font-medium text-[#666] mb-1">Address (one line per row) <span class="text-red-600" aria-hidden="true">*</span></label>
                 <textarea id="from_address" name="from_address" rows="3" required
                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
             </div>
             <div class="sm:col-span-2">
-                <label for="from_tax_ids" class="block text-sm font-medium text-[#666] mb-1">Tax IDs (optional, one per row)</label>
+                <label for="from_tax_ids" class="block text-sm font-medium text-[#666] mb-1">Tax IDs (one per row)</label>
                 <textarea id="from_tax_ids" name="from_tax_ids" rows="2" placeholder="KVK: 12345678&#10;BTW-ID: NL000000000B01"
                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
             </div>
+            {% endif %}
 
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Billed to</div>
+            {% if can_store_invoices %}
+            <div class="sm:col-span-2 rounded-[10px] border border-[#eee] bg-[#fafafa] px-4 py-3">
+                {% if contract.buyer %}
+                <div class="font-semibold text-sm">{{ contract.buyer.name }}</div>
+                <div class="text-xs text-[#888] mt-0.5">{{ contract.buyer.address|linebreaksbr }}</div>
+                {% if contract.buyer.tax_id %}<div class="text-xs text-[#888] mt-0.5">{{ contract.buyer.country }} {{ contract.buyer.tax_id }}</div>{% endif %}
+                {% if contract.buyer.tax_ids %}<div class="text-xs text-[#888] mt-0.5">{{ contract.buyer.tax_ids|linebreaksbr }}</div>{% endif %}
+                {% else %}
+                <div class="text-sm text-[#666]">This contract has no buyer yet, so the invoice would name nobody.</div>
+                {% endif %}
+            </div>
+            {% else %}
             <div class="sm:col-span-2">
-                <label for="to_name" class="block text-sm font-medium text-[#666] mb-1">Client name</label>
+                <label for="to_name" class="block text-sm font-medium text-[#666] mb-1">Client name <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="to_name" name="to_name" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div class="sm:col-span-2">
-                <label for="to_address" class="block text-sm font-medium text-[#666] mb-1">Client address (one line per row)</label>
+                <label for="to_address" class="block text-sm font-medium text-[#666] mb-1">Client address (one line per row) <span class="text-red-600" aria-hidden="true">*</span></label>
                 <textarea id="to_address" name="to_address" rows="3" required
                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
             </div>
             <div class="sm:col-span-2">
-                <label for="to_tax_ids" class="block text-sm font-medium text-[#666] mb-1">Client tax IDs (optional, one per row)</label>
+                <label for="to_tax_ids" class="block text-sm font-medium text-[#666] mb-1">Client tax IDs (one per row)</label>
                 <textarea id="to_tax_ids" name="to_tax_ids" rows="2"
                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
             </div>
+            {% endif %}
 
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Invoice</div>
             <div>
-                <label for="invoice_number" class="block text-sm font-medium text-[#666] mb-1">Invoice number</label>
+                <label for="invoice_number" class="block text-sm font-medium text-[#666] mb-1">Invoice number <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="invoice_number" name="invoice_number" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">Taken from the numbers already used this month. Saving under a number that exists updates that invoice instead of raising another.</div>
             </div>
             <div>
-                <label for="currency" class="block text-sm font-medium text-[#666] mb-1">Currency</label>
-                <input type="text" id="currency" name="currency" maxlength="3" required
+                <label for="currency" class="block text-sm font-medium text-[#666] mb-1">Currency <span class="text-red-600" aria-hidden="true">*</span></label>
+                <input type="text" id="currency" name="currency" maxlength="3" required placeholder="EUR"
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div class="sm:col-span-2 grid gap-4 sm:grid-cols-3">
                 <div>
-                    <label for="issue_date" class="block text-sm font-medium text-[#666] mb-1">Issue date</label>
+                    <label for="issue_date" class="block text-sm font-medium text-[#666] mb-1">Issue date <span class="text-red-600" aria-hidden="true">*</span></label>
                     <input type="date" id="issue_date" name="issue_date" required
                            class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                    <div class="text-xs text-[#999] mt-1">Must be today. KSeF treats an invoice dated earlier as issued offline.</div>
                 </div>
                 <div>
                     <label for="payment_terms" class="block text-sm font-medium text-[#666] mb-1">Payment terms (days)</label>
-                    <input type="number" inputmode="numeric" id="payment_terms" name="payment_terms" min="0" step="1"
+                    <input type="number" inputmode="numeric" id="payment_terms" name="payment_terms" min="0" step="1" placeholder="30"
                            class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                    <div class="text-xs text-[#999] mt-1">Days allowed to pay. The due date follows from it.</div>
                 </div>
                 <div>
-                    <label for="due_date" class="block text-sm font-medium text-[#666] mb-1">Due date</label>
+                    <label for="due_date" class="block text-sm font-medium text-[#666] mb-1">Due date <span class="text-red-600" aria-hidden="true">*</span></label>
                     <input type="date" id="due_date" name="due_date" required
                            class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                    <div class="text-xs text-[#999] mt-1">Worked out from the two beside it. Override here if it differs.</div>
                 </div>
             </div>
 
@@ -138,147 +182,134 @@
                 <label for="vat_rate" class="block text-sm font-medium text-[#666] mb-1">VAT rate (%)</label>
                 <input type="text" inputmode="decimal" id="vat_rate" name="vat_rate" pattern="^\s*\d+(\.\d+)?\s*$"
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">Stays at 0 for work taxed in the client's country, which is the only sale a stored invoice covers.</div>
             </div>
             <div class="sm:col-span-2">
-                <label for="vat_note" class="block text-sm font-medium text-[#666] mb-1">VAT note (optional)</label>
-                <textarea id="vat_note" name="vat_note" rows="2" placeholder="e.g. No VAT charged - reverse charge applies"
+                <label for="vat_note" class="block text-sm font-medium text-[#666] mb-1">VAT note</label>
+                <textarea id="vat_note" name="vat_note" rows="2"
                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+                <div class="text-xs text-[#999] mt-1">Optional. The reverse-charge annotation is printed on its own; this is anything you want to add beneath it.</div>
             </div>
 
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Payment</div>
             <div class="sm:col-span-2">
-                <label for="account_holder" class="block text-sm font-medium text-[#666] mb-1">Account holder</label>
+                <label for="account_holder" class="block text-sm font-medium text-[#666] mb-1">Account holder <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="account_holder" name="account_holder" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div>
-                <label for="iban" class="block text-sm font-medium text-[#666] mb-1">IBAN</label>
+                <label for="iban" class="block text-sm font-medium text-[#666] mb-1">IBAN <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="iban" name="iban" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div>
-                <label for="bic" class="block text-sm font-medium text-[#666] mb-1">BIC / SWIFT (optional)</label>
+                <label for="bic" class="block text-sm font-medium text-[#666] mb-1">BIC / SWIFT</label>
                 <input type="text" id="bic" name="bic"
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div class="sm:col-span-2">
-                <label for="reference" class="block text-sm font-medium text-[#666] mb-1">Payment reference (optional, defaults to invoice number)</label>
+                <label for="reference" class="block text-sm font-medium text-[#666] mb-1">Payment reference (defaults to invoice number)</label>
                 <input type="text" id="reference" name="reference"
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
 
             <div class="sm:col-span-2 flex gap-3 items-center mt-2">
                 <button type="submit"
-                        class="rounded-[10px] bg-[#333] text-white px-6 py-2.5 text-sm font-semibold hover:opacity-90 transition">
+                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
                     Preview invoice
                 </button>
-                <a href="{% url 'calendar' pk=contract.pk %}" class="rounded-[10px] border-2 border-[#ddd] px-6 py-2.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
+                <a href="{% url 'calendar' pk=contract.pk %}" class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
             </div>
         </form>
     </div>
 </div>
 
-<div id="invoice-preview-view" class="invoice-wrap mx-auto max-w-[860px] px-4 mt-6 mb-8" style="display:none">
-    <div id="invoice-controls" class="flex items-center justify-between flex-wrap gap-2 mb-4 print:hidden">
+<div id="invoice-preview-view" class="invoice-wrap mx-auto max-w-[960px] px-4 mt-6 mb-8" style="display:none">
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'contract_list' %}">Contracts</a> /
+        <a href="{% url 'calendar' pk=contract.pk %}">{{ contract.name }}</a> /
+        {% if editing %}
+        <a href="{% url 'invoice_list' pk=contract.pk %}">Invoices</a> /
+        <a href="{% url 'invoice_detail' pk=editing.pk %}">{{ editing.number }}</a> /
+        <span aria-current="page">Edit</span>
+        {% else %}
+        <span aria-current="page">Invoice - {{ month_name }} {{ year }}</span>
+        {% endif %}
+    </nav>
+
+    <div id="invoice-controls" class="flex items-center justify-between flex-wrap gap-3 mb-4 print:hidden">
         <div>
             <h1 class="text-[28px] font-bold tracking-tight leading-tight">Invoice <span data-field="header_number"></span></h1>
-            <div class="text-xs text-[#888]">{{ contract.name }} &middot; <span data-field="header_period"></span></div>
+            <div class="text-xs text-[#888] mt-1">{{ contract.name }} &middot; <span data-field="header_period"></span></div>
         </div>
-        <div class="flex gap-2">
+        {% comment %}
+        Saving is the act that matters here: until it happens the invoice is only in this
+        browser. It leads and carries the primary style; printing an unrecorded invoice is
+        the lesser action and reads as one.
+        {% endcomment %}
+        <div class="flex flex-wrap gap-2">
+            {% comment %}
+            This preview is drawn by the browser, whose arithmetic is not the server's:
+            totals here are computed in floating point, and the stored invoice's in
+            decimal. They agree on ordinary figures and can part by a cent on others, so
+            the document to print is the saved one, which is the same arithmetic that was
+            sent. Saving leads here and the printable copy is on the page it lands on.
+
+            A guest has no saved copy to print instead, so they keep the button, and the
+            invoice they print is the only record of itself either way.
+            {% endcomment %}
+            {% if can_store_invoices %}
+            <button type="button" id="save-invoice-button"
+                    class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                Save invoice
+            </button>
+            {% endif %}
             <button type="button" id="edit-button"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-1.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Edit
             </button>
+            {% if not can_store_invoices %}
             <button type="button" onclick="window.print()"
-                    class="rounded-[10px] bg-[#333] text-white px-4 py-1.5 text-sm font-semibold hover:opacity-90 transition">
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Download PDF
             </button>
+            {% else %}
+            <span class="self-center text-xs text-[#888]">Save the invoice to download it as a PDF.</span>
+            {% endif %}
         </div>
     </div>
 
-    <div class="invoice-page bg-white rounded-[14px] shadow-sm border border-black/5 px-8 py-10 sm:px-14 sm:py-14 text-[#222]">
-        <div class="flex items-start justify-between pb-7 border-b border-[#eee] gap-6">
+    {% if ksef_enabled %}
+    <div id="ksef-panel" class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
-                <h2 class="text-[24px] font-bold tracking-tight leading-tight" data-field="from_name"></h2>
-            </div>
-            <div class="text-right">
-                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1">Invoice</div>
-                <div class="text-[20px] font-bold leading-none mb-3">#<span data-field="number"></span></div>
-                <div class="inline-block text-left text-sm space-y-0.5">
-                    <div><span class="inline-block w-[110px] text-[#888]">Issue date</span><span data-field="issue_date"></span></div>
-                    <div><span class="inline-block w-[110px] text-[#888]">Service period</span><span data-field="service_period"></span></div>
-                    <div><span class="inline-block w-[110px] text-[#888]">Due date</span><span data-field="due_date"></span></div>
+                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
+                <div class="text-sm text-[#666] mt-0.5" id="ksef-status">Not sent yet</div>
+                <div class="mt-1.5 flex items-center gap-2 flex-wrap">
+                    {% if ksef_environment == "PRODUCTION" %}
+                    <span class="rounded-[6px] bg-red-100 text-red-800 px-2 py-0.5 text-xs font-bold tracking-wide">PRODUCTION</span>
+                    <span class="text-xs text-red-800">Invoices sent here have legal effect.</span>
+                    {% else %}
+                    <span class="rounded-[6px] bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold tracking-wide">{{ ksef_environment }}</span>
+                    <span class="text-xs text-amber-700">Sandbox. Use fictional data only.</span>
+                    {% endif %}
                 </div>
             </div>
+            <button type="button" id="ksef-send-button"
+                    class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                Send to KSeF
+            </button>
         </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-10 mt-8 mb-10">
-            <div>
-                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">From</div>
-                <div class="font-semibold text-[15px] mb-1" data-field="from_name_body"></div>
-                <div class="text-sm leading-relaxed" data-field="from_address"></div>
-                <div class="mt-2 text-sm text-[#888] leading-relaxed" data-show="from_tax_ids" data-field="from_tax_ids" style="display:none"></div>
-            </div>
-            <div>
-                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">Billed to</div>
-                <div class="font-semibold text-[15px] mb-1" data-field="to_name"></div>
-                <div class="text-sm leading-relaxed" data-field="to_address"></div>
-                <div class="mt-2 text-sm text-[#888] leading-relaxed" data-show="to_tax_ids" data-field="to_tax_ids" style="display:none"></div>
-            </div>
-        </div>
-
-        <table class="w-full border-collapse mb-6">
-            <thead>
-                <tr>
-                    <th class="text-left py-2.5 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333] w-[55%]">Description</th>
-                    <th class="text-right py-2.5 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333]">Qty</th>
-                    <th class="text-right py-2.5 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333]">Price</th>
-                    <th class="text-right py-2.5 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333]">Amount</th>
-                </tr>
-            </thead>
-            <tbody class="text-[15px]" id="preview-line-rows"></tbody>
-        </table>
-
-        <template id="preview-line-template">
-            <tr class="border-b border-[#eee]">
-                <td class="py-4 px-3 align-top">
-                    <div class="font-semibold" data-line-preview="description"></div>
-                </td>
-                <td class="py-4 px-3 text-right align-top money" data-line-preview="days"></td>
-                <td class="py-4 px-3 text-right align-top money" data-line-preview="rate"></td>
-                <td class="py-4 px-3 text-right align-top money" data-line-preview="amount"></td>
-            </tr>
-        </template>
-
-        <div class="flex justify-end mb-8">
-            <table class="min-w-[320px]">
-                <tr>
-                    <td class="py-1.5 px-3 text-right text-[#888] text-sm">Subtotal</td>
-                    <td class="py-1.5 px-3 text-right text-sm money min-w-[140px]" data-field="subtotal"></td>
-                </tr>
-                <tr>
-                    <td class="py-1.5 px-3 text-right text-[#888] text-sm">VAT</td>
-                    <td class="py-1.5 px-3 text-right text-sm money" data-field="vat"></td>
-                </tr>
-                <tr>
-                    <td class="pt-3 px-3 text-right font-semibold text-[15px] border-t-2 border-[#333]">Total due</td>
-                    <td class="pt-3 px-3 text-right font-semibold text-[15px] money border-t-2 border-[#333]" data-field="total"></td>
-                </tr>
-            </table>
-        </div>
-
-        <div class="bg-bg border-l-[3px] border-[#333] px-5 py-3 mb-8 text-sm leading-relaxed" data-show="vat_note" data-field="vat_note" style="display:none"></div>
-
-        <div class="pt-6 border-t border-[#eee]">
-            <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-3">Payment details</div>
-            <div class="space-y-1 text-sm">
-                <div class="flex"><span class="w-[110px] text-[#888]">Account holder</span><span data-field="account_holder"></span></div>
-                <div class="flex"><span class="w-[110px] text-[#888]">IBAN</span><span class="money" data-field="iban"></span></div>
-                <div class="flex" data-show="bic" style="display:none"><span class="w-[110px] text-[#888]">BIC / SWIFT</span><span class="money" data-field="bic"></span></div>
-                <div class="flex"><span class="w-[110px] text-[#888]">Reference</span><span data-field="reference"></span></div>
-            </div>
-        </div>
+        <div id="ksef-error" class="mt-3 text-sm text-[#a33] leading-relaxed" style="display:none"></div>
     </div>
+    {% elif ksef_unavailable_reason %}
+    <div id="ksef-note" class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
+        <div class="text-sm text-[#666] mt-1">{{ ksef_unavailable_reason }}</div>
+    </div>
+    {% endif %}
+
+    {% include "wad/_invoice_document.html" %}
 </div>
 
 <script>
@@ -302,11 +333,15 @@
     const round2 = n => Math.round(n * 100) / 100;
 
     const STORAGE_KEY = `wad.invoice.${ctx.contract_id}`;
+    // Whether this invoice is kept on the server. When it is, the details that carry from
+    // month to month are read back from the last one and the browser keeps nothing.
+    const STORED = {{ can_store_invoices|yesno:"true,false" }};
     const SAVED_FIELDS = [
-        'from_name', 'from_address', 'from_tax_ids',
-        'to_name', 'to_address', 'to_tax_ids',
         'currency', 'vat_rate', 'vat_note', 'payment_terms',
         'account_holder', 'iban', 'bic',
+        // A guest has no seller or buyer to be named by, so their form is the only record
+        // of the parties and is remembered alongside the rest.
+        ...(STORED ? [] : ['from_name', 'from_address', 'from_tax_ids', 'to_name', 'to_address', 'to_tax_ids']),
     ];
 
     const linesContainer = document.getElementById('line-items');
@@ -330,7 +365,6 @@
         linesContainer.querySelectorAll('.remove-line-button').forEach(btn => {
             btn.disabled = onlyOne;
             btn.style.opacity = onlyOne ? '0.3' : '';
-            btn.style.cursor = onlyOne ? 'not-allowed' : '';
         });
     }
 
@@ -343,6 +377,9 @@
     }
 
     function loadSaved() {
+        // A stored invoice is its own record of what was billed, so the last one on the
+        // server is what a new month starts from.
+        if (STORED) return ctx.prefill ?? null;
         try {
             const raw = localStorage.getItem(STORAGE_KEY);
             return raw ? JSON.parse(raw) : null;
@@ -352,10 +389,11 @@
     }
 
     function saveState(invoiceNumber) {
+        if (STORED) return;
         const data = {};
         for (const name of SAVED_FIELDS) {
             const field = form.elements[name];
-            if (field) data[name] = field.value;
+            if (field && field.value) data[name] = field.value;
         }
         // Persist every line (raw input values, unparsed, to preserve formatting).
         data.lines = [...linesContainer.children].map(row => ({
@@ -384,18 +422,21 @@
         const saved = loadSaved();
         const today = new Date();
 
-        // Saved fields: fall back to sane defaults for currency/vat_rate/payment_terms only.
+        // Defaults for fields with no value carried over.
         const savedDefaults = {
-            currency: saved?.currency ?? 'EUR',
-            vat_rate: saved?.vat_rate ?? '0',
-            payment_terms: saved?.payment_terms ?? '35',
+            currency: 'EUR',
+            vat_rate: '0',
+            payment_terms: '35',
         };
         for (const name of SAVED_FIELDS) {
             const field = form.elements[name];
             if (!field || field.value) continue;
-            const value = saved?.[name] ?? savedDefaults[name] ?? '';
+            // Falls through on an empty saved value as well as a missing one: earlier
+            // versions stored blanks, and a blank should not outrank a default.
+            const value = saved?.[name] || savedDefaults[name] || '';
             if (value !== '') field.value = value;
         }
+
 
         // Restore saved lines (or synthesize one from a legacy `rate`-only save).
         const savedLines = saved?.lines ?? (saved?.rate ? [{ rate: saved.rate }] : []);
@@ -412,17 +453,21 @@
             if (!rateInput.value && savedLine.rate) rateInput.value = savedLine.rate;
         });
 
-        // First line's description and qty always reflect the current month.
-        const firstLine = linesContainer.children[0];
-        firstLine.querySelector('[data-line="description"]').value =
-            `Software development services - ${ctx.month_name} ${ctx.year}`;
-        firstLine.querySelector('[data-line="days"]').value = fmtDays(Number(ctx.net_working_days));
+        // A new invoice's first line describes the month it bills; one being reopened keeps
+        // the line it was saved with.
+        if (!ctx.editing) {
+            const firstLine = linesContainer.children[0];
+            firstLine.querySelector('[data-line="description"]').value =
+                `Software development services - ${ctx.month_name} ${ctx.year}`;
+            firstLine.querySelector('[data-line="days"]').value = fmtDays(Number(ctx.net_working_days));
+        }
 
-        // Month-specific: always overwrite on each open.
+        // Month-specific: always overwrite on each open. A stored invoice is numbered from
+        // the numbers already taken, which the server is the only place that knows.
         const periodKey = `${ctx.year}${pad2(ctx.month)}`;
         const counters = saved?.invoice_counters ?? {};
         const nextSeq = (counters[periodKey] ?? 0) + 1;
-        form.elements.invoice_number.value = `${periodKey}-${nextSeq}`;
+        form.elements.invoice_number.value = STORED ? ctx.next_number : `${periodKey}-${nextSeq}`;
         form.elements.issue_date.value = isoDate(today);
         recomputeDueDate();
     }
@@ -438,12 +483,20 @@
     }
 
     const setText = (field, value) => {
-        document.querySelectorAll(`[data-field="${field}"]`).forEach(el => { el.textContent = value; });
+        document.querySelectorAll(`[data-field="${field}"]`).forEach(el => {
+            el.textContent = value;
+            // A field rendered as a link has to point where it says it points.
+            if (el.tagName === 'A') el.href = value;
+        });
     };
-    const setLines = (field, value) => {
+    // Text written over several rows, escaped and broken onto those rows.
+    const linesHtml = value => {
         const escape = document.createElement('div');
         escape.textContent = value;
-        const html = escape.innerHTML.replace(/\n/g, '<br>');
+        return escape.innerHTML.replace(/\n/g, '<br>');
+    };
+    const setLines = (field, value) => {
+        const html = linesHtml(value);
         document.querySelectorAll(`[data-field="${field}"]`).forEach(el => { el.innerHTML = html; });
     };
     const setShow = (name, show) => {
@@ -452,8 +505,35 @@
         });
     };
 
+    // Who the printed invoice names. Once invoices are stored both parties come from the
+    // contract, which is also where a saved invoice copies them from, so the preview
+    // cannot show one party and the stored invoice another.
+    function printedParties() {
+        const get = name => (form.elements[name] ? form.elements[name].value.trim() : '');
+        if (!STORED) {
+            return {
+                fromName: get('from_name'),
+                fromAddress: get('from_address'),
+                fromTaxIds: get('from_tax_ids'),
+                toName: get('to_name'),
+                toAddress: get('to_address'),
+                toTaxIds: get('to_tax_ids'),
+            };
+        }
+
+        return {
+            fromName: ctx.seller_name,
+            fromAddress: ctx.seller_address,
+            fromTaxIds: ctx.seller_tax_ids,
+            toName: ctx.buyer_name,
+            toAddress: ctx.buyer_address,
+            toTaxIds: ctx.buyer_tax_ids,
+        };
+    }
+
     function renderPreview() {
         const get = name => (form.elements[name] ? form.elements[name].value.trim() : '');
+        const parties = printedParties();
         const currency = (get('currency') || 'EUR').toUpperCase();
         const vatRate = Number(get('vat_rate')) || 0;
 
@@ -466,16 +546,16 @@
         const reference = get('reference') || `Invoice ${invoiceNumber}`;
         const period = `${ctx.month_name} ${ctx.year}`;
 
-        setText('from_name', get('from_name'));
-        setText('from_name_body', get('from_name'));
-        setLines('from_address', get('from_address'));
-        setLines('from_tax_ids', get('from_tax_ids'));
-        setShow('from_tax_ids', !!get('from_tax_ids'));
+        setText('from_name', parties.fromName);
+        setText('from_name_body', parties.fromName);
+        setLines('from_address', parties.fromAddress);
+        setLines('from_tax_ids', parties.fromTaxIds);
+        setShow('from_tax_ids', !!parties.fromTaxIds);
 
-        setText('to_name', get('to_name'));
-        setLines('to_address', get('to_address'));
-        setLines('to_tax_ids', get('to_tax_ids'));
-        setShow('to_tax_ids', !!get('to_tax_ids'));
+        setText('to_name', parties.toName);
+        setLines('to_address', parties.toAddress);
+        setLines('to_tax_ids', parties.toTaxIds);
+        setShow('to_tax_ids', !!parties.toTaxIds);
 
         setText('number', invoiceNumber);
         setText('header_number', invoiceNumber);
@@ -497,11 +577,17 @@
         });
 
         setText('subtotal', fmtMoney(currency, subtotal));
-        setText('vat', fmtMoney(currency, vat));
+        // A sale taxed outside Poland is not taxed at 0%, it is outside the scope of
+        // Polish VAT, and a zero amount reads as the former. The words under the totals
+        // say which one this is.
+        setText('vat', ctx.reverse_charge ? 'N/A' : fmtMoney(currency, vat));
         setText('total', fmtMoney(currency, total));
 
         setLines('vat_note', get('vat_note'));
         setShow('vat_note', !!get('vat_note'));
+        // The notes block also carries the reverse-charge statement, so it stays even
+        // when the seller has written nothing of their own.
+        setShow('notes', ctx.reverse_charge || !!get('vat_note'));
 
         setText('account_holder', get('account_holder'));
         setText('iban', get('iban'));
@@ -516,10 +602,173 @@
         window.scrollTo(0, 0);
     }
 
+    // One description of the invoice, used both for saving and for sending, so the two
+    // can never disagree about what was submitted. The parties are named by the buyer
+    // reference alone: the server copies both of them in from their own rows.
+    function invoicePayload() {
+        const get = name => (form.elements[name] ? form.elements[name].value.trim() : '');
+        return {
+            number: get('invoice_number'),
+            issue_date: get('issue_date'),
+            due_date: get('due_date'),
+            currency: (get('currency') || 'EUR').toUpperCase(),
+            vat_rate: get('vat_rate') || '0',
+            vat_note: get('vat_note'),
+            account_holder: get('account_holder'),
+            iban: get('iban'),
+            bic: get('bic'),
+            payment_reference: get('reference'),
+            lines: readLines(),
+        };
+    }
+
     function showForm() {
         previewView.style.display = 'none';
         formView.style.display = '';
         window.scrollTo(0, 0);
+    }
+
+    // KSeF sending. Present only for the instance owner, and only when the instance is
+    // configured to issue invoices.
+    const ksefPanel = document.getElementById('ksef-panel');
+    if (ksefPanel) {
+        const sendButton = document.getElementById('ksef-send-button');
+        const statusText = document.getElementById('ksef-status');
+        const errorBox = document.getElementById('ksef-error');
+        const stamp = document.getElementById('ksef-stamp');
+
+        const POLL_INTERVAL_MS = 3000;
+        const POLL_ATTEMPTS = 20;
+        const STATE_LABELS = {
+            draft: 'Prepared, not yet sent.',
+            sending: 'Sent - waiting for KSeF to confirm.',
+            accepted: 'Accepted by KSeF.',
+            rejected: 'Rejected by KSeF.',
+        };
+
+        // Errors accumulate rather than overwrite. A send can fail and then fail again
+        // differently while polling, and the first message is usually the one that
+        // explains the rest. Repeats are dropped so a poll loop cannot bury it.
+        const reported = [];
+        const showError = message => {
+            if (!message) reported.length = 0;
+            else if (!reported.includes(message)) reported.push(message);
+
+            errorBox.replaceChildren(...reported.map(text => {
+                const line = document.createElement('div');
+                line.textContent = text;
+                return line;
+            }));
+            errorBox.style.display = reported.length ? '' : 'none';
+        };
+
+        function applyState(state) {
+            statusText.textContent = STATE_LABELS[state.state] ?? state.state;
+            showError(state.error);
+
+            // An accepted invoice may not be sent again, and the visualisation handed to
+            // the client has to carry the code and number KSeF assigned.
+            const accepted = state.state === 'accepted';
+            sendButton.disabled = accepted || state.state === 'sending';
+            stamp.style.display = accepted ? '' : 'none';
+            if (accepted) {
+                setText('ksef_number', state.ksef_number);
+                setText('verification_url', state.verification_url);
+                }
+        }
+
+        async function poll(invoiceId) {
+            for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+                await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+                const response = await fetch(`/invoices/${invoiceId}/status/`, {
+                    headers: { 'Accept': 'application/json' },
+                });
+                const state = await response.json();
+                applyState(state);
+                if (state.state !== 'sending') return;
+            }
+            statusText.textContent = 'Still processing. Reopen this page later to check.';
+        }
+
+        async function send() {
+            sendButton.disabled = true;
+            statusText.textContent = 'Sending...';
+            showError('');
+
+            const payload = invoicePayload();
+
+            try {
+                const response = await fetch(
+                    `{% url 'invoice_send' pk=contract.pk year=year month=month %}`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': form.elements.csrfmiddlewaretoken.value,
+                        },
+                        body: JSON.stringify(payload),
+                    },
+                );
+                const state = await response.json();
+
+                if (!response.ok && !state.state) {
+                    statusText.textContent = 'Not sent.';
+                    showError(state.error ?? `Request failed (${response.status}).`);
+                    sendButton.disabled = false;
+                    return;
+                }
+
+                // Sending stores the invoice before it goes out, so a send that got through
+                // has left a record. Its own page is where the outcome is followed and where
+                // a retry lives, and it is the only page that reflects what was kept.
+                if (response.ok && state.url) {
+                    window.location.href = state.url;
+                    return;
+                }
+
+                applyState(state);
+                if (state.state === 'sending') await poll(state.id);
+            } catch (err) {
+                // The invoice may well have reached KSeF, so this deliberately does not
+                // re-enable sending. Reopening the page resolves it by asking KSeF.
+                statusText.textContent = 'Lost contact while sending.';
+                showError(`${err}. Reopen this page to find out whether KSeF accepted it.`);
+            }
+        }
+
+        sendButton.addEventListener('click', send);
+    }
+
+    // Saving keeps the invoice so it can be found, sent and retried later. Guests have
+    // no button: their invoices live in this browser only.
+    const saveButton = document.getElementById('save-invoice-button');
+    if (saveButton) {
+        saveButton.addEventListener('click', async () => {
+            saveButton.disabled = true;
+            const previous = saveButton.textContent;
+            saveButton.textContent = 'Saving...';
+
+            try {
+                const response = await fetch(
+                    `{% url 'invoice_save' pk=contract.pk year=year month=month %}`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': form.elements.csrfmiddlewaretoken.value,
+                        },
+                        body: JSON.stringify(invoicePayload()),
+                    },
+                );
+                const body = await response.json();
+                if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status}).`);
+                window.location.href = body.url;
+            } catch (err) {
+                saveButton.textContent = previous;
+                saveButton.disabled = false;
+                window.alert(`Could not save the invoice. ${err}`);
+            }
+        });
     }
 
     form.addEventListener('submit', e => {

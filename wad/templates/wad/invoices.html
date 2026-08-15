@@ -1,0 +1,79 @@
+{% extends "wad/base.html" %}
+{% block title %}Invoices - {{ contract.name }} - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'contract_list' %}">Contracts</a> /
+        <a href="{% url 'calendar' pk=contract.pk %}">{{ contract.name }}</a> /
+        <span aria-current="page">Invoices</span>
+    </nav>
+    <div class="flex items-center justify-between flex-wrap gap-3">
+        <h1 class="text-[28px] font-bold tracking-tight leading-tight">Invoices</h1>
+        <button onclick="htmx.ajax('GET', '{% url 'monthly_summary' pk=contract.pk %}', '#monthly-summary-content'); document.getElementById('monthly-dialog').showModal()"
+                class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+            Add
+        </button>
+    </div>
+
+    <div class="mt-5 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
+        {% if invoices %}
+        <table class="w-full border-collapse">
+            <thead>
+                <tr class="border-b border-[#eee]">
+                    <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Number</th>
+                    <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Issued</th>
+                    <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Period</th>
+                    <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Total</th>
+                    <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Status</th>
+                </tr>
+            </thead>
+            <tbody class="text-sm">
+                {% for invoice in invoices %}
+                <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa]">
+                    <td class="py-3 px-5">
+                        <a href="{% url 'invoice_detail' pk=invoice.pk %}" class="font-semibold underline hover:no-underline">{{ invoice.number }}</a>
+                    </td>
+                    <td class="py-3 px-5 text-[#666]">{{ invoice.issue_date|date:"j M Y" }}</td>
+                    <td class="py-3 px-5 text-[#666]">{{ invoice.period_start|date:"F Y" }}</td>
+                    {% comment %}
+                    stringformat rather than floatformat: the total is a decimal, and
+                    floatformat would round-trip money through a float to print it.
+                    {% endcomment %}
+                    <td class="py-3 px-5 text-right money">{{ invoice.currency }} {{ invoice.net_total|stringformat:".2f" }}</td>
+                    <td class="py-3 px-5">
+                        {% if invoice.state == "accepted" %}
+                        <span class="rounded-[6px] bg-green-100 text-green-800 px-2 py-0.5 text-xs font-semibold">Accepted</span>
+                        {% elif invoice.state == "issued" %}
+                        <span class="rounded-[6px] bg-green-100 text-green-800 px-2 py-0.5 text-xs font-semibold">Issued</span>
+                        {% elif invoice.state == "rejected" %}
+                        <span class="rounded-[6px] bg-red-100 text-red-800 px-2 py-0.5 text-xs font-semibold">Rejected</span>
+                        {% elif invoice.state == "sending" %}
+                        <span class="rounded-[6px] bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-semibold">In flight</span>
+                        {% else %}
+                        <span class="rounded-[6px] bg-[#f5f5f5] text-[#666] px-2 py-0.5 text-xs font-semibold">Draft</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="px-5 py-8 text-sm text-[#666]">
+            No invoices yet. Open a month from the calendar, fill in the invoice and save it.
+        </div>
+        {% endif %}
+    </div>
+</div>
+{# Create invoice: pick the month to bill. #}
+<dialog id="monthly-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
+        onclick="if(event.target===this)this.close()">
+    <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
+        <h2 class="text-xl font-bold">Create invoice</h2>
+        <button onclick="this.closest('dialog').close()"
+                class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
+    </div>
+    <div id="monthly-summary-content" class="px-5 py-4 overflow-y-auto max-h-[70vh]">
+    </div>
+</dialog>
+{% endblock %}
