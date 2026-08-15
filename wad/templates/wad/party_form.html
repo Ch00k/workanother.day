@@ -1,0 +1,138 @@
+{% extends "wad/base.html" %}
+{% block title %}{{ title }} - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+    <nav class="crumbs print:hidden">
+        <a href="{{ list_url }}">{{ section }}</a> /
+        <span aria-current="page">{{ title }}</span>
+    </nav>
+    <h1 class="text-[28px] font-bold tracking-tight leading-tight">{{ title }}</h1>
+
+    {% if errors %}
+    <div class="mt-4 rounded-[10px] bg-red-50 px-4 py-2 text-[13px] text-red-600">
+        {% for error in errors %}<div>{{ error }}</div>{% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="mt-5 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
+        <form method="post" class="grid gap-4">
+            {% csrf_token %}
+            <div class="text-xs text-[#999]">
+                <span class="text-red-600" aria-hidden="true">*</span> required
+            </div>
+            <div>
+                <label for="name" class="block text-sm font-medium text-[#666] mb-1">Name <span class="text-red-600" aria-hidden="true">*</span></label>
+                <input type="text" id="name" name="name" required value="{% firstof form_data.name party.name '' %}"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+            </div>
+            <div>
+                <label for="address" class="block text-sm font-medium text-[#666] mb-1">Address <span class="text-red-600" aria-hidden="true">*</span></label>
+                <textarea id="address" name="address" rows="3" required
+                          placeholder="Street and number&#10;Postcode and city"
+                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">{% firstof form_data.address party.address '' %}</textarea>
+                <div class="text-xs text-[#999] mt-1">
+                    Printed on the invoice as written. The first row is sent to KSeF as the street
+                    line, the rest as the second.
+                </div>
+            </div>
+            <div>
+                <label for="country" class="block text-sm font-medium text-[#666] mb-1">Country <span class="text-red-600" aria-hidden="true">*</span></label>
+                <select id="country" name="country" required
+                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                    {% for code, label in countries %}
+                    <option value="{{ code }}" {% if code == selected_country %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <div class="text-xs text-[#999] mt-1">
+                    {% if is_seller %}
+                    Where this taxpayer is established. Outside Poland it falls outside KSeF, and
+                    the fields below stop applying.
+                    {% else %}
+                    Where this client is established. It decides how the sale is taxed and how KSeF
+                    identifies them.
+                    {% endif %}
+                </div>
+            </div>
+            {% if is_seller %}
+            <div id="polish-seller-fields" class="grid gap-4">
+            <div>
+                <label for="nip" class="block text-sm font-medium text-[#666] mb-1">NIP</label>
+                <input type="text" id="nip" name="nip" inputmode="numeric" maxlength="10"
+                       pattern="[1-9]((\d[1-9])|([1-9]\d))\d{7}" title="NIP must be 10 digits."
+                       value="{% firstof form_data.nip party.nip '' %}" placeholder="5213870274"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">Required to send invoices to KSeF.</div>
+            </div>
+            <div>
+                <label for="ksef_token" class="block text-sm font-medium text-[#666] mb-1">KSeF token</label>
+                <input type="password" id="ksef_token" name="ksef_token" autocomplete="off" spellcheck="false"
+                       {% if party.ksef_token %}placeholder="Stored - leave blank to keep it"{% endif %}
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">
+                    Can issue invoices under the NIP above until you revoke it. Never shown again once saved.
+                </div>
+            </div>
+            </div>
+            {% else %}
+            <div>
+                <label for="tax_id" class="block text-sm font-medium text-[#666] mb-1">Tax identifier</label>
+                <input type="text" id="tax_id" name="tax_id" value="{% firstof form_data.tax_id party.tax_id '' %}"
+                       placeholder="CHE-123.456.789"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">
+                    Sent as structured data. For an EU business, the VAT number without its country prefix.
+                </div>
+            </div>
+            {% endif %}
+            <div>
+                <label for="tax_ids" class="block text-sm font-medium text-[#666] mb-1">Printed tax IDs</label>
+                <textarea id="tax_ids" name="tax_ids" rows="2"
+                          placeholder="VAT ID: 000000000&#10;Registry no: 00000000"
+                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">{% firstof form_data.tax_ids party.tax_ids '' %}</textarea>
+                <div class="text-xs text-[#999] mt-1">
+                    Printed on the invoice exactly as written, one per row. Never sent to KSeF,
+                    which carries the identifiers above instead.
+                </div>
+            </div>
+
+            <div class="flex gap-3 items-center">
+                <button type="submit"
+                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                    Save
+                </button>
+                <a href="{{ list_url }}" class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
+                {% if party and can_delete %}
+                <button type="submit" form="delete-party-form"
+                        class="ml-auto rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                    Delete
+                </button>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+
+{% if party and can_delete %}
+<form id="delete-party-form" method="post" action="{{ delete_url }}" class="hidden">{% csrf_token %}</form>
+{% endif %}
+
+<script>
+(() => {
+    const fields = document.getElementById('polish-seller-fields');
+    if (!fields) return;
+
+    const country = document.getElementById('country');
+
+    // A NIP and a KSeF token are Polish, so for a seller established elsewhere they are
+    // absent rather than shown as something that does not apply. The server drops them for
+    // such a seller too; this only keeps the form honest.
+    function sync() {
+        fields.style.display = country.value.toUpperCase() === 'PL' ? '' : 'none';
+    }
+
+    country.addEventListener('change', sync);
+    sync();
+})();
+</script>
+{% endblock %}

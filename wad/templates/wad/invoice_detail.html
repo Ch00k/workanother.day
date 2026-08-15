@@ -1,0 +1,217 @@
+{% extends "wad/base.html" %}
+{% block title %}Invoice {{ invoice.number }} - Work Another Day{% endblock %}
+
+{% block body %}
+<style>
+    .invoice-page .money { font-variant-numeric: tabular-nums; }
+    @media print {
+        .invoice-wrap { max-width: none !important; margin: 0 !important; padding: 0 !important; }
+        .invoice-page {
+            margin: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            max-width: none !important;
+            padding: 14mm 18mm !important;
+        }
+        @page { size: A4; margin: 0; }
+    }
+</style>
+
+<div class="invoice-wrap mx-auto max-w-[960px] px-4 mt-6 mb-8">
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'contract_list' %}">Contracts</a> /
+        <a href="{% url 'calendar' pk=contract.pk %}">{{ contract.name }}</a> /
+        <a href="{% url 'invoice_list' pk=contract.pk %}">Invoices</a> /
+        <span aria-current="page">{{ invoice.number }}</span>
+    </nav>
+
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-4 print:hidden">
+        <div>
+            <h1 class="text-[28px] font-bold tracking-tight leading-tight">Invoice {{ invoice.number }}</h1>
+            <div class="text-xs text-[#888] mt-1">
+                {{ contract.name }} &middot; {{ invoice.period_start|date:"F Y" }}
+                {% if not ksef_enabled %}&middot; {{ invoice.get_state_display }}{% endif %}
+            </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            {% if not ksef_enabled and invoice.state == "draft" %}
+            <button type="submit" form="issue-invoice-form"
+                    class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                Mark as issued
+            </button>
+            {% endif %}
+            {% if invoice.is_editable %}
+            <a href="{% url 'invoice_edit' pk=invoice.pk %}"
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                Edit
+            </a>
+            {% endif %}
+            <button type="button" onclick="window.print()"
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                Download PDF
+            </button>
+            {% if invoice.is_editable %}
+            <button type="submit" form="delete-invoice-form"
+                    class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                Delete
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if ksef_enabled %}
+    <div id="ksef-panel" class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+            <div>
+                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
+                <div class="text-sm text-[#666] mt-0.5" id="ksef-status">
+                    {% if invoice.state == "accepted" %}Accepted by KSeF.
+                    {% elif invoice.state == "rejected" %}Rejected by KSeF.
+                    {% elif invoice.state == "sending" %}Sent - waiting for KSeF to confirm.
+                    {% else %}Not sent yet{% endif %}
+                </div>
+                <div class="mt-1.5 flex items-center gap-2 flex-wrap">
+                    {% if ksef_environment == "PRODUCTION" %}
+                    <span class="rounded-[6px] bg-red-100 text-red-800 px-2 py-0.5 text-xs font-bold tracking-wide">PRODUCTION</span>
+                    <span class="text-xs text-red-800">Invoices sent here have legal effect.</span>
+                    {% else %}
+                    <span class="rounded-[6px] bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold tracking-wide">{{ ksef_environment }}</span>
+                    <span class="text-xs text-amber-700">Sandbox. Use fictional data only.</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="flex gap-2">
+                {% comment %}
+                Only a draft can be claimed for sending, so anything else arrives disabled.
+                The script disables it as a send progresses; without this the page would
+                start out offering to send an invoice KSeF already holds.
+                {% endcomment %}
+                <button type="button" id="ksef-send-button"
+                        {% if invoice.state != "draft" %}disabled{% endif %}
+                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                    Send to KSeF
+                </button>
+            </div>
+        </div>
+        <div id="ksef-error" class="mt-3 text-sm text-[#a33] leading-relaxed"
+             style="{% if not invoice.error %}display:none{% endif %}">{{ invoice.error }}</div>
+    </div>
+    {% elif ksef_unavailable_reason %}
+    <div id="ksef-note" class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
+        <div class="text-sm text-[#666] mt-1">{{ ksef_unavailable_reason }}</div>
+    </div>
+    {% endif %}
+
+    {% include "wad/_invoice_document.html" %}
+</div>
+
+<form id="delete-invoice-form" method="post" action="{% url 'invoice_delete' pk=invoice.pk %}" class="hidden"
+      onsubmit="return confirm('Delete invoice {{ invoice.number }}?')">
+    {% csrf_token %}
+</form>
+
+<form id="issue-invoice-form" method="post" action="{% url 'invoice_mark_issued' pk=invoice.pk %}" class="hidden">
+    {% csrf_token %}
+</form>
+
+<form id="send-invoice-form" class="hidden">{% csrf_token %}</form>
+
+<script>
+(() => {
+    const panel = document.getElementById('ksef-panel');
+    if (!panel) return;
+
+    const sendButton = document.getElementById('ksef-send-button');
+    const statusText = document.getElementById('ksef-status');
+    const errorBox = document.getElementById('ksef-error');
+    const stamp = document.getElementById('ksef-stamp');
+    const token = document.getElementById('send-invoice-form').elements.csrfmiddlewaretoken.value;
+
+    const SEND_URL = "{% url 'invoice_send_stored' pk=invoice.pk %}";
+    const STATUS_URL = "{% url 'invoice_status' pk=invoice.pk %}";
+    const POLL_INTERVAL_MS = 3000;
+    const POLL_ATTEMPTS = 20;
+    const STATE_LABELS = {
+        draft: 'Not sent yet',
+        sending: 'Sent - waiting for KSeF to confirm.',
+        accepted: 'Accepted by KSeF.',
+        rejected: 'Rejected by KSeF.',
+    };
+
+    // Errors accumulate rather than overwrite. A send can fail and then fail again
+    // differently while polling, and the first message usually explains the rest.
+    const reported = [];
+    const showError = message => {
+        if (!message) reported.length = 0;
+        else if (!reported.includes(message)) reported.push(message);
+
+        errorBox.replaceChildren(...reported.map(text => {
+            const line = document.createElement('div');
+            line.textContent = text;
+            return line;
+        }));
+        errorBox.style.display = reported.length ? '' : 'none';
+    };
+
+    function applyState(state) {
+        statusText.textContent = STATE_LABELS[state.state] ?? state.state;
+        showError(state.error);
+
+        const accepted = state.state === 'accepted';
+        sendButton.disabled = accepted || state.state === 'sending';
+        if (accepted) {
+            for (const [field, value] of [['ksef_number', state.ksef_number],
+                                         ['verification_url', state.verification_url]]) {
+                document.querySelectorAll(`[data-field="${field}"]`).forEach(el => {
+                    el.textContent = value;
+                    // A field rendered as a link has to point where it says it points.
+                    if (el.tagName === 'A') el.href = value;
+                });
+            }
+            stamp.style.display = '';
+        }
+    }
+
+    async function poll() {
+        for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+            const state = await (await fetch(STATUS_URL, { headers: { 'Accept': 'application/json' } })).json();
+            applyState(state);
+            if (state.state !== 'sending') return;
+        }
+        statusText.textContent = 'Still processing. Reload this page later to check.';
+    }
+
+    async function send() {
+        sendButton.disabled = true;
+        statusText.textContent = 'Sending...';
+        showError('');
+
+        try {
+            const response = await fetch(SEND_URL, { method: 'POST', headers: { 'X-CSRFToken': token } });
+            const state = await response.json();
+
+            if (!response.ok && !state.state) {
+                statusText.textContent = 'Not sent.';
+                showError(state.error ?? `Request failed (${response.status}).`);
+                sendButton.disabled = false;
+                return;
+            }
+
+            applyState(state);
+            if (state.state === 'sending') await poll();
+        } catch (err) {
+            // The invoice may well have reached KSeF, so sending stays disabled. Reloading
+            // resolves it by asking KSeF rather than by sending again.
+            statusText.textContent = 'Lost contact while sending.';
+            showError(`${err}. Reload this page to find out whether KSeF accepted it.`);
+        }
+    }
+
+    sendButton.addEventListener('click', send);
+    {% if invoice.state == 'sending' %}poll();{% endif %}
+})();
+</script>
+{% endblock %}

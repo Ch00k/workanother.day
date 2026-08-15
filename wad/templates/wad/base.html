@@ -16,26 +16,25 @@
 </head>
 <body class="min-h-screen bg-bg text-[#222] flex flex-col print:bg-white">
     <nav class="bg-[#333] text-white print:hidden">
-        <div class="mx-auto max-w-[960px] px-4 flex items-center justify-between py-2">
+        <div class="mx-auto {% if nav_items %}max-w-none{% else %}max-w-[960px]{% endif %} px-4 flex items-center justify-between py-2">
             <a href="{% url 'index' %}" class="text-base sm:text-xl font-bold hover:opacity-80 transition">Work Another Day</a>
+            {% comment %}
+            Account holders reach About and Log out from the sidebar, so the header carries
+            these only for guests and signed-out visitors, who have no sidebar.
+            {% endcomment %}
+            {% if not nav_items %}
             <div class="flex items-center gap-3 sm:gap-6">
-            {% if user.is_authenticated %}
+                {% if user.is_authenticated %}
                 <button onclick="document.getElementById('about-modal').showModal()" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">About</button>
-                {% if user.guest %}
-                <a href="{% url 'login' %}" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">Log in</a>
-                {% else %}
-                <form method="post" action="{% url 'logout' %}">
-                    {% csrf_token %}
-                    <button type="submit" class="text-base text-white/70 hover:text-white transition">Log out</button>
-                </form>
                 {% endif %}
-            {% else %}
                 <a href="{% url 'login' %}" class="text-base text-white/70 hover:text-white transition">Log in</a>
-            {% endif %}
             </div>
+            {% endif %}
         </div>
     </nav>
-    <main class="flex-1">
+    <div class="flex-1 flex flex-col md:flex-row">
+    {% if nav_items %}{% include "wad/_sidebar.html" %}{% endif %}
+    <main class="flex-1 min-w-0">
     {% if user.guest %}
     <div class="bg-amber-50 border-b border-amber-300 px-4 py-2 text-sm text-amber-800 text-center print:hidden">
         Want to come back later? <form method="post" action="{% url 'save_account' %}" class="inline">{% csrf_token %}<button type="submit" class="font-semibold underline hover:no-underline">Get a token</button></form> to access your data again.
@@ -43,6 +42,7 @@
     {% endif %}
     {% block body %}{% endblock %}
     </main>
+    </div>
     <footer class="text-center text-xs text-[#999] py-2 print:hidden">
         &copy; {% now "Y" %} workanother.day
     </footer>
@@ -106,12 +106,12 @@
                     <p class="text-sm text-[#666] leading-relaxed">At the end of the month, generate an invoice straight from the monthly summary. The working-day quantity is pre-filled from the calendar. Add line items, preview, and save as PDF.</p>
                 </div>
                 <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
-                    <div class="font-semibold text-[#222] mb-1">Invoice details stay on your device</div>
-                    <p class="text-sm text-[#666] leading-relaxed">Business name, addresses, IBAN, rates, and recurring line items are remembered per contract in your browser. None of it is sent to the server.</p>
+                    <div class="font-semibold text-[#222] mb-1">Invoice details carry over</div>
+                    <p class="text-sm text-[#666] leading-relaxed">Business name, addresses, IBAN, rates, and recurring line items are remembered, so each month starts where the last one left off. Without an access token they are remembered in your browser only; with one they are stored with your account, which is what lets an invoice be found, corrected and sent again later.</p>
                 </div>
                 <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
-                    <div class="font-semibold text-[#222] mb-1">Privacy-first</div>
-                    <p class="text-sm text-[#666] leading-relaxed">No account needed. Start using the app the moment you arrive. Save a random access token if you want to come back later - no email, no password, no personal data. Invoice data lives only in your browser.</p>
+                    <div class="font-semibold text-[#222] mb-1">No account needed</div>
+                    <p class="text-sm text-[#666] leading-relaxed">Start using the app the moment you arrive - no email, no password, no personal data. Until you save a random access token, everything about your invoices stays in this browser. Saving one keeps them instead, so you can come back to them from anywhere.</p>
                 </div>
             </div>
         </div>

@@ -3,11 +3,15 @@
 
 {% block body %}
 <div class="mx-auto max-w-[960px] px-4 mt-6">
-    <h1 class="text-[28px] font-bold tracking-tight">New Contract</h1>
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'contract_list' %}">Contracts</a> /
+        <span aria-current="page">New contract</span>
+    </nav>
+    <h1 class="text-[28px] font-bold tracking-tight leading-tight">New Contract</h1>
 
     <div class="mt-5 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
         {% if errors %}
-        <div class="mb-4 rounded-[10px] bg-[#f5f5f5] border border-[#ddd] px-4 py-2 text-sm text-[#666]">
+        <div class="mb-4 rounded-[10px] bg-red-50 px-4 py-2 text-[13px] text-red-600">
             {% for error in errors %}
             <div>{{ error }}</div>
             {% endfor %}
@@ -16,13 +20,16 @@
 
         <form method="post" action="{% url 'contract_create' %}" class="grid gap-4 sm:grid-cols-2">
             {% csrf_token %}
+            <div class="sm:col-span-2 text-xs text-[#999]">
+                <span class="text-red-600" aria-hidden="true">*</span> required
+            </div>
             <div class="sm:col-span-2">
-                <label for="name" class="block text-sm font-medium text-[#666] mb-1">Name</label>
+                <label for="name" class="block text-sm font-medium text-[#666] mb-1">Name <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="name" name="name" value="{{ form_data.name|default:'' }}" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div>
-                <label for="home_country" class="block text-sm font-medium text-[#666] mb-1">Home Country</label>
+                <label for="home_country" class="block text-sm font-medium text-[#666] mb-1">Home Country <span class="text-red-600" aria-hidden="true">*</span></label>
                 <select id="home_country" name="home_country" required
                         class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
                     <option value="">Select country...</option>
@@ -30,9 +37,10 @@
                     <option value="{{ code }}" {% if form_data.home_country|upper == code %}selected{% endif %}>{{ name }} ({{ code }})</option>
                     {% endfor %}
                 </select>
+                <div class="text-xs text-[#999] mt-1">Where you work from. Its public holidays are loaded, and sending to KSeF applies only to work done from Poland.</div>
             </div>
             <div>
-                <label for="client_country" class="block text-sm font-medium text-[#666] mb-1">Client Country</label>
+                <label for="client_country" class="block text-sm font-medium text-[#666] mb-1">Client Country <span class="text-red-600" aria-hidden="true">*</span></label>
                 <select id="client_country" name="client_country" required
                         class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
                     <option value="">Select country...</option>
@@ -40,46 +48,53 @@
                     <option value="{{ code }}" {% if form_data.client_country|upper == code %}selected{% endif %}>{{ name }} ({{ code }})</option>
                     {% endfor %}
                 </select>
+                <div class="text-xs text-[#999] mt-1">Where your client is. Its public holidays are loaded too, so the calendar can show both and mark the overlaps.</div>
             </div>
             <div>
-                <label for="max_working_days" class="block text-sm font-medium text-[#666] mb-1">Max Working Days</label>
-                <input type="number" id="max_working_days" name="max_working_days" min="1"
+                <label for="max_working_days" class="block text-sm font-medium text-[#666] mb-1">Max Working Days <span class="text-red-600" aria-hidden="true">*</span></label>
+                <input type="number" id="max_working_days" name="max_working_days" placeholder="200" min="1"
                        value="{{ form_data.max_working_days|default:'' }}" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">The cap this contract allows. The calendar counts working days against it and shows what is left.</div>
             </div>
             <div>
                 <label for="working_hours_per_day" class="block text-sm font-medium text-[#666] mb-1">Working Hours Per Day</label>
-                <input type="number" id="working_hours_per_day" name="working_hours_per_day" min="1" max="24"
+                <input type="number" id="working_hours_per_day" name="working_hours_per_day" placeholder="8" min="1" max="24"
                        value="{{ form_data.working_hours_per_day|default:'8' }}"
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">What a full working day means here. A half day off counts as half of it.</div>
             </div>
             <div>
-                <label for="start_date" class="block text-sm font-medium text-[#666] mb-1">Start Date</label>
+                <label for="start_date" class="block text-sm font-medium text-[#666] mb-1">Start Date <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="date" id="start_date" name="start_date"
                        value="{{ form_data.start_date|default:'' }}" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             <div>
-                <label for="end_date" class="block text-sm font-medium text-[#666] mb-1">End Date</label>
+                <label for="end_date" class="block text-sm font-medium text-[#666] mb-1">End Date <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="date" id="end_date" name="end_date"
                        value="{{ form_data.end_date|default:'' }}" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
             </div>
             {% if external_calendar_sync_enabled %}
             <div class="sm:col-span-2">
-                <label for="external_calendar_url" class="block text-sm font-medium text-[#666] mb-1">External Calendar URL <span class="text-[#999]">(optional, iCal feed)</span></label>
+                <label for="external_calendar_url" class="block text-sm font-medium text-[#666] mb-1">External Calendar URL <span class="text-[#999]">(iCal feed)</span></label>
                 <input type="url" id="external_calendar_url" name="external_calendar_url"
                        value="{{ form_data.external_calendar_url|default:'' }}"
                        placeholder="https://example.com/calendar.ics"
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">Days off in this feed are compared with the ones booked here, so the two can be reconciled.</div>
             </div>
             {% endif %}
+            {% include "wad/_contract_seller_field.html" %}
+            {% include "wad/_contract_buyer_field.html" %}
+            {% include "wad/_contract_ksef_field.html" %}
             <div class="sm:col-span-2 flex gap-3 items-center">
                 <button type="submit"
-                        class="rounded-[10px] bg-[#333] text-white px-6 py-2.5 text-sm font-semibold hover:opacity-90 transition">
+                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
                     Create Contract
                 </button>
-                <a href="{% url 'contract_list' %}" class="rounded-[10px] border-2 border-[#ddd] px-6 py-2.5 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
+                <a href="{% url 'contract_list' %}" class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
             </div>
         </form>
     </div>

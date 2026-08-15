@@ -1,0 +1,136 @@
+{% comment %}
+The printable invoice. Filled in by the browser on the stateless month page, and by the
+server on a stored invoice's page. Both write into the same data-field elements, so the
+document itself is defined once.
+{% endcomment %}
+    <div class="invoice-page bg-white rounded-[14px] shadow-sm border border-black/5 px-8 py-10 sm:px-14 sm:py-14 text-[#222]">
+        <div class="flex items-start justify-between pb-5 border-b border-[#eee] gap-6">
+            <div>
+                <h2 class="text-[24px] font-bold tracking-tight leading-tight" data-field="from_name">{{ invoice.seller_name }}</h2>
+            </div>
+            <div class="text-right">
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1">Invoice</div>
+                <div class="text-[20px] font-bold leading-none mb-3">#<span data-field="number">{{ invoice.number }}</span></div>
+                <div class="inline-block text-left text-sm space-y-0.5">
+                    <div><span class="inline-block w-[110px] text-[#888]">Issue date</span><span data-field="issue_date">{{ invoice.issue_date|date:'j F Y' }}</span></div>
+                    <div><span class="inline-block w-[110px] text-[#888]">Service period</span><span data-field="service_period">{{ invoice.period_start|date:'F Y' }}</span></div>
+                    <div><span class="inline-block w-[110px] text-[#888]">Due date</span><span data-field="due_date">{{ invoice.due_date|date:'j F Y' }}</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-8 mt-5 mb-8">
+            <div>
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">From</div>
+                <div class="font-semibold text-[15px] mb-1" data-field="from_name_body">{{ invoice.seller_name }}</div>
+                <div class="text-sm leading-relaxed" data-field="from_address">{{ invoice.seller_address|linebreaksbr }}</div>
+                <div class="mt-2 text-sm text-[#888] leading-relaxed" data-show="from_tax_ids" data-field="from_tax_ids" style="{% if not invoice.seller_tax_ids %}display:none{% endif %}">{{ invoice.seller_tax_ids|linebreaksbr }}</div>
+            </div>
+            <div>
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">Billed to</div>
+                <div class="font-semibold text-[15px] mb-1" data-field="to_name">{{ invoice.buyer_name }}</div>
+                <div class="text-sm leading-relaxed" data-field="to_address">{{ invoice.buyer_address|linebreaksbr }}</div>
+                <div class="mt-2 text-sm text-[#888] leading-relaxed" data-show="to_tax_ids" data-field="to_tax_ids" style="{% if not invoice.buyer_tax_ids %}display:none{% endif %}">{{ invoice.buyer_tax_ids|linebreaksbr }}</div>
+            </div>
+        </div>
+
+        <table class="w-full border-collapse mb-5">
+            <thead>
+                <tr>
+                    <th class="text-left py-2 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333] w-[55%]">Description</th>
+                    <th class="text-right py-2 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333]">Qty</th>
+                    <th class="text-right py-2 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333]">Price</th>
+                    <th class="text-right py-2 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium border-b-2 border-[#333]">Amount</th>
+                </tr>
+            </thead>
+            <tbody class="text-[15px]" id="preview-line-rows">
+                {% for line in lines %}
+                <tr class="border-b border-[#eee]">
+                    <td class="py-3 px-3 align-top"><div class="font-semibold">{{ line.description }}</div></td>
+                    <td class="py-3 px-3 text-right align-top money">{{ line.quantity|floatformat:"-2" }}</td>
+                    <td class="py-3 px-3 text-right align-top money">{{ invoice.currency }} {{ line.unit_net_price|floatformat:2 }}</td>
+                    <td class="py-3 px-3 text-right align-top money">{{ invoice.currency }} {{ line.net_value|floatformat:2 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <template id="preview-line-template">
+            <tr class="border-b border-[#eee]">
+                <td class="py-3 px-3 align-top">
+                    <div class="font-semibold" data-line-preview="description"></div>
+                </td>
+                <td class="py-3 px-3 text-right align-top money" data-line-preview="days"></td>
+                <td class="py-3 px-3 text-right align-top money" data-line-preview="rate"></td>
+                <td class="py-3 px-3 text-right align-top money" data-line-preview="amount"></td>
+            </tr>
+        </template>
+
+        <div class="flex justify-end mb-5">
+            <table class="min-w-[320px]">
+                <tr>
+                    <td class="py-1.5 px-3 text-right text-[#888] text-sm">Subtotal</td>
+                    <td class="py-1.5 px-3 text-right text-sm money min-w-[140px]" data-field="subtotal">{% if invoice %}{{ invoice.currency }} {{ net_total|floatformat:2 }}{% endif %}</td>
+                </tr>
+                <tr>
+                    <td class="py-1.5 px-3 text-right text-[#888] text-sm">VAT</td>
+                    <td class="py-1.5 px-3 text-right text-sm money" data-field="vat">{% if invoice %}{% if reverse_charge %}N/A{% else %}{{ invoice.currency }} 0.00{% endif %}{% endif %}</td>
+                </tr>
+                <tr>
+                    <td class="pt-3 px-3 text-right font-semibold text-[15px] border-t-2 border-[#333]">Total due</td>
+                    <td class="pt-3 px-3 text-right font-semibold text-[15px] money border-t-2 border-[#333]" data-field="total">{% if invoice %}{{ invoice.currency }} {{ net_total|floatformat:2 }}{% endif %}</td>
+                </tr>
+            </table>
+        </div>
+
+        {% comment %}
+        One notes block. The reverse-charge statement is a required element of the invoice,
+        so it reads as a statement rather than as a heading over whatever the seller chose
+        to add. The block is present when either part has something to say.
+        {% endcomment %}
+        <div class="bg-bg border-l-[3px] border-[#333] px-5 py-2.5 mb-5 text-sm leading-relaxed" data-show="notes"
+             style="{% if not reverse_charge and not invoice.vat_note %}display:none{% endif %}">
+            {% if reverse_charge %}
+            {% comment %}
+            Only the words "odwrotne obciążenie" are prescribed, by art. 106e ust. 1 pkt 18,
+            so that is all this line asserts. Anything explanatory belongs in the note below,
+            which the seller can edit: a legal basis is their statement to make, not ours.
+            {% endcomment %}
+            <div>VAT reverse charge (odwrotne obciążenie)</div>
+            {% endif %}
+            <div class="{% if reverse_charge %}mt-2 {% endif %}" data-show="vat_note" data-field="vat_note"
+                 style="{% if not invoice.vat_note %}display:none{% endif %}">{{ invoice.vat_note|linebreaksbr }}</div>
+        </div>
+
+        <div class="pt-5 border-t border-[#eee]">
+            <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">Payment details</div>
+            <div class="space-y-1 text-sm">
+                <div class="flex"><span class="w-[110px] text-[#888]">Account holder</span><span data-field="account_holder">{{ invoice.account_holder }}</span></div>
+                <div class="flex"><span class="w-[110px] text-[#888]">IBAN</span><span class="money" data-field="iban">{{ invoice.iban }}</span></div>
+                <div class="flex" data-show="bic" style="{% if not invoice.bic %}display:none{% endif %}"><span class="w-[110px] text-[#888]">BIC / SWIFT</span><span class="money" data-field="bic">{{ invoice.bic }}</span></div>
+                <div class="flex"><span class="w-[110px] text-[#888]">Reference</span><span data-field="reference">{% firstof invoice.payment_reference invoice.number '' %}</span></div>
+            </div>
+        </div>
+
+        {% comment %}
+        The verification code required by art. 106gb ust. 5 for an invoice handed over
+        outside KSeF. It may be a direct link or a QR graphic; this is the link, which has
+        only to carry the KSeF number along with it, in no prescribed order. MF's rule that
+        the number sits "bezpośrednio pod" the code is written for the graphic form, so
+        putting a QR here would mean moving the number back underneath it.
+
+        Wording is English because nothing requires otherwise: the invoice in the legal
+        sense is the XML, where the reverse-charge annotation is a numeric flag rather
+        than text, and MF's own manual allows a foreign-language visualisation.
+        {% endcomment %}
+        <div id="ksef-stamp" class="pt-5 mt-5 border-t border-[#eee] text-[11px] leading-relaxed"
+             style="{% if not verification %}display:none{% endif %}">
+            <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">National e-Invoicing System (KSeF)</div>
+            <div class="text-[#888]">KSeF number</div>
+            <div class="money" data-field="ksef_number">{{ invoice.ksef_number }}</div>
+            <div class="text-[#888] mt-2">Verify this invoice</div>
+            <a class="money break-all underline hover:no-underline text-[#0f3b2e]" data-field="verification_url"
+               target="_blank" rel="noopener"
+               href="{% if verification %}{{ verification.verification_url }}{% endif %}">{% if verification %}{{ verification.verification_url }}{% endif %}</a>
+        </div>
+    </div>

@@ -1,0 +1,33 @@
+{% comment %}
+Sticky from md: up, so the sections stay put while the page scrolls. Sticking needs the
+element to be shorter than what scrolls past it, so it takes its own height (self-start)
+rather than stretching to the row, and scrolls internally if it ever outgrows the viewport.
+{% endcomment %}
+<nav class="print:hidden bg-white border-b border-black/5
+            md:w-56 md:shrink-0 md:self-start md:sticky md:top-0 md:max-h-screen md:overflow-y-auto
+            md:bg-transparent md:border-b-0 md:border-r">
+    <div class="flex flex-row items-center gap-1 overflow-x-auto px-4 py-2
+                md:flex-col md:items-stretch md:overflow-visible md:px-3 md:py-6">
+        {% for item in nav_items %}
+        <a href="{{ item.url }}"
+           class="shrink-0 rounded-[10px] px-3 py-2 text-sm transition
+                  {% if item.active %}bg-[#333] text-white font-semibold{% else %}text-[#666] hover:bg-gray-100{% endif %}">
+            {{ item.label }}
+        </a>
+        {% endfor %}
+
+        <div class="flex flex-row items-center gap-1 md:flex-col md:items-stretch md:mt-3 md:border-t md:border-black/5 md:pt-3">
+            <button onclick="document.getElementById('about-modal').showModal()"
+                    class="shrink-0 rounded-[10px] px-3 py-2 text-sm text-[#666] text-left hover:bg-gray-100 transition bg-transparent border-none">
+                About
+            </button>
+            <form method="post" action="{% url 'logout' %}" class="shrink-0 md:w-full">
+                {% csrf_token %}
+                <button type="submit"
+                        class="w-full rounded-[10px] px-3 py-2 text-sm text-[#666] text-left hover:bg-gray-100 transition">
+                    Log out
+                </button>
+            </form>
+        </div>
+    </div>
+</nav>

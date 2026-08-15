@@ -5,15 +5,19 @@ description = "workanother.day"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "cryptography>=50.0.0",
     "django>=6.0.3",
     "gunicorn>=25.3.0",
     "httpx>=0.28.1",
+    "ksef2>=0.18.1",
+    "lxml>=6.1.1",
     "whitenoise>=6.12.0",
 ]
 
 [dependency-groups]
 dev = [
     "django-stubs>=6.0.2",
+    "lxml-stubs>=0.5.1",
     "pytest>=9.0.2",
     "ruff>=0.15.9",
     "ty>=0.0.28",
@@ -37,5 +41,10 @@ ignore = [
 select = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**" = ["S101"]
+"**/tests/**" = [
+    "S101",
+    "S105", # Fake credentials compared against token fields
+    "S106", # Fake credentials passed to token arguments
+    "SLF001", # Unit-testing internal helpers
+]
 "**/migrations/**" = ["RUF012"]

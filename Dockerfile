@@ -23,4 +23,14 @@ ENV PATH=/app/.venv/bin:$PATH
 
 RUN chmod +x /app/run.sh
 
+# The app never needs root, and the volume it writes to is the only thing it must own.
+# /app/data is created here so the mount point belongs to the user before the volume is
+# attached over it, and the static files are collected at startup into a directory this
+# user can write.
+RUN useradd --create-home --uid 10001 wad \
+    && mkdir -p /app/data /app/staticfiles \
+    && chown -R wad:wad /app/data /app/staticfiles
+
+USER wad
+
 CMD ["/app/run.sh"]
