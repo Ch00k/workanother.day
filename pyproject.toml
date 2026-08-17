@@ -19,9 +19,20 @@ dev = [
     "django-stubs>=6.0.2",
     "lxml-stubs>=0.5.1",
     "pytest>=9.0.2",
+    "pytest-django>=4.14.0",
     "ruff>=0.15.9",
     "ty>=0.0.28",
 ]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+testpaths = ["wad/tests"]
+# Everything else is answered by the stand-in in wad/tests/http.py.
+markers = ["live: reaches a real server rather than the stand-in"]
+# A mistyped or dropped marker would otherwise only warn, and a test that quietly
+# stopped being live would still pass against the pinned copy. --strict-markers is
+# the usual way to say this, but pytest 9.0.2 only honours it from the command line.
+filterwarnings = ["error::pytest.PytestUnknownMarkWarning"]
 
 [tool.ruff]
 line-length = 120

@@ -138,23 +138,3 @@ def serving() -> Iterator[Publisher]:
         mock.patch("wad.services.socket.getaddrinfo", side_effect=_resolution),
     ):
         yield publisher
-
-
-class ServesHTTP:
-    """Mixin for test cases whose subject talks to a third party.
-
-    Mixed in ahead of the test case class, so the stand-in is in place before the test body
-    runs and is removed however the test ends. `self.publisher` is what the test arranges.
-    """
-
-    def setUp(self) -> None:
-        super().setUp()  # ty: ignore[unresolved-attribute]
-
-        self.publisher = Publisher()
-
-        for patcher in (
-            mock.patch("httpx.HTTPTransport.handle_request", side_effect=self.publisher.handle),
-            mock.patch("wad.services.socket.getaddrinfo", side_effect=_resolution),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)  # ty: ignore[unresolved-attribute]
