@@ -20,11 +20,13 @@ class Command(BaseCommand):
     def handle(self, *args: str, **options: str | int | bool | None) -> None:  # noqa: ARG002
         days = options.get("days", 30) or 30
         cutoff = timezone.now() - timedelta(days=int(days))
-        stale_guests = Guest.objects.filter(created_at__lt=cutoff)
-        count = stale_guests.count()
 
-        # Deleting the User cascades to Guest, Contract, TimeOff
-        for guest in stale_guests.select_related("user"):
+        # Deleting the User cascades to Guest, Contract, TimeOff. Counted from what was
+        # actually removed rather than from a count taken beforehand, which a guest saving
+        # their account in between would make wrong.
+        deleted = 0
+        for guest in Guest.objects.filter(created_at__lt=cutoff).select_related("user"):
             guest.user.delete()
+            deleted += 1
 
-        self.stdout.write(f"Deleted {count} stale guest user(s).")
+        self.stdout.write(f"Deleted {deleted} stale guest user(s).")

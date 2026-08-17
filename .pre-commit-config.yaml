@@ -25,6 +25,6 @@ repos:
 
       #- id: tailwind-build
       #  name: tailwind-build
-      #  entry: tailwindcss -i static/css/input.css -o static/css/output.css --minify
+      #  entry: tailwindcss -i assets/tailwind.css -o static/css/output.css --minify
       #  language: system
       #  pass_filenames: false

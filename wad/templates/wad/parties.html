@@ -1,0 +1,35 @@
+{% extends "wad/base.html" %}
+{% block title %}{{ title }} - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+    <div class="flex items-center justify-between flex-wrap gap-3">
+        <h1 class="text-[28px] font-bold tracking-tight leading-tight">{{ title }}</h1>
+        <a href="{{ create_url }}"
+           class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+            Add
+        </a>
+    </div>
+
+    {% if parties %}
+    <div class="mt-5 grid gap-3 sm:grid-cols-2">
+        {% for party in parties %}
+        <a href="{{ party.edit_url }}"
+           class="rounded-[14px] bg-white p-5 shadow-sm border border-black/5 hover:border-[#bbb] hover:bg-gray-100 transition">
+            <div class="font-semibold text-[#222]">{{ party.name }}</div>
+            <div class="text-xs text-[#888] mt-1">{{ party.address|linebreaksbr }}</div>
+            {% if party.nip %}<div class="text-xs text-[#888] mt-0.5">NIP {{ party.nip }}</div>{% endif %}
+            {% if party.tax_id %}<div class="text-xs text-[#888] mt-0.5">{{ party.country }} {{ party.tax_id }}</div>{% endif %}
+            {% if party.ksef_token %}
+            <div class="text-xs text-[#0f3b2e] mt-1">KSeF token stored</div>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="mt-5 rounded-[14px] bg-white p-5 shadow-sm border border-black/5 text-center text-[#888]">
+        {{ empty_message }}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

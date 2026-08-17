@@ -1,0 +1,34 @@
+{# The note is inside the toggled element, so it goes away with the checkbox it explains. #}
+<div id="ksef-field" class="sm:col-span-2">
+    <label class="flex items-center gap-2 text-sm font-medium text-[#666]">
+        <input type="checkbox" id="send_to_ksef" name="send_to_ksef" value="1"
+               {% if form_data %}{% if form_data.send_to_ksef %}checked{% endif %}{% elif contract.send_to_ksef %}checked{% endif %}>
+        Send invoices to KSeF
+    </label>
+    <div class="text-xs text-[#999] mt-1">
+        Poland's national e-invoicing system. Saving with this on requires a seller that can
+        reach KSeF and a buyer with a tax identifier.
+    </div>
+</div>
+
+<script>
+(() => {
+    const field = document.getElementById('ksef-field');
+    if (!field) return;
+
+    const homeCountry = document.getElementById('home_country');
+    const toggle = document.getElementById('send_to_ksef');
+
+    // KSeF covers sellers established in Poland, so the option is absent entirely for work
+    // done elsewhere rather than shown as something unavailable. The server checks this
+    // too; this only keeps the form honest.
+    function sync() {
+        const inPoland = homeCountry.value.toUpperCase() === 'PL';
+        if (!inPoland) toggle.checked = false;
+        field.style.display = inPoland ? '' : 'none';
+    }
+
+    homeCountry.addEventListener('change', sync);
+    sync();
+})();
+</script>

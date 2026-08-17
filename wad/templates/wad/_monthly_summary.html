@@ -6,7 +6,7 @@
             <div class="font-medium">{{ month.month_name }} {{ month.year }}</div>
             {% if month.can_invoice %}
             <a href="{% url 'invoice' pk=contract.pk year=month.year month=month.month %}"
-               class="text-[11px] text-[#555] underline hover:no-underline">Generate invoice</a>
+               class="text-[11px] text-[#555] underline hover:no-underline">Create invoice</a>
             {% endif %}
         </div>
         <div class="mt-1 flex gap-4 text-[12px] text-[#555]">
@@ -39,7 +39,7 @@
             <td class="px-3 py-2 text-right">
                 {% if month.can_invoice %}
                 <a href="{% url 'invoice' pk=contract.pk year=month.year month=month.month %}"
-                   class="text-[12px] text-[#555] underline hover:no-underline">Generate invoice</a>
+                   class="text-[12px] text-[#555] underline hover:no-underline">Create invoice</a>
                 {% endif %}
             </td>
         </tr>

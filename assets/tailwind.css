@@ -1,7 +1,23 @@
 @import "tailwindcss";
-@source "../../wad/templates/";
+@source "../wad/templates/";
 
 a, button, summary { cursor: pointer; }
+/* Undo that for anything switched off, wherever it is, so no button lies about being ready. */
+button:disabled { cursor: not-allowed; }
+
+/* The trail above a page title. Inline flow rather than flex so a long one wraps as text. */
+.crumbs {
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+  color: #888;
+  margin-bottom: 0.25rem;
+}
+.crumbs a:hover {
+  color: #333;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.crumbs [aria-current] { color: #666; }
 @theme {
   --color-weekend: #f0f0f0;
   --color-home-holiday: #2b6cb0;
