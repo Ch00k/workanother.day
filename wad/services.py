@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import datetime
 import ipaddress
 import logging
@@ -48,6 +49,17 @@ def get_holidays(country_code: str, year: int) -> tuple[list[Holiday], bool]:
     it sent back could not be read. The calendar says so rather than quietly presenting
     an out-of-date or empty year as the truth.
     """
+    with httpx.Client(timeout=HOLIDAY_API_TIMEOUT) as client:
+        return _get_holidays(client, country_code, year)
+
+
+def _get_holidays(client: httpx.Client, country_code: str, year: int) -> tuple[list[Holiday], bool]:
+    """One country-year, fetched over a client the caller decides the lifetime of.
+
+    A span of years shares one, because opening a client builds a TLS context and reads the
+    system's certificates, and doing that once per year of a long contract costs more than
+    the requests do.
+    """
     cached = list(Holiday.objects.filter(country_code=country_code, year=year))
 
     if cached:
@@ -57,7 +69,7 @@ def get_holidays(country_code: str, year: int) -> tuple[list[Holiday], bool]:
 
     url = NAGER_API_URL.format(year=year, country_code=country_code)
     try:
-        response = httpx.get(url, timeout=HOLIDAY_API_TIMEOUT)
+        response = client.get(url)
         response.raise_for_status()
         holidays_data = response.json()
         fetched = _parse_holidays(country_code, year, holidays_data)
@@ -115,7 +127,10 @@ def get_holidays_for_years(country_code: str, years: Iterable[int]) -> tuple[lis
     """Fetch holidays for a country across multiple years in one query.
 
     Returns (list[Holiday], is_stale: bool).
-    Calls get_holidays only for years that aren't freshly cached.
+    Fetches only the years that aren't freshly cached, over a single client: a contract
+    spanning a decade is a decade of requests, and a client per request would spend more on
+    opening connections than on making them. The client is opened on the first year that
+    actually needs fetching, so a span already cached opens none.
     """
     years = list(years)
     cached = list(Holiday.objects.filter(country_code=country_code, year__in=years))
@@ -129,19 +144,24 @@ def get_holidays_for_years(country_code: str, years: Iterable[int]) -> tuple[lis
     all_holidays = []
     any_stale = False
 
-    for year in years:
-        year_holidays = by_year.get(year, [])
-        if year_holidays:
-            newest = max(h.fetched_at for h in year_holidays)
-            if now - newest < CACHE_MAX_AGE:
-                all_holidays.extend(year_holidays)
-                continue
+    with contextlib.ExitStack() as connections:
+        client = None
 
-        # Cache miss or stale -- fetch this year individually
-        hh, stale = get_holidays(country_code, year)
-        all_holidays.extend(hh)
-        if stale:
-            any_stale = True
+        for year in years:
+            year_holidays = by_year.get(year, [])
+            if year_holidays:
+                newest = max(h.fetched_at for h in year_holidays)
+                if now - newest < CACHE_MAX_AGE:
+                    all_holidays.extend(year_holidays)
+                    continue
+
+            if client is None:
+                client = connections.enter_context(httpx.Client(timeout=HOLIDAY_API_TIMEOUT))
+
+            hh, stale = _get_holidays(client, country_code, year)
+            all_holidays.extend(hh)
+            if stale:
+                any_stale = True
 
     return all_holidays, any_stale
 

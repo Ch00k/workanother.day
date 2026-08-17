@@ -9,7 +9,6 @@ from wad.ksef.sending import _accepted_number, resolve, send
 from wad.ksef.submission import InvoiceStateError
 from wad.models import Buyer, Contract, Invoice, Seller
 from wad.tests.factories import store_invoice
-from wad.tests.http import ServesHTTP
 from wad.tests.ksef_session import (
     ACCEPTED,
     DUPLICATE,
@@ -102,7 +101,7 @@ class AcceptedNumberTests(TestCase):
         assert _accepted_number(_reported(ksef_number=None, code=150)) == ""
 
 
-class SendTests(ServesHTTP, TestCase):
+class SendTests(TestCase):
     """What a send leaves behind, at each point it can stop."""
 
     def setUp(self) -> None:
@@ -173,7 +172,7 @@ class SendTests(ServesHTTP, TestCase):
         assert session.sent_xml is None
 
 
-class ResolveTests(ServesHTTP, TestCase):
+class ResolveTests(TestCase):
     """What asking KSeF about an invoice in flight settles it as."""
 
     def setUp(self) -> None:

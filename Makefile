@@ -1,4 +1,4 @@
-.PHONY: build run seed makemigrations migrate lint static test tailwind-watch tailwind-build
+.PHONY: build run seed makemigrations migrate lint static test test-offline tailwind-watch tailwind-build
 
 build:
 	docker build .
@@ -26,7 +26,12 @@ static:
 # Static files are collected first because the templates resolve them through the
 # hashed-name manifest, exactly as they do in production.
 test: static
-	uv run manage.py test wad
+	uv run pytest
+
+# The suite minus the one test that reaches the Ministry of Finance, for working
+# without a network.
+test-offline: static
+	uv run pytest -m "not live"
 
 tailwind-watch:
 	tailwindcss -i assets/tailwind.css -o static/css/output.css --watch

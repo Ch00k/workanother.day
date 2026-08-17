@@ -1,5 +1,6 @@
 import datetime
 import uuid
+from typing import TYPE_CHECKING
 
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
@@ -14,7 +15,10 @@ from wad.models import (
     generate_token,
     hash_token,
 )
-from wad.tests.http import ServesHTTP
+from wad.tests.http import HOLIDAY_API
+
+if TYPE_CHECKING:
+    from wad.tests.http import Publisher
 
 FEED_URL = "https://example.com/feed.ics"
 
@@ -623,12 +627,22 @@ class GuestCreationTests(TestCase):
 
 
 class InvoiceViewTests(TestCase):
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
+
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="test")
         self.client.force_login(self.user)
         today = datetime.datetime.now(tz=datetime.UTC).date()
         self.past_year = today.year - 1
-        self.future_year = today.year + 10
+        self.future_year = today.year + 1
+
+        # These pages render a calendar, which asks for both countries' holidays. Before the
+        # stand-in they reached the real API; registering them keeps the pages rendering the
+        # normal path rather than the one taken when the API cannot be reached.
+        for year in (self.past_year, self.future_year):
+            self.publisher.add_holiday("NL", datetime.date(year, 1, 1), "Nieuwjaarsdag")
+            self.publisher.add_holiday("CH", datetime.date(year, 1, 1), "Neujahrstag")
         self.contract = Contract.objects.create(
             user=self.user,
             name="Test",
@@ -732,6 +746,49 @@ CALAMARI_SAMPLE = (
 )
 
 
+class HolidayAvailabilityTests(TestCase):
+    """The calendar tells apart holidays it could not load from a year that has none.
+
+    Both branches are asserted here because they look identical on the page otherwise: an
+    empty calendar is what an outage and a quiet year both produce.
+    """
+
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test")
+        self.client.force_login(self.user)
+        self.contract = Contract.objects.create(
+            user=self.user,
+            name="Acme",
+            home_country="NL",
+            client_country="CH",
+            max_working_days=200,
+            working_hours_per_day=8,
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
+        )
+        self.url = f"/contracts/{self.contract.pk}/"
+
+    def test_loaded_holidays_are_shown_without_a_warning(self) -> None:
+        self.publisher.add_holiday("NL", datetime.date(2026, 5, 5), "Bevrijdingsdag")
+        self.publisher.add_holiday("CH", datetime.date(2026, 8, 1), "Nationalfeiertag")
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, "Bevrijdingsdag")
+        self.assertNotContains(response, "Holiday data may be outdated")
+
+    def test_an_unreachable_api_says_so_rather_than_drawing_an_empty_year(self) -> None:
+        """Silence would present a year nobody could fetch as a year with no holidays in it."""
+        self.publisher.unreachable(HOLIDAY_API)
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, "Holiday data may be outdated")
+
+
 class ContractCreateUrlFieldTests(TestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -816,7 +873,10 @@ class ContractEditUrlFieldTests(TestCase):
         assert self.contract.external_calendar_url == ""
 
 
-class SyncExternalCalendarTests(ServesHTTP, TestCase):
+class SyncExternalCalendarTests(TestCase):
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
+
     def setUp(self) -> None:
         super().setUp()
 
@@ -904,8 +964,11 @@ class SyncExternalCalendarTests(ServesHTTP, TestCase):
         self.assertNotContains(response, "Sync with external calendar")
 
 
-class InvoiceExternalSyncTests(ServesHTTP, TestCase):
+class InvoiceExternalSyncTests(TestCase):
     """The invoice page surfaces sync warnings scoped to the invoice month."""
+
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
 
     def setUp(self) -> None:
         super().setUp()
