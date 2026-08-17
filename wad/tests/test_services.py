@@ -13,7 +13,7 @@ from wad.services import (
     get_overlapping_holidays,
     validate_external_calendar_url,
 )
-from wad.tests.http import HOLIDAY_API, Publisher, ServesHTTP
+from wad.tests.http import HOLIDAY_API, Publisher
 
 
 def _resolves_to(ip: str) -> list[tuple[int, int, int, str, tuple[str, int]]]:
@@ -31,7 +31,10 @@ def _register_nl_2026(publisher: Publisher) -> None:
         publisher.add_holiday("NL", date, name)
 
 
-class GetHolidaysTests(ServesHTTP, TestCase):
+class GetHolidaysTests(TestCase):
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
+
     def test_fetches_from_api(self) -> None:
         _register_nl_2026(self.publisher)
 

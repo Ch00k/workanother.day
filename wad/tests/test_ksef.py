@@ -17,7 +17,7 @@ from wad.ksef.invoice import (
     tax_treatment,
 )
 from wad.ksef.validation import SchemaUnavailableError, SchemaValidationError, validate
-from wad.tests.http import PUBLISHER, ServesHTTP
+from wad.tests.http import PUBLISHER, Publisher
 
 NS = {"fa": fa3.NAMESPACE}
 CREATED_AT = datetime.datetime(2026, 8, 12, 9, 30, tzinfo=datetime.UTC)
@@ -114,7 +114,7 @@ class InvoiceTests(TestCase):
             _invoice(lines=())
 
 
-class RenderSwissInvoiceTests(ServesHTTP, TestCase):
+class RenderSwissInvoiceTests(TestCase):
     """The case this was built for: a Polish sole trader billing a Swiss business."""
 
     def setUp(self) -> None:
@@ -161,7 +161,7 @@ class RenderSwissInvoiceTests(ServesHTTP, TestCase):
         assert header.get("wersjaSchemy") == "1-0E"
 
 
-class RenderEuInvoiceTests(ServesHTTP, TestCase):
+class RenderEuInvoiceTests(TestCase):
     def setUp(self) -> None:
         super().setUp()
 
@@ -183,7 +183,7 @@ class RenderEuInvoiceTests(ServesHTTP, TestCase):
         assert _find(self.xml, "fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:NrID") is None
 
 
-class RenderStabilityTests(ServesHTTP, TestCase):
+class RenderStabilityTests(TestCase):
     def test_rendering_twice_produces_identical_bytes(self) -> None:
         """The QR code hashes these bytes, so re-rendering must not shift them."""
         invoice = _invoice()
@@ -213,7 +213,7 @@ class RenderStabilityTests(ServesHTTP, TestCase):
         assert [row.findtext("fa:NrWierszaFa", namespaces=NS) for row in rows] == ["1", "2"]
 
 
-class ValidationTests(ServesHTTP, TestCase):
+class ValidationTests(TestCase):
     def test_rejects_a_malformed_tax_designation(self) -> None:
         """FA(3) has no plain "np" designation, and the schema is what catches its use."""
         xml = fa3.render(_invoice(), CREATED_AT).replace(b"<P_12>np I</P_12>", b"<P_12>np</P_12>")
@@ -243,7 +243,7 @@ class ValidationTests(ServesHTTP, TestCase):
             validate(b'<?xml version="1.0"?><Faktura xmlns="http://crd.gov.pl/wzor/2025/06/25/13775/"/>')
 
 
-class AddressLineTests(ServesHTTP, TestCase):
+class AddressLineTests(TestCase):
     """An address written over several rows has to reach FA(3) as its two single lines."""
 
     def test_single_line_address_fills_only_the_first_line(self) -> None:
@@ -290,8 +290,11 @@ class AddressLineTests(ServesHTTP, TestCase):
         assert _text(xml, "fa:Podmiot2/fa:Adres/fa:AdresL2") == "8001 Zurich"
 
 
-class SchemaRetrievalTests(ServesHTTP, TestCase):
+class SchemaRetrievalTests(TestCase):
     """Where the schema an invoice is checked against comes from."""
+
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
 
     def test_an_unreachable_publisher_stops_the_invoice(self) -> None:
         """An invoice that could not be checked is not one that passed, so nothing is sent.
@@ -321,6 +324,7 @@ class SchemaRetrievalTests(ServesHTTP, TestCase):
         assert len(self.publisher.requests) == 8
 
 
+@pytest.mark.live
 class PublishedSchemaTests(TestCase):
     """The one test in the suite that reaches the Ministry of Finance.
 
@@ -330,5 +334,12 @@ class PublishedSchemaTests(TestCase):
     republished FA(3) arrives as a failing build rather than as a rejected invoice.
     """
 
+    # None here, because the autouse fixture stands aside for a test marked live.
+    publisher: Publisher | None
+
     def test_the_published_schema_still_accepts_our_invoices(self) -> None:
+        # Checked rather than assumed: losing the marker would quietly validate against the
+        # pinned copy and still pass, leaving nothing watching what is actually published.
+        assert self.publisher is None, "Nothing was fetched from the publisher, so this proves nothing."
+
         validate(fa3.render(_invoice(), CREATED_AT))

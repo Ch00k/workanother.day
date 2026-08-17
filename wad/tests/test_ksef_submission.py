@@ -19,7 +19,6 @@ from wad.ksef.submission import (
 )
 from wad.models import Buyer, Contract, Invoice, Seller
 from wad.tests.factories import store_invoice
-from wad.tests.http import ServesHTTP
 
 PERIOD = (datetime.date(2026, 7, 1), datetime.date(2026, 7, 31))
 
@@ -137,7 +136,7 @@ class DraftTests(InvoiceTestCase):
         assert record.frozen_at is None
 
 
-class FreezeTests(ServesHTTP, InvoiceTestCase):
+class FreezeTests(InvoiceTestCase):
     def test_freezing_stores_the_bytes_and_their_digest(self) -> None:
         record = self._draft()
         freeze(record)

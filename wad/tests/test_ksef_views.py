@@ -10,7 +10,7 @@ from django.urls import reverse
 from wad.ksef.submission import claim_for_sending, freeze, record_acceptance, record_rejection
 from wad.models import Buyer, Contract, Guest, Invoice, Seller
 from wad.tests.factories import store_invoice
-from wad.tests.http import PUBLISHER, ServesHTTP
+from wad.tests.http import PUBLISHER, Publisher
 
 CONFIGURED: dict[str, str] = {}
 
@@ -32,7 +32,7 @@ def _payload(buyer_id: str = "", **overrides: object) -> dict[str, object]:
     return payload
 
 
-class KsefViewTestCase(ServesHTTP, TestCase):
+class KsefViewTestCase(TestCase):
     def setUp(self) -> None:
         super().setUp()
 
@@ -183,6 +183,9 @@ class SchemaAvailabilityTests(KsefViewTestCase):
     The schema is fetched from the Ministry of Finance for every send, so its publisher
     being unreachable is an ordinary outcome rather than a broken invoice.
     """
+
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
 
     def setUp(self) -> None:
         super().setUp()
