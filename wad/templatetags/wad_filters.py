@@ -14,7 +14,7 @@ register = template.Library()
 def lookup(dictionary: object, key: str) -> object:
     """Look up a key in a dictionary."""
     if isinstance(dictionary, dict):
-        return dictionary.get(key, "")  # ty: ignore[no-matching-overload]
+        return dictionary.get(key, "")
     return ""
 
 
