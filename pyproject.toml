@@ -6,8 +6,8 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "cryptography>=50.0.0",
-    "django>=6.0.3",
-    "gunicorn>=25.3.0",
+    "django>=6.1",
+    "gunicorn>=26.0.0",
     "httpx>=0.28.1",
     "ksef2>=0.18.1",
     "lxml>=6.1.1",
@@ -16,12 +16,12 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "django-stubs>=6.0.2",
+    "django-stubs>=6.1.0",
     "lxml-stubs>=0.5.1",
-    "pytest>=9.0.2",
+    "pytest>=9.1.1",
     "pytest-django>=4.14.0",
-    "ruff>=0.15.9",
-    "ty>=0.0.28",
+    "ruff>=0.16.3",
+    "ty>=0.0.72",
 ]
 
 [tool.pytest.ini_options]
@@ -30,9 +30,11 @@ testpaths = ["wad/tests"]
 # Everything else is answered by the stand-in in wad/tests/http.py.
 markers = ["live: reaches a real server rather than the stand-in"]
 # A mistyped or dropped marker would otherwise only warn, and a test that quietly
-# stopped being live would still pass against the pinned copy. --strict-markers is
-# the usual way to say this, but pytest 9.0.2 only honours it from the command line.
-filterwarnings = ["error::pytest.PytestUnknownMarkWarning"]
+# stopped being live would still pass against the pinned copy.
+strict_markers = true
+# An unrecognised key in this section is otherwise ignored, which would let a
+# misspelled strict_markers switch off the guard above without a word.
+strict_config = true
 
 [tool.ruff]
 line-length = 120
@@ -41,6 +43,7 @@ line-length = 120
 ignore = [
     "D", # Docstrings
     "COM812",
+    "CPY001", # Copyright notices
     "TD",
     "TRY003",
     "EM101",
