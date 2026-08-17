@@ -124,10 +124,6 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Silences the error logs that tests covering failure paths provoke on purpose, so a
-# passing run says nothing.
-TEST_RUNNER = "wad.tests.runner.Runner"
-
 # Errors are the only signal a single-machine deployment gives that something is wrong.
 # Django's own default routes them to mail_admins, which goes nowhere without ADMINS, so
 # they are written to stderr where Fly collects them.

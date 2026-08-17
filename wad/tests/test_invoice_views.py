@@ -9,7 +9,6 @@ from django.urls import reverse
 from wad.ksef.submission import claim_for_sending, freeze, record_acceptance, record_rejection
 from wad.models import Buyer, Contract, Guest, Invoice, Seller
 from wad.tests.factories import store_invoice
-from wad.tests.http import ServesHTTP
 
 TODAY = datetime.datetime.now(tz=datetime.UTC).date()
 LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
@@ -33,7 +32,7 @@ def _payload(buyer_id: str = "", **overrides: object) -> dict[str, object]:
     return payload
 
 
-class InvoiceViewTestCase(ServesHTTP, TestCase):
+class InvoiceViewTestCase(TestCase):
     def setUp(self) -> None:
         super().setUp()
 

@@ -14,6 +14,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.14.
 ```bash
 make run          # migrate, seed a dev user, serve on 127.0.0.1:8080
 make test         # collect static files, then run the suite
+make test-offline # the same, minus the one test that reaches the internet
 make lint         # ruff format, ruff check --fix, ty check
 ```
 
@@ -82,11 +83,14 @@ reached stops the send with a 503: an invoice that could not be checked is not o
 passed.
 
 The suite stands in for every server the application talks to, through one router in
-`wad/tests/http.py`: the schema comes from the copy under `wad/tests/schemas/`, holidays
-and external calendars from whatever a test registers, and a request nobody arranged for
-is refused rather than leaving the machine. One test is deliberately exempt —
-`PublishedSchemaTests` validates a rendered invoice against the live schema, so a
-republished FA(3) arrives as a failing build rather than as a rejected invoice.
+`wad/tests/http.py`. It is installed by an autouse fixture, so it covers every test rather
+than the ones that remembered to ask: the schema comes from the copy under
+`wad/tests/schemas/`, holidays and external calendars from whatever a test registers, and
+a request nobody arranged for is refused rather than leaving the machine. A test that means
+to reach the real thing marks itself `@pytest.mark.live`, and exactly one does —
+`PublishedSchemaTests` validates a rendered invoice against the published schema, so a
+republished FA(3) arrives as a failing build rather than as a rejected invoice. `make
+test-offline` is the whole suite with nothing leaving the machine.
 
 KSeF itself is stood in for at the library's boundary rather than the wire, in
 `wad/tests/ksef_session.py`. Authenticating means fetching KSeF's certificates, encrypting

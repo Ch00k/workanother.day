@@ -1,11 +1,15 @@
 import datetime
 import re
+from typing import TYPE_CHECKING
 
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
 from wad.models import Contract, Guest, Seller
+
+if TYPE_CHECKING:
+    from wad.tests.http import Publisher
 
 
 class SidebarVisibilityTests(TestCase):
@@ -282,6 +286,9 @@ class PartyCardTests(TestCase):
 class BreadcrumbTests(TestCase):
     """Every page below a section root says where it sits and links back up the trail."""
 
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
+
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="test")
         self.client.force_login(self.user)
@@ -295,9 +302,13 @@ class BreadcrumbTests(TestCase):
             client_country="CH",
             max_working_days=200,
             working_hours_per_day=8,
-            start_date=datetime.date(2020, 1, 1),
-            end_date=datetime.date(2030, 12, 31),
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
         )
+
+        # The calendar these crumbs sit on asks for both countries' holidays.
+        self.publisher.add_holiday("NL", datetime.date(2026, 1, 1), "Nieuwjaarsdag")
+        self.publisher.add_holiday("CH", datetime.date(2026, 1, 1), "Neujahrstag")
 
     def _crumbs(self, path: str) -> str:
         response = self.client.get(path)
