@@ -24,7 +24,18 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run ty check
+      # The keys are required outside DEBUG, so CI supplies throwaway ones rather than
+      # letting settings fall back to something a real deployment could inherit.
+      - run: uv run manage.py collectstatic --noinput
+        env: &checks_env
+          DJANGO_SECRET_KEY: ci-only-key-4Xn7QpZm2LwVtR9sHgKdBjF6yCeA3uNiPoTr8ZxWqMvSbE5D
+          DJANGO_KSEF_TOKEN_KEY: rXevUkBPASjAGdFZDd0mIj-SukHMTv-SxRKx1uGmbCY=
+      - run: uv run manage.py check --deploy --fail-level WARNING
+        env:
+          <<: *checks_env
+          DJANGO_ALLOWED_HOSTS: workanother.day
       - run: uv run manage.py test wad
+        env: *checks_env
 
   deploy:
     if: startsWith(github.ref, 'refs/tags/')

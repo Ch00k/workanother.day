@@ -1,0 +1,20 @@
+{% comment %}
+Outside the KSeF block: the seller is who the invoice is issued by, whether or not it is
+sent to KSeF, and the From block on every invoice is filled in from it.
+{% endcomment %}
+<div class="sm:col-span-2">
+    <label for="seller" class="block text-sm font-medium text-[#666] mb-1">Seller</label>
+    <select id="seller" name="seller"
+            class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+        <option value="">Not set</option>
+        {% for option in sellers %}
+        <option value="{{ option.pk }}" {% if option.pk|stringformat:"s" == selected_seller %}selected{% endif %}>
+            {{ option.name }}{% if option.nip %} &middot; NIP {{ option.nip }}{% endif %}
+        </option>
+        {% endfor %}
+    </select>
+    <div class="text-xs text-[#999] mt-1">
+        The taxpayer these invoices are issued by. Its details fill the From block on every
+        invoice for this contract.
+    </div>
+</div>

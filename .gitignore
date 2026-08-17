@@ -14,5 +14,12 @@ db.sqlite3
 data/
 staticfiles/
 
+# Local environment. Holds secrets, so it must never be committable by accident.
+.envrc
+
+# Invoices and their PDFs are real documents about real people; the working tree is not
+# where they belong.
+*.pdf
+
 # Tailwind
 tailwindcss

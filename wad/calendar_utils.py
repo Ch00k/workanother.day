@@ -49,6 +49,16 @@ def is_weekend(date: datetime.date) -> bool:
     return date.weekday() >= 5
 
 
+def _hours_per_day(contract: ContractInfo) -> int:
+    """A full working day's hours, which every day count here is measured against.
+
+    Never zero. A contract that reached the database with zero hours would otherwise make
+    its own calendar, summary and invoice pages raise, and there is no screen left to
+    correct it from.
+    """
+    return contract.working_hours_per_day or 8
+
+
 def get_weekdays_in_range(start_date: datetime.date, end_date: datetime.date) -> int:
     total_days = (end_date - start_date).days + 1
     if total_days <= 0:
@@ -100,7 +110,7 @@ def compute_stats(
     """
     total_weekdays = get_weekdays_in_range(contract.start_date, contract.end_date)
 
-    hours_per_day = contract.working_hours_per_day
+    hours_per_day = _hours_per_day(contract)
     time_off_days = sum(entry.hours for entry in time_off_entries) / hours_per_day
 
     effective_working_days = total_weekdays - time_off_days
@@ -134,7 +144,7 @@ def compute_monthly_summary(contract: ContractInfo, time_off_entries: Iterable[T
     Returns a list of dicts, one per month in the contract period, each with:
         year, month, weekdays, time_off_days, net_working_days
     """
-    hours_per_day = contract.working_hours_per_day
+    hours_per_day = _hours_per_day(contract)
 
     # Pre-group time-off hours by (year, month)
     monthly_hours: dict[tuple[int, int], int] = {}

@@ -121,3 +121,37 @@ COUNTRIES = (
     ("ZA", "South Africa"),
     ("ZW", "Zimbabwe"),
 )
+
+# Member states of the European Union. A sale to a business in one of these is reported
+# differently from a sale to a business outside it, so invoicing needs to tell them apart.
+EU_COUNTRY_CODES = frozenset(
+    {
+        "AT",
+        "BE",
+        "BG",
+        "CY",
+        "CZ",
+        "DE",
+        "DK",
+        "EE",
+        "ES",
+        "FI",
+        "FR",
+        "GR",
+        "HR",
+        "HU",
+        "IE",
+        "IT",
+        "LT",
+        "LU",
+        "LV",
+        "MT",
+        "NL",
+        "PL",
+        "PT",
+        "RO",
+        "SE",
+        "SI",
+        "SK",
+    }
+)

@@ -1,102 +1,26 @@
-{% if is_past and is_booked and is_half %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+{% comment %}
+One square of the calendar. Its state decides colouring only, so the element, its id, its
+HTMX wiring and its tooltip are written once and the classes vary.
 
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-half-day text-[#222] opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
-     {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
-    {{ day_num }}
-</div>
-{% elif is_past and is_booked %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
+Order matters: a booked day is coloured as booked even when it is also a holiday, because
+what the user did with the day outranks what the calendar says about it.
 
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold bg-booked text-booked-light opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
-     {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
-    {{ day_num }}
-</div>
-{% elif is_past and is_overlap %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold text-white cursor-pointer select-none bg-overlap opacity-50 hover:scale-110 hover:shadow-md transition"
-     title="{{ home_title }} | {{ client_title }}">
-    {{ day_num }}
-</div>
-{% elif is_past and home_name %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-home-holiday text-white opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
-     title="{{ home_title }}">
-    {{ day_num }}
-</div>
-{% elif is_past and client_name %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-client-holiday text-white opacity-50 cursor-pointer select-none hover:scale-110 hover:shadow-md transition"
-     title="{{ client_title }}">
-    {{ day_num }}
-</div>
-{% elif is_past %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-weekend text-[#aaa] opacity-70 cursor-pointer select-none hover:scale-110 hover:shadow-md transition">
-    {{ day_num }}
-</div>
-{% elif is_booked and is_half %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] bg-half-day text-[#222] cursor-pointer select-none hover:scale-110 hover:shadow-md transition
-            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
-     {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
-    {{ day_num }}
-</div>
-{% elif is_booked %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold bg-booked text-booked-light cursor-pointer select-none hover:scale-110 hover:shadow-md transition
-            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
-     {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
-    {{ day_num }}
-</div>
-{% elif is_overlap %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-semibold text-white cursor-pointer select-none bg-overlap hover:scale-110 hover:shadow-md transition
-            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
-     title="{{ home_title }} | {{ client_title }}">
-    {{ day_num }}
-</div>
-{% elif home_name %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-home-holiday text-white cursor-pointer select-none hover:scale-110 hover:shadow-md transition
-            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
-     title="{{ home_title }}">
-    {{ day_num }}
-</div>
-{% elif client_name %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
-     class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] font-medium bg-client-holiday text-white cursor-pointer select-none hover:scale-110 hover:shadow-md transition
-            {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
-     title="{{ client_title }}">
-    {{ day_num }}
-</div>
-{% else %}
-<div id="day-{{ day_str }}" hx-post="{{ toggle_url }}"
-     hx-target="#day-{{ day_str }}" hx-swap="outerHTML"
-
+A past day is dimmed and never carries the today ring, a day being both being impossible.
+{% endcomment %}
+<div id="day-{{ day_str }}"
+     hx-post="{{ toggle_url }}"
+     hx-target="#day-{{ day_str }}"
+     hx-swap="outerHTML"
      class="w-9 h-9 flex items-center justify-center rounded-lg text-[13px] cursor-pointer select-none hover:scale-110 hover:shadow-md transition
+            {% if is_booked and is_half %}bg-half-day text-[#222]{% if is_past %} opacity-50{% endif %}
+            {% elif is_booked %}font-semibold bg-booked text-booked-light{% if is_past %} opacity-50{% endif %}
+            {% elif is_overlap %}font-semibold text-white bg-overlap{% if is_past %} opacity-50{% endif %}
+            {% elif home_name %}font-medium bg-home-holiday text-white{% if is_past %} opacity-50{% endif %}
+            {% elif client_name %}font-medium bg-client-holiday text-white{% if is_past %} opacity-50{% endif %}
+            {% elif is_past %}bg-weekend text-[#aaa] opacity-70{% endif %}
             {% if is_today %}inset-ring-2 inset-ring-[#222]{% endif %}"
-     {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"{% elif home_name %}title="{{ home_title }}"{% elif client_name %}title="{{ client_title }}"{% endif %}>
+     {% if home_name and client_name %}title="{{ home_title }} | {{ client_title }}"
+     {% elif home_name %}title="{{ home_title }}"
+     {% elif client_name %}title="{{ client_title }}"{% endif %}>
     {{ day_num }}
 </div>
-{% endif %}
