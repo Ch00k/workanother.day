@@ -104,7 +104,7 @@
             </div>
         </form>
         <form id="delete-form" method="post" action="{% url 'contract_delete' pk=contract.pk %}"
-              onsubmit="return confirm('Delete this contract and all its bookings?')">
+              data-confirm="Delete this contract and all its bookings?">
             {% csrf_token %}
         </form>
     </div>

@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.csp import CSP
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -50,6 +51,29 @@ SECURE_HSTS_SECONDS = 0 if DEBUG else 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 SECURE_HSTS_PRELOAD = not DEBUG
 
+# These pages carry the access token that recovers an account, a seller's identity and whole
+# invoices, so one escaping mistake anywhere would be worth an account. Everything a page
+# needs comes from this origin - htmx is vendored, the stylesheet is built into static, and
+# the only outside address on any page is a link - so the policy is 'self' with each hole
+# named. On in development too: a policy nothing exercises is one that breaks on deploy.
+SECURE_CSP = {
+    "default-src": [CSP.SELF],
+    # The inline scripts carry a nonce, which an injected script cannot guess. Anything
+    # a page wants to do on a click asks for it by attribute instead, so that no page needs
+    # inline code and this can stay shut.
+    "script-src": [CSP.SELF, CSP.NONCE],
+    # Style attributes are how the calendar and the invoice show and hide their parts, and
+    # CSP has no nonce for an attribute. Left open deliberately: injected style cannot
+    # execute, and the alternative is a class for every combination of shown and hidden.
+    "style-src": [CSP.SELF, CSP.UNSAFE_INLINE],
+    # Nothing here is framed, submits anywhere else, or resolves a relative URL against
+    # somebody else's base.
+    "frame-ancestors": [CSP.NONE],
+    "form-action": [CSP.SELF],
+    "base-uri": [CSP.NONE],
+    "object-src": [CSP.NONE],
+}
+
 INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -67,6 +91,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django.middleware.csp.ContentSecurityPolicyMiddleware",
     "wad.middleware.HtmxRedirectMiddleware",
 ]
 
@@ -80,6 +105,7 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
+                "django.template.context_processors.csp",
                 "django.contrib.auth.context_processors.auth",
                 "wad.context_processors.feature_flags",
                 "wad.context_processors.navigation",
