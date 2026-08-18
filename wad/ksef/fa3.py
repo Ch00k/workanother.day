@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from ksef2.fa3 import SaleCategory, StandardInvoiceBuilder
@@ -9,12 +10,37 @@ from wad.ksef.invoice import TaxTreatment
 if TYPE_CHECKING:
     import datetime
 
-    from wad.ksef.invoice import Invoice
+    # Not re-exported from ksef2.fa3, but naming the type is what lets the checker see that
+    # the payment block is handed back to the same builder the rest of the body is built on.
+    from ksef2.services.builders.fa3.body.standard import StandardBodyBuilder
+
+    from wad.ksef.invoice import Invoice, Payment
+
+    Body = StandardBodyBuilder[StandardInvoiceBuilder]
 
 NAMESPACE = "http://crd.gov.pl/wzor/2025/06/25/13775/"
 
 PRODUCER = "workanother.day"
 UNIT = "day"
+
+# An account to pay into is an account to transfer to, and FA(3) keeps the form of payment
+# alongside the account rather than leaving it to be inferred.
+BANK_TRANSFER = "bank_transfer"
+
+# The pattern the invoice schema enforces for a SWIFT code. The field it goes in is optional,
+# so anything that is not one of these is not a SWIFT code we have rather than one to send:
+# the account number is what the invoice is paid against, and this only names its bank.
+BIC_PATTERN = re.compile(r"[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?")
+
+# What the seller's own note is filed under. FA(3) keeps its additional descriptions as
+# labelled entries, and this is the label a Polish invoice puts remarks under.
+NOTE_LABEL = "Uwagi"
+
+# How long one of those entries may be, from the TZnakowy the schema gives its value. Named
+# here because it is a fact about FA(3), and checked where a note is submitted: a note too
+# long to serialize fails validation for the whole invoice, at send time, once the number is
+# spent and the bytes are frozen.
+MAX_DESCRIPTION_LENGTH = 256
 
 SALE_CATEGORIES = {
     TaxTreatment.OUTSIDE_EU: SaleCategory.OUT_OF_SCOPE_OUTSIDE_TERRITORY,
@@ -76,6 +102,11 @@ def render(invoice: Invoice, created_at: datetime.datetime) -> bytes:
     # similar nature", so it reaches buyers outside the EU too.
     body = body.annotations().reverse_charge_annotation(enabled=True).done()
 
+    if invoice.note:
+        body = body.add_description(key=NOTE_LABEL, value=invoice.note)
+
+    body = _settled_by(body, invoice.payment)
+
     rows = body.rows()
     for line in invoice.lines:
         rows = rows.add_line(
@@ -88,6 +119,31 @@ def render(invoice: Invoice, created_at: datetime.datetime) -> bytes:
 
     xml = rows.done().done().to_xml(pretty_print=False)
     return xml.encode()
+
+
+def _settled_by(body: Body, payment: Payment | None) -> Body:
+    """State the terms the invoice is to be paid on, in the fields FA(3) keeps for them.
+
+    Returned unchanged when the invoice sets no terms, because the payment block cannot be
+    opened and left empty. Terms that exist state at least one of them, which Payment is
+    what guarantees, so opening the block here is always opening it onto something.
+    """
+    if payment is None:
+        return body
+
+    block = body.payment()
+
+    if payment.due_date is not None:
+        block = block.due_on(payment.due_date)
+
+    if payment.account_number:
+        bic = payment.bic.strip().upper()
+        block = block.via(BANK_TRANSFER).bank_account(
+            payment.account_number,
+            bic if BIC_PATTERN.fullmatch(bic) else None,
+        )
+
+    return block.done()
 
 
 def _identify_buyer(builder: StandardInvoiceBuilder, invoice: Invoice) -> StandardInvoiceBuilder:

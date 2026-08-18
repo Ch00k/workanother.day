@@ -256,7 +256,7 @@ class CalendarPageTests(TestCase):
         response = self.client.get(reverse("invoice_list", kwargs={"pk": self.contract.pk}))
         page = response.content.decode()
 
-        assert page.count("monthly-dialog').showModal()") == 1
+        assert page.count('data-opens="monthly-dialog"') == 1
         assert ">\n            Add\n        </button>" in page
         assert reverse("monthly_summary", kwargs={"pk": self.contract.pk}) in page
 

@@ -1,12 +1,14 @@
 import datetime
 import decimal
+from typing import TYPE_CHECKING
 
 import pytest
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
-from wad.invoicing import next_number
+from wad.invoicing import next_number, to_domain
+from wad.ksef import fa3
 from wad.ksef.submission import (
     InvoiceStateError,
     claim_for_sending,
@@ -20,7 +22,11 @@ from wad.ksef.submission import (
 from wad.models import Buyer, Contract, Invoice, Seller
 from wad.tests.factories import store_invoice
 
+if TYPE_CHECKING:
+    from wad.ksef.invoice import Invoice as DomainInvoice
+
 PERIOD = (datetime.date(2026, 7, 1), datetime.date(2026, 7, 31))
+CREATED_AT = datetime.datetime(2026, 8, 12, 9, 30, tzinfo=datetime.UTC)
 
 
 class InvoiceTestCase(TestCase):
@@ -286,3 +292,63 @@ class ContractDeletionTests(InvoiceTestCase):
 
         assert response.status_code == 409
         assert Contract.objects.filter(pk=self.contract.pk).exists()
+
+
+class PaymentMappingTests(InvoiceTestCase):
+    """What a stored invoice's payment details become on the way to FA(3).
+
+    The record holds them as the seller typed them, for a document to print. What FA(3) takes
+    is narrower, and this is where the two are reconciled.
+    """
+
+    def _domain(self, **fields: object) -> DomainInvoice:
+        record = self._draft()
+        Invoice.objects.filter(pk=record.pk).update(**fields)
+        record.refresh_from_db()
+
+        return to_domain(record)
+
+    def test_the_account_loses_the_spaces_it_is_written_with(self) -> None:
+        """An IBAN is readable in groups of four and paid in one run of characters."""
+        domain = self._domain(iban="PL61 1090 1014 0000 0712 1981 2874")
+
+        assert domain.payment is not None
+        assert domain.payment.account_number == "PL61109010140000071219812874"
+
+    def test_the_due_date_is_carried(self) -> None:
+        domain = self._domain(due_date=datetime.date(2026, 9, 16))
+
+        assert domain.payment is not None
+        assert domain.payment.due_date == datetime.date(2026, 9, 16)
+
+    def test_an_invoice_that_says_nothing_about_paying_has_no_terms(self) -> None:
+        assert self._domain(iban="", due_date=None).payment is None
+
+    def test_the_account_holder_is_not_sent(self) -> None:
+        """FA(3) says an account belongs to somebody else with its factoring fields, so a name
+        in the account's description would be saying it the wrong way. Where the holder is
+        the seller, the XML names them already."""
+        domain = self._domain(iban="PL61109010140000071219812874", account_holder="Somebody Else")
+        xml = fa3.render(domain, CREATED_AT)
+
+        assert b"Somebody Else" not in xml
+
+    def test_the_payment_reference_is_not_sent(self) -> None:
+        """FA(3) keeps no field for one, and it defaults to the number the invoice carries."""
+        domain = self._domain(iban="PL61109010140000071219812874", payment_reference="Ref 12345")
+
+        assert b"Ref 12345" not in fa3.render(domain, CREATED_AT)
+
+    def test_the_sellers_note_is_sent(self) -> None:
+        domain = self._domain(vat_note="Reverse charge applies.")
+
+        assert domain.note == "Reverse charge applies."
+        assert b"Reverse charge applies." in fa3.render(domain, CREATED_AT)
+
+    def test_the_printed_tax_ids_are_not_sent(self) -> None:
+        """KSeF identifies both parties by the structured identifiers the XML already holds."""
+        domain = self._domain(seller_tax_ids="KVK 12345678", buyer_tax_ids="CHE-123.456.789 MWST")
+        xml = fa3.render(domain, CREATED_AT)
+
+        assert b"KVK" not in xml
+        assert b"MWST" not in xml

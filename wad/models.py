@@ -206,15 +206,22 @@ class Invoice(models.Model):
         SENDING = "sending", "Sending"
         ACCEPTED = "accepted", "Accepted"
         REJECTED = "rejected", "Rejected"
-        # Where an invoice outside KSeF comes to rest. Nothing external holds it, so this
-        # records the owner's own act of issuing rather than another system's verdict.
+        # Where an invoice outside KSeF comes to rest. No other system returns a verdict on
+        # it, so this records the owner's own act of issuing, after which the buyer holds a
+        # copy and the invoice is as fixed as one KSeF has accepted.
         ISSUED = "issued", "Issued"
 
-    # KSeF is the only thing that can put an invoice beyond changing: in flight, its bytes
-    # are already with them, and accepted, it is binding and needs a correction invoice
-    # rather than an edit. Everything else stays open, which is every state an invoice
-    # outside KSeF can reach.
-    EDITABLE_STATES: ClassVar = frozenset({State.DRAFT, State.REJECTED, State.ISSUED})
+    # An invoice stays open until it has left the issuer's hands. In flight its bytes are
+    # already with KSeF; accepted, it is binding; issued, the buyer holds a copy. Each of
+    # those is corrected by issuing a correction invoice against it, because changing this
+    # copy would only make it disagree with the one that counts. A draft has gone nowhere,
+    # and a rejected invoice was never issued at all.
+    EDITABLE_STATES: ClassVar = frozenset({State.DRAFT, State.REJECTED})
+
+    # The two ways an invoice becomes one: KSeF accepting it, or its owner issuing it
+    # outside KSeF. Being in flight is in neither set, because an invoice whose fate is
+    # unknown is neither open to change nor a document anybody should be holding.
+    ISSUED_STATES: ClassVar = frozenset({State.ACCEPTED, State.ISSUED})
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     contract = models.ForeignKey(Contract, on_delete=models.PROTECT, related_name="invoices")
@@ -246,14 +253,23 @@ class Invoice(models.Model):
     buyer_country = models.CharField(max_length=2)
     buyer_tax_id = models.CharField(max_length=50, blank=True, default="")
 
-    # Printed on the document but never sent to KSeF, which carries the structured
-    # identifiers instead. Kept so a stored invoice can be reproduced exactly.
+    # Identifiers the parties print on their invoices, which KSeF has no field for: it
+    # carries the structured NIP and tax identifier instead. Kept so a stored invoice can be
+    # reproduced exactly.
     seller_tax_ids = models.TextField(blank=True, default="")
     buyer_tax_ids = models.TextField(blank=True, default="")
+
+    # Sent as well as printed: the note as an additional description, the account and its
+    # bank in the payment block. The copy KSeF holds is the invoice, so a buyer who reads it
+    # there has to find the same terms as one holding the paper, and be able to pay from them.
     vat_note = models.TextField(blank=True, default="")
-    account_holder = models.CharField(max_length=512, blank=True, default="")
     iban = models.CharField(max_length=64, blank=True, default="")
     bic = models.CharField(max_length=16, blank=True, default="")
+
+    # Printed only. FA(3) says an account belongs to somebody other than the seller with its
+    # factoring fields rather than by naming a holder beside it, and keeps no field for a
+    # payment reference - the number the invoice carries is what identifies it.
+    account_holder = models.CharField(max_length=512, blank=True, default="")
     payment_reference = models.CharField(max_length=200, blank=True, default="")
 
     state = models.CharField(max_length=10, choices=State.choices, default=State.DRAFT)
@@ -299,6 +315,11 @@ class Invoice(models.Model):
     def is_editable(self) -> bool:
         """Whether this invoice may still be rewritten or discarded."""
         return self.state in self.EDITABLE_STATES
+
+    @property
+    def is_issued(self) -> bool:
+        """Whether this has been issued, so a copy of it stands as an invoice."""
+        return self.state in self.ISSUED_STATES
 
 
 class InvoiceLine(models.Model):

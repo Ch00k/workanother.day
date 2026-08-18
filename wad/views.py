@@ -32,8 +32,9 @@ from wad.calendar_utils import (
 from wad.countries import COUNTRIES
 from wad.ical import ImportError as ICalImportError
 from wad.ical import export_time_off, export_user_time_off, import_time_off
-from wad.invoicing import next_number, party_snapshot
+from wad.invoicing import next_number, party_snapshot, valid_iban
 from wad.ksef import sending, submission, verification
+from wad.ksef.fa3 import MAX_DESCRIPTION_LENGTH
 from wad.ksef.invoice import UnsupportedSaleError
 from wad.ksef.validation import SchemaUnavailableError, SchemaValidationError
 from wad.middleware import create_guest_user
@@ -193,9 +194,14 @@ def login_view(request: HttpRequest) -> HttpResponse:
         if not token:
             return render(request, "wad/login.html", {"error": "Access token is required."})
 
-        try:
-            account_token = AccountToken.objects.get(token_hash=hash_token(token))
-        except AccountToken.DoesNotExist:
+        # A deactivated account is refused here, before the transfer below deletes the
+        # guest. Every request after this one resolves its session through the
+        # authentication backend, which does not accept a deactivated user, so a session
+        # opened for one would leave the visitor anonymous with their contracts handed to an
+        # account nobody can reach. Both misses answer alike, because whether an account
+        # exists is not something this page should confirm.
+        account_token = AccountToken.objects.filter(token_hash=hash_token(token)).select_related("user").first()
+        if account_token is None or not account_token.user.is_active:
             return render(request, "wad/login.html", {"error": "Invalid access token."})
 
         # Transfer guest data to the recovered account if applicable. Together, so the
@@ -757,16 +763,6 @@ def invoice_view(request: HttpRequest, pk: str, year: int, month: int) -> HttpRe
     if contract.user != request.user:
         raise Http404
 
-    # Checked before asking whether the month may be invoiced, because that question
-    # cannot be put to a month that does not exist.
-    try:
-        datetime.date(year, month, 1)
-    except ValueError as e:
-        raise Http404 from e
-
-    if not _can_invoice_month(year, month):
-        raise Http404
-
     return _invoice_form(request, contract, year, month)
 
 
@@ -807,13 +803,12 @@ def _invoice_form(
     route invoice fields through server code.
     """
     try:
-        month_start = datetime.date(year, month, 1)
-    except ValueError as e:
+        period_start, period_end = _invoiceable_period(contract, year, month)
+    except InvoiceInputError as e:
+        # A month this contract cannot be invoiced for has no page of its own.
         raise Http404 from e
-    month_end = _month_end(year, month)
 
-    if month_end < contract.start_date or month_start > contract.end_date:
-        raise Http404
+    month_start = datetime.date(year, month, 1)
 
     time_off_entries = list(contract.time_off.all())  # ty: ignore[unresolved-attribute]
     summary = compute_monthly_summary(contract, time_off_entries)
@@ -865,6 +860,8 @@ def _invoice_form(
         "ksef_enabled": contract.issues_through_ksef,
         "ksef_unavailable_reason": _ksef_note(contract),
         "ksef_environment": settings.KSEF_ENVIRONMENT,
+        # So the box stops at the length the schema stops at, and says so before it is reached.
+        "max_note_length": MAX_DESCRIPTION_LENGTH,
         # The document template is shared with a stored invoice's page. Here the browser
         # fills it, so the server-side values must resolve to nothing rather than fail.
         "invoice": None,
@@ -872,16 +869,20 @@ def _invoice_form(
         "reverse_charge": _reverse_charge(contract),
         "net_total": None,
         "verification": None,
+        # Marked when this page reopened a stored invoice, because only an editable one can be
+        # reopened and an editable one has not been issued. A month being drawn for the first
+        # time is nobody's record of anything yet: an account holder prints from the stored
+        # invoice, which answers for its own state, and a guest keeps no invoice anywhere
+        # else, so the copy they print is the invoice.
+        "unissued": editing is not None,
     }
 
     if request.user.is_staff and contract.external_calendar_url:  # ty: ignore[unresolved-attribute]
         # Compare only the invoiceable portion of the month: a contract may start or
         # end mid-month, and time off outside the contract period isn't invoiced.
-        sync_start = max(month_start, contract.start_date)
-        sync_end = min(month_end, contract.end_date)
         template_context["external_sync"] = _build_external_sync_context(
             contract,
-            date_range=(sync_start, sync_end),
+            date_range=(period_start, period_end),
         )
 
     return render(request, "wad/invoice.html", template_context)
@@ -889,6 +890,41 @@ def _invoice_form(
 
 class InvoiceInputError(Exception):
     """Raised when submitted invoice details cannot become a valid structured invoice."""
+
+
+def _invoiceable_period(contract: Contract, year: int, month: int) -> tuple[datetime.date, datetime.date]:
+    """The stretch of this contract a month's invoice bills, refusing months that have none.
+
+    Asked by every path that opens or stores an invoice for a month, rather than only by the
+    page that offers the month. Storing one takes JSON and no browser has to be the thing on
+    the other end, so a month the form will not open has to be a month a POST will not store:
+    where the two disagree, the record is what survives.
+
+    That the month exists is settled first, because neither of the questions after it can be
+    put to a month that does not. The overlap is settled before the period is clamped, for
+    the same reason: a month the contract never reached would clamp to a period starting
+    after it ended, which is not a period at all and cannot be rendered as one.
+
+    Raises InvoiceInputError, which the endpoints that store an invoice report as a bad
+    request and the pages that render one turn into a 404.
+    """
+    try:
+        month_start = datetime.date(year, month, 1)
+    except ValueError as e:
+        message = f"{year}-{month} is not a month."
+        raise InvoiceInputError(message) from e
+
+    month_end = _month_end(year, month)
+
+    if month_end < contract.start_date or month_start > contract.end_date:
+        message = f"{contract.name} was not running in {month_start:%B %Y}, so there is nothing to invoice for it."
+        raise InvoiceInputError(message)
+
+    if not _can_invoice_month(year, month):
+        message = f"{month_start:%B %Y} is not over yet, so it cannot be invoiced."
+        raise InvoiceInputError(message)
+
+    return max(month_start, contract.start_date), min(month_end, contract.end_date)
 
 
 def _ksef_in_scope(contract: Contract) -> bool:
@@ -1009,6 +1045,8 @@ def _invoice_fields(
     reused every month, and the seller's NIP has to match the credential the invoice is
     issued with.
     """
+    period_start, period_end = _invoiceable_period(contract, year, month)
+
     issue_date = datetime.date.fromisoformat(str(payload.get("issue_date", "")))
     if issue_date != datetime.datetime.now(tz=datetime.UTC).date():
         message = "An invoice must be dated the day it is sent, otherwise KSeF treats it as issued offline."
@@ -1031,19 +1069,35 @@ def _invoice_fields(
         message = "Currency must be a three-letter code, such as EUR."
         raise InvoiceInputError(message)
 
+    # The check digits are the only thing that tells a mistyped account number from a real
+    # one, and neither KSeF nor the FA(3) schema looks at them: an invoice stating an account
+    # nobody can pay into is issued, and unwinding it takes a correction invoice.
+    iban = str(payload.get("iban", "")).strip()
+    if iban and not valid_iban(iban):
+        message = "That is not a valid IBAN: its check digits do not match the rest of it."
+        raise InvoiceInputError(message)
+
+    # The note is sent as an additional description, which FA(3) caps. Refused here so it is
+    # refused while it can still be shortened, rather than at send time by the schema, which
+    # rejects the whole invoice and does it once the number is spent.
+    vat_note = str(payload.get("vat_note", "")).strip()
+    if len(vat_note) > MAX_DESCRIPTION_LENGTH:
+        message = f"The VAT note is {len(vat_note)} characters. KSeF takes at most {MAX_DESCRIPTION_LENGTH}."
+        raise InvoiceInputError(message)
+
     return {
         "number": number,
         "issue_date": issue_date,
         "currency": currency,
-        "period_start": max(datetime.date(year, month, 1), contract.start_date),
-        "period_end": min(_month_end(year, month), contract.end_date),
+        "period_start": period_start,
+        "period_end": period_end,
         "seller": contract.seller,
         "buyer": buyer,
         **party_snapshot(contract.seller, buyer, fallback_country=contract.client_country),
         "due_date": _optional_date(payload.get("due_date")),
-        "vat_note": str(payload.get("vat_note", "")).strip(),
+        "vat_note": vat_note,
         "account_holder": str(payload.get("account_holder", "")).strip(),
-        "iban": str(payload.get("iban", "")).strip(),
+        "iban": iban,
         "bic": str(payload.get("bic", "")).strip(),
         "payment_reference": str(payload.get("payment_reference", "")).strip(),
     }
@@ -1129,8 +1183,8 @@ def _store_invoice(contract: Contract, payload: dict[str, Any], year: int, month
     ]
     if changed:
         # A rejection describes the invoice KSeF was given, so once that invoice changes the
-        # verdict no longer applies to it and the record goes back to being unsent. Issuing
-        # is the owner's own act, which editing does not undo, so that state stands.
+        # verdict no longer applies to it and the record goes back to being unsent. A draft
+        # was never anything else, so it stays one.
         revert = (
             {"state": Invoice.State.DRAFT, "error": "", "session_state": ""}
             if existing.state == Invoice.State.REJECTED
@@ -1428,6 +1482,7 @@ def _document_context(record: Invoice) -> dict[str, object]:
         "reverse_charge": _invoice_reverse_charge(record),
         "net_total": record.net_total,
         "verification": _invoice_state(record) if record.state == Invoice.State.ACCEPTED else None,
+        "unissued": not record.is_issued,
     }
 
 
@@ -1492,8 +1547,8 @@ def invoice_save(request: HttpRequest, pk: str, year: int, month: int) -> HttpRe
 def invoice_delete(request: HttpRequest, pk: str) -> HttpResponse:
     """Discard an invoice that is still the user's own to change.
 
-    Once KSeF holds it, its fate is recorded elsewhere and deleting our copy would not
-    undo it.
+    An invoice that has gone out is not ours to remove. KSeF or the buyer holds a copy of
+    it, and deleting this one would not undo that.
     """
     record = _owned_invoice(request, pk)
     contract = record.contract
@@ -1509,9 +1564,10 @@ def invoice_delete(request: HttpRequest, pk: str) -> HttpResponse:
 def invoice_mark_issued(request: HttpRequest, pk: str) -> HttpResponse:
     """Record that an invoice outside KSeF has been issued.
 
-    Nothing external holds these, so the owner is the only one who can say an invoice has
-    left their hands. It stays editable afterwards: with no other system to reconcile
-    against, a correction is a correction rather than a second invoice.
+    No other system returns a verdict on these, so the owner is the only one who can say an
+    invoice has left their hands. Saying so puts it beyond changing: the buyer holds a copy
+    from that moment, and the way to correct a document somebody else already has is a
+    correction invoice against it.
     """
     record = _owned_invoice(request, pk)
 
