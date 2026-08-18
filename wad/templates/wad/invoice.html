@@ -44,9 +44,6 @@
     <div class="mt-5 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
         <form id="invoice-form" class="grid gap-4 sm:grid-cols-2">
             {% csrf_token %}
-            <div class="sm:col-span-2 text-xs text-[#999]">
-                <span class="text-red-600" aria-hidden="true">*</span> required
-            </div>
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-2">From</div>
             {% if can_store_invoices %}
             <div class="sm:col-span-2 rounded-[10px] border border-[#eee] bg-[#fafafa] px-4 py-3">
@@ -186,9 +183,9 @@
             </div>
             <div class="sm:col-span-2">
                 <label for="vat_note" class="block text-sm font-medium text-[#666] mb-1">VAT note</label>
-                <textarea id="vat_note" name="vat_note" rows="2"
+                <textarea id="vat_note" name="vat_note" rows="2" maxlength="{{ max_note_length }}"
                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
-                <div class="text-xs text-[#999] mt-1">Optional. The reverse-charge annotation is printed on its own; this is anything you want to add beneath it.</div>
+                <div class="text-xs text-[#999] mt-1">Optional, up to {{ max_note_length }} characters. The reverse-charge annotation is printed on its own; this is anything you want to add beneath it.</div>
             </div>
 
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Payment</div>
@@ -269,12 +266,21 @@
                 Edit
             </button>
             {% if not can_store_invoices %}
-            <button type="button" onclick="window.print()"
+            <button type="button" data-prints
                     class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Download PDF
             </button>
             {% else %}
-            <span class="self-center text-xs text-[#888]">Save the invoice to download it as a PDF.</span>
+            {% comment %}
+            A disabled button swallows pointer events, so the title sits on a wrapper to
+            keep the tooltip reachable.
+            {% endcomment %}
+            <span title="Save the invoice to download it as a PDF.">
+                <button type="button" disabled
+                        class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition disabled:opacity-40">
+                    Download PDF
+                </button>
+            </span>
             {% endif %}
         </div>
     </div>
@@ -284,7 +290,10 @@
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
                 <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
-                <div class="text-sm text-[#666] mt-0.5" id="ksef-status">Not sent yet</div>
+                <div class="flex items-center gap-2 mt-0.5">
+                    {% include "wad/_ksef_spinner.html" %}
+                    <div class="text-sm text-[#666]" id="ksef-status">Not sent yet</div>
+                </div>
                 <div class="mt-1.5 flex items-center gap-2 flex-wrap">
                     {% if ksef_environment == "PRODUCTION" %}
                     <span class="rounded-[6px] bg-red-100 text-red-800 px-2 py-0.5 text-xs font-bold tracking-wide">PRODUCTION</span>
@@ -312,7 +321,7 @@
     {% include "wad/_invoice_document.html" %}
 </div>
 
-<script>
+<script {% csp_nonce_attr %}>
 (() => {
     const ctx = JSON.parse(document.getElementById('invoice-context').textContent);
     const form = document.getElementById('invoice-form');
@@ -331,6 +340,25 @@
         return dateFmt.format(new Date(y, m - 1, d));
     };
     const round2 = n => Math.round(n * 100) / 100;
+
+    // ISO 13616's mod-97 check, the same one the server applies to a submitted invoice. Done
+    // here as well so a mistyped account number is reported on the field that holds it, while
+    // it is still on screen: nothing downstream looks at an IBAN, and once the invoice has
+    // been issued stating it, correcting it takes a correction invoice.
+    const IBAN_PATTERN = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/;
+    const validIban = value => {
+        const iban = value.replace(/\s/g, '').toUpperCase();
+        if (!IBAN_PATTERN.test(iban)) return false;
+
+        // The country code and check digits move to the end, and each character becomes its
+        // value with the letters running on from the digits, which is base 36.
+        const rearranged = iban.slice(4) + iban.slice(0, 4);
+        const digits = [...rearranged].map(character => parseInt(character, 36)).join('');
+
+        // Up to 68 digits, which Number cannot hold exactly, so the remainder is taken a
+        // digit at a time.
+        return [...digits].reduce((rest, digit) => (rest * 10 + Number(digit)) % 97, 0) === 1;
+    };
 
     const STORAGE_KEY = `wad.invoice.${ctx.contract_id}`;
     // Whether this invoice is kept on the server. When it is, the details that carry from
@@ -636,6 +664,10 @@
         const statusText = document.getElementById('ksef-status');
         const errorBox = document.getElementById('ksef-error');
         const stamp = document.getElementById('ksef-stamp');
+        const spinner = document.getElementById('ksef-spinner');
+        // Turning stands for the wait itself, so it follows whether one is still on: a status
+        // line that has come to rest, however it came to rest, is not one to keep spinning over.
+        const setWaiting = waiting => { spinner.style.display = waiting ? '' : 'none'; };
 
         const POLL_INTERVAL_MS = 3000;
         const POLL_ATTEMPTS = 20;
@@ -671,6 +703,7 @@
             const accepted = state.state === 'accepted';
             sendButton.disabled = accepted || state.state === 'sending';
             stamp.style.display = accepted ? '' : 'none';
+            setWaiting(state.state === 'sending');
             if (accepted) {
                 setText('ksef_number', state.ksef_number);
                 setText('verification_url', state.verification_url);
@@ -688,12 +721,14 @@
                 if (state.state !== 'sending') return;
             }
             statusText.textContent = 'Still processing. Reopen this page later to check.';
+            setWaiting(false);
         }
 
         async function send() {
             sendButton.disabled = true;
             statusText.textContent = 'Sending...';
             showError('');
+            setWaiting(true);
 
             const payload = invoicePayload();
 
@@ -715,6 +750,7 @@
                     statusText.textContent = 'Not sent.';
                     showError(state.error ?? `Request failed (${response.status}).`);
                     sendButton.disabled = false;
+                    setWaiting(false);
                     return;
                 }
 
@@ -733,6 +769,7 @@
                 // re-enable sending. Reopening the page resolves it by asking KSeF.
                 statusText.textContent = 'Lost contact while sending.';
                 showError(`${err}. Reopen this page to find out whether KSeF accepted it.`);
+                setWaiting(false);
             }
         }
 
@@ -788,7 +825,22 @@
     });
     form.elements.issue_date.addEventListener('input', recomputeDueDate);
     form.elements.payment_terms.addEventListener('input', recomputeDueDate);
+
+    // Reported through the field, so previewing is what surfaces it and the browser puts the
+    // message where the account number is. An empty box is left to the input's own required
+    // attribute, whose message already says the right thing.
+    const checkIban = () => {
+        const value = form.elements.iban.value.trim();
+        form.elements.iban.setCustomValidity(
+            !value || validIban(value) ? '' : 'Check this IBAN: its check digits do not match the rest of it.',
+        );
+    };
+    form.elements.iban.addEventListener('input', checkIban);
+
     prefill();
+    // Checked after prefilling, because the account number restored from a previous invoice
+    // or from this browser is the one the form starts out offering to send.
+    checkIban();
 })();
 </script>
 {% endblock %}

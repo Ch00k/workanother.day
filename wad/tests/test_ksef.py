@@ -11,6 +11,7 @@ from wad.ksef.invoice import (
     Buyer,
     Invoice,
     InvoiceLine,
+    Payment,
     Seller,
     TaxTreatment,
     UnsupportedSaleError,
@@ -37,7 +38,26 @@ DEFAULT_LINES = (
 )
 
 
-def _invoice(buyer: Buyer = SWISS_BUYER, lines: tuple[InvoiceLine, ...] = DEFAULT_LINES) -> Invoice:
+PAYMENT = Payment(
+    due_date=datetime.date(2026, 9, 16),
+    account_number="PL61109010140000071219812874",
+    bic="BREXPLPW",
+)
+NOTE = "Reverse charge under art. 28b of the Polish VAT Act."
+
+
+def _invoice(
+    buyer: Buyer = SWISS_BUYER,
+    lines: tuple[InvoiceLine, ...] = DEFAULT_LINES,
+    payment: Payment | None = PAYMENT,
+    note: str = NOTE,
+) -> Invoice:
+    """An invoice as the application draws one up, terms and all.
+
+    The terms are here rather than in the tests that check them, so every render in this
+    module carries them - the published-schema test included, which is the only thing
+    watching whether the Ministry still accepts what we send.
+    """
     return Invoice(
         number="2026-08-001",
         issue_date=datetime.date(2026, 8, 12),
@@ -46,6 +66,8 @@ def _invoice(buyer: Buyer = SWISS_BUYER, lines: tuple[InvoiceLine, ...] = DEFAUL
         lines=lines,
         currency="CHF",
         service_period=(datetime.date(2026, 7, 1), datetime.date(2026, 7, 31)),
+        payment=payment,
+        note=note,
     )
 
 
@@ -211,6 +233,91 @@ class RenderStabilityTests(TestCase):
 
         rows = etree.fromstring(xml).findall("fa:Fa/fa:FaWiersz", NS)
         assert [row.findtext("fa:NrWierszaFa", namespaces=NS) for row in rows] == ["1", "2"]
+
+
+class PaymentTermsTests(TestCase):
+    """What the invoice says about being paid.
+
+    The printed copy states a due date and an account, and the copy KSeF holds is the
+    invoice, so a buyer reading it there has to find the same terms and be able to pay from
+    them.
+    """
+
+    def test_the_due_date_is_carried(self) -> None:
+        xml = fa3.render(_invoice(), CREATED_AT)
+
+        assert _text(xml, ".//fa:Platnosc/fa:TerminPlatnosci/fa:Termin") == "2026-09-16"
+
+    def test_the_account_is_carried(self) -> None:
+        xml = fa3.render(_invoice(), CREATED_AT)
+
+        assert _text(xml, ".//fa:RachunekBankowy/fa:NrRB") == "PL61109010140000071219812874"
+        assert _text(xml, ".//fa:RachunekBankowy/fa:SWIFT") == "BREXPLPW"
+
+    def test_an_account_to_pay_into_is_a_transfer(self) -> None:
+        """FA(3) keeps the form of payment beside the account rather than leaving it implied.
+
+        6 is its code for a transfer.
+        """
+        assert _text(fa3.render(_invoice(), CREATED_AT), ".//fa:Platnosc/fa:FormaPlatnosci") == "6"
+
+    def test_an_invoice_that_states_no_terms_opens_no_block(self) -> None:
+        """FA(3) refuses an empty payment block, so an absence has to stay an absence."""
+        assert _find(fa3.render(_invoice(payment=None), CREATED_AT), ".//fa:Platnosc") is None
+
+    def test_a_due_date_on_its_own_is_enough(self) -> None:
+        xml = fa3.render(_invoice(payment=Payment(due_date=datetime.date(2026, 9, 16))), CREATED_AT)
+
+        assert _text(xml, ".//fa:TerminPlatnosci/fa:Termin") == "2026-09-16"
+        assert _find(xml, ".//fa:RachunekBankowy") is None
+        assert _find(xml, ".//fa:FormaPlatnosci") is None
+
+    def test_terms_that_state_neither_are_refused_where_they_are_made(self) -> None:
+        """Every field defaults, so an empty Payment is constructible and opens an empty block.
+
+        The schema rejects that, and would do it at send time, a long way from whoever built
+        it. An invoice that says nothing about paying says so by carrying no terms at all.
+        """
+        with pytest.raises(UnsupportedSaleError, match="due date or an account"):
+            Payment()
+
+    def test_an_account_on_its_own_is_enough(self) -> None:
+        assert Payment(account_number="PL61109010140000071219812874").due_date is None
+
+    def test_a_swift_code_is_tidied_before_it_is_sent(self) -> None:
+        payment = dataclasses.replace(PAYMENT, bic=" brexplpw ")
+
+        assert _text(fa3.render(_invoice(payment=payment), CREATED_AT), ".//fa:SWIFT") == "BREXPLPW"
+
+    def test_something_that_is_not_a_swift_code_is_left_out(self) -> None:
+        """The field is optional, and the account number is what the invoice is paid against.
+
+        Sent as typed it would fail the schema, and the whole invoice with it, over a code
+        that only names the bank the account already identifies.
+        """
+        xml = fa3.render(_invoice(payment=dataclasses.replace(PAYMENT, bic="ask me")), CREATED_AT)
+
+        assert _find(xml, ".//fa:SWIFT") is None
+        assert _text(xml, ".//fa:NrRB") == "PL61109010140000071219812874"
+
+
+class SellerNoteTests(TestCase):
+    """The seller's own note, which FA(3) keeps as a labelled additional description."""
+
+    def test_the_note_is_carried_under_its_label(self) -> None:
+        xml = fa3.render(_invoice(), CREATED_AT)
+
+        assert _text(xml, ".//fa:DodatkowyOpis/fa:Klucz") == fa3.NOTE_LABEL
+        assert _text(xml, ".//fa:DodatkowyOpis/fa:Wartosc") == NOTE
+
+    def test_nothing_written_means_no_entry(self) -> None:
+        assert _find(fa3.render(_invoice(note=""), CREATED_AT), ".//fa:DodatkowyOpis") is None
+
+    def test_the_annotation_is_carried_apart_from_the_note(self) -> None:
+        """The reverse-charge statement is a flag of its own, and does not depend on a note."""
+        xml = fa3.render(_invoice(note=""), CREATED_AT)
+
+        assert _text(xml, ".//fa:Adnotacje/fa:P_18") == "1"
 
 
 class ValidationTests(TestCase):

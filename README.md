@@ -21,9 +21,27 @@ make lint         # ruff format, ruff check --fix, ty check
 `make run` seeds a staff user with the access token `devtoken`. The seed command refuses
 to run outside `DEBUG`, because that token is public knowledge.
 
+It also seeds two contracts: `Acme Corp`, billed from the Netherlands and outside KSeF, and
+`Beispiel GmbH`, billed by a Polish seller to a German buyer and routed through KSeF. A
+token is issued for one NIP in one KSeF, so the sandbox pair comes from the environment
+rather than the repository:
+
+```bash
+KSEF_DEV_TOKEN=... KSEF_DEV_NIP=... make seed
+```
+
+`KSEF_DEV_NIP` defaults to `5213870274`. Until a token is exported the seeded seller cannot
+reach KSeF, and the contract offers everything except sending; `make seed` says so and is
+safe to run again once you have one.
+
 Styling is Tailwind. The source is `assets/tailwind.css` and the built stylesheet is
 `static/css/output.css`, which is committed. Rebuild it with `make tailwind-build`, or
 `make tailwind-watch` while working on templates.
+
+The Content-Security-Policy allows no inline script, so a template asks for behaviour with a
+`data-` attribute and `static/js/ui.js` acts on it, rather than with an `onclick`. A page
+that genuinely needs a script of its own carries `{% csp_nonce_attr %}` on the tag. Both
+rules are enforced by `wad/tests/test_csp.py` against the template sources.
 
 ## Configuration
 

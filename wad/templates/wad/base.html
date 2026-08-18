@@ -8,7 +8,12 @@
     <link rel="icon" type="image/png" href="{% static 'favicon.png' %}">
     <link rel="stylesheet" href="{% static 'css/output.css' %}">
     <script src="{% static 'vendor/htmx.min.js' %}" defer></script>
-    <script>
+    {% comment %}
+    After htmx and before anything that reacts to a click, which is the order these are
+    written in: both are deferred, so they run in the order the document names them.
+    {% endcomment %}
+    <script src="{% static 'js/ui.js' %}" defer></script>
+    <script {% csp_nonce_attr %}>
     document.addEventListener('htmx:configRequest', function(event) {
         event.detail.headers['X-CSRFToken'] = '{{ csrf_token }}';
     });
@@ -25,7 +30,7 @@
             {% if not nav_items %}
             <div class="flex items-center gap-3 sm:gap-6">
                 {% if user.is_authenticated %}
-                <button onclick="document.getElementById('about-modal').showModal()" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">About</button>
+                <button data-opens="about-modal" class="text-base text-white/70 hover:text-white transition p-0 bg-transparent border-none">About</button>
                 {% endif %}
                 <a href="{% url 'login' %}" class="text-base text-white/70 hover:text-white transition">Log in</a>
             </div>
@@ -47,10 +52,10 @@
         &copy; {% now "Y" %} workanother.day
     </footer>
     <dialog id="about-modal" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
-            onclick="if(event.target===this)this.close()">
+            data-closes-on-backdrop>
         <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
             <h2 class="text-xl font-bold">About</h2>
-            <button onclick="this.closest('dialog').close()"
+            <button data-closes-dialog
                     class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
         </div>
         <div class="px-5 py-4 text-sm text-[#444] leading-relaxed">

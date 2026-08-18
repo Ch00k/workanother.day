@@ -193,6 +193,132 @@ class InvoicePayloadTests(HostileInputTestCase):
         assert response.status_code == 400
         assert "expected shape" in response.json()["error"]
 
+    def test_a_note_too_long_to_serialize_is_refused(self) -> None:
+        """FA(3) caps a description at 256, and the schema rejects the whole invoice over it."""
+        response = self._save(vat_note="x" * 257)
+
+        assert response.status_code == 400
+        assert "at most 256" in response.json()["error"]
+        assert not Invoice.objects.exists()
+
+    def test_a_note_at_the_limit_is_kept(self) -> None:
+        response = self._save(vat_note="x" * 256)
+
+        assert response.status_code == 200
+        assert Invoice.objects.get().vat_note == "x" * 256
+
+    def test_an_account_number_that_fails_its_check_digits_is_refused(self) -> None:
+        """Nothing downstream looks at an IBAN, so an invoice would be issued stating it."""
+        response = self._save(iban="NL00 BANK 0000 0000 00")
+
+        assert response.status_code == 400
+        assert "not a valid IBAN" in response.json()["error"]
+        assert not Invoice.objects.exists()
+
+    def test_a_valid_account_number_is_kept_as_written(self) -> None:
+        """The groups of four are how it is read back off the invoice."""
+        response = self._save(iban="PL61 1090 1014 0000 0712 1981 2874")
+
+        assert response.status_code == 200
+        assert Invoice.objects.get().iban == "PL61 1090 1014 0000 0712 1981 2874"
+
+    def test_an_invoice_may_state_no_account_at_all(self) -> None:
+        """It can say how it is to be paid with a due date and nothing else."""
+        response = self._save(iban="")
+
+        assert response.status_code == 200
+        assert Invoice.objects.get().iban == ""
+
+
+class InvoiceMonthTests(HostileInputTestCase):
+    """The month an invoice is stored for, which only the page offering it used to check.
+
+    Storing one takes a URL and a JSON body, so every month the form refuses has to be
+    refused here too. The months are worked out from today rather than written down, because
+    which of them is over is a question about when the suite runs.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.this_month = today().replace(day=1)
+        self.last_month = (self.this_month - datetime.timedelta(days=1)).replace(day=1)
+        self.before_the_contract = (self.last_month - datetime.timedelta(days=1)).replace(day=1)
+
+        # Starts the month before this one, so the month before that is over and outside it
+        # while this month is inside it and not over. The two reasons a month can be refused
+        # are then tested one at a time.
+        self.contract.start_date = self.last_month
+        self.contract.end_date = self.this_month + datetime.timedelta(days=400)
+        self.contract.save()
+
+    def _save(self, year: int, month: int):  # noqa: ANN202
+        return self.client.post(
+            reverse("invoice_save", kwargs={"pk": self.contract.pk, "year": year, "month": month}),
+            data=json.dumps(
+                {
+                    "number": "MONTH-1",
+                    "issue_date": today().isoformat(),
+                    "currency": "EUR",
+                    "lines": [{"description": "Dev", "days": "1", "rate": "100"}],
+                }
+            ),
+            content_type="application/json",
+        )
+
+    def _form(self, year: int, month: int):  # noqa: ANN202
+        return self.client.get(reverse("invoice", kwargs={"pk": self.contract.pk, "year": year, "month": month}))
+
+    def test_a_month_the_contract_covers_is_stored(self) -> None:
+        """The control: the period is the month, clamped to the contract that was running."""
+        response = self._save(self.last_month.year, self.last_month.month)
+
+        assert response.status_code == 200
+        record = Invoice.objects.get()
+        assert record.period_start == self.last_month
+        assert record.period_end == self.this_month - datetime.timedelta(days=1)
+
+    def test_a_month_the_contract_never_reached_is_refused(self) -> None:
+        """Such a month clamps to a period that starts after it ends.
+
+        Stored, that invoice can be listed and printed but never rendered as FA(3), because
+        no period runs backwards. It has to be refused instead of recorded and left stuck.
+        """
+        response = self._save(self.before_the_contract.year, self.before_the_contract.month)
+
+        assert response.status_code == 400
+        assert "was not running in" in response.json()["error"]
+        assert not Invoice.objects.exists()
+
+    def test_a_month_that_is_not_over_is_refused(self) -> None:
+        """The days it would bill have not been worked yet, whatever the body claims."""
+        response = self._save(self.this_month.year, self.this_month.month)
+
+        assert response.status_code == 400
+        assert "is not over yet" in response.json()["error"]
+        assert not Invoice.objects.exists()
+
+    def test_a_month_that_does_not_exist_is_refused(self) -> None:
+        """Said in a sentence, rather than as whatever the calendar module raises."""
+        response = self._save(self.last_month.year, 13)
+
+        assert response.status_code == 400
+        assert response.json()["error"] == f"{self.last_month.year}-13 is not a month."
+        assert not Invoice.objects.exists()
+
+    def test_the_form_refuses_every_month_the_endpoint_refuses(self) -> None:
+        """The two answering differently is the whole of the problem: the record would win."""
+        refused = [
+            (self.before_the_contract.year, self.before_the_contract.month),
+            (self.this_month.year, self.this_month.month),
+            (self.last_month.year, 13),
+        ]
+
+        for year, month in refused:
+            assert self._form(year, month).status_code == 404, f"{year}-{month} opened a form"
+            assert self._save(year, month).status_code == 400, f"{year}-{month} was stored"
+
+        assert self._form(self.last_month.year, self.last_month.month).status_code == 200
+
 
 class InvoiceNumberScopeTests(HostileInputTestCase):
     """An invoice number is unique per user, so it can name another contract's invoice."""

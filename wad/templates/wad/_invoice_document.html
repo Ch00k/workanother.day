@@ -4,6 +4,21 @@ server on a stored invoice's page. Both write into the same data-field elements,
 document itself is defined once.
 {% endcomment %}
     <div class="invoice-page bg-white rounded-[14px] shadow-sm border border-black/5 px-8 py-10 sm:px-14 sm:py-14 text-[#222]">
+        {% comment %}
+        Says on the document what the document is. Inside the invoice rather than beside it,
+        and not hidden in print, because the browser's own print command is always there to
+        be used: whatever reaches somebody else has to carry this with it.
+
+        Drawn with a border and text rather than a fill, since print dialogues leave
+        background graphics out by default and a mark that vanishes on paper is worse than
+        none - it would be there on screen to be trusted.
+        {% endcomment %}
+        {% if unissued %}
+        <div id="unissued-mark" class="mb-8 border-2 border-[#a33] px-4 py-2 text-center text-[#a33]">
+            <div class="text-[18px] font-bold uppercase tracking-[0.2em]">Not issued</div>
+            <div class="text-[11px]">This is not an invoice.</div>
+        </div>
+        {% endif %}
         <div class="flex items-start justify-between pb-5 border-b border-[#eee] gap-6">
             <div>
                 <h2 class="text-[24px] font-bold tracking-tight leading-tight" data-field="from_name">{{ invoice.seller_name }}</h2>

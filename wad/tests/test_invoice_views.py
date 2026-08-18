@@ -25,7 +25,7 @@ def _payload(buyer_id: str = "", **overrides: object) -> dict[str, object]:
         "vat_rate": "0",
         "vat_note": "Reverse charge applies.",
         "account_holder": "AY Software Services",
-        "iban": "PL00 1234 5678",
+        "iban": "PL61 1090 1014 0000 0712 1981 2874",
         "lines": [{"description": "Software development services", "days": "18", "rate": "800.00"}],
     }
     payload.update(overrides)
@@ -93,6 +93,34 @@ class InvoiceViewTestCase(TestCase):
         )
 
 
+class IbanCheckTests(InvoiceViewTestCase):
+    """The account number check, which the form and the endpoint both apply.
+
+    The suite runs no JavaScript, so what is checked here is that the form carries the check
+    and points it at the field. That the two implementations agree on which account numbers
+    are valid is ValidIbanTests' subject on the server side.
+    """
+
+    def _form(self) -> str:
+        response = self.client.get(
+            reverse("invoice", kwargs={"pk": self.contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month})
+        )
+
+        return response.content.decode()
+
+    def test_the_form_checks_the_account_number_it_offers_to_send(self) -> None:
+        body = self._form()
+
+        assert "const validIban" in body
+        assert "form.elements.iban.setCustomValidity" in body
+
+    def test_the_check_is_reported_on_the_field(self) -> None:
+        """A message anywhere else leaves the reader hunting for which box is wrong."""
+        body = self._form()
+
+        assert "form.elements.iban.addEventListener('input', checkIban)" in body
+
+
 class SaveTests(InvoiceViewTestCase):
     def test_saving_stores_the_invoice_and_returns_where_it_lives(self) -> None:
         """An invoice worth sending is worth being able to find again."""
@@ -108,7 +136,7 @@ class SaveTests(InvoiceViewTestCase):
         self._save()
 
         record = Invoice.objects.get()
-        assert record.iban == "PL00 1234 5678"
+        assert record.iban == "PL61 1090 1014 0000 0712 1981 2874"
         assert record.vat_note == "Reverse charge applies."
         assert record.due_date == TODAY + datetime.timedelta(days=35)
 
@@ -142,7 +170,8 @@ class SaveTests(InvoiceViewTestCase):
         record.refresh_from_db()
         assert bytes(record.xml) == b"<frozen/>"
 
-    def test_an_issued_invoice_cannot_be_changed(self) -> None:
+    def test_an_accepted_invoice_cannot_be_changed(self) -> None:
+        """Accepted, it is binding, and KSeF holds the bytes this would have rewritten."""
         self._save()
         record = Invoice.objects.get()
         claim_for_sending(record)
@@ -210,7 +239,7 @@ class DeleteTests(InvoiceViewTestCase):
         assert response.status_code == 302
         assert not Invoice.objects.exists()
 
-    def test_an_issued_invoice_cannot_be_discarded(self) -> None:
+    def test_an_accepted_invoice_cannot_be_discarded(self) -> None:
         """Deleting our copy would not undo what KSeF already holds."""
         record = self._draft()
         claim_for_sending(record)
@@ -516,7 +545,7 @@ class PrefillFromLastInvoiceTests(InvoiceViewTestCase):
         prefill = self._context()["prefill"]
 
         assert prefill["currency"] == "CHF"
-        assert prefill["iban"] == "PL00 1234 5678"
+        assert prefill["iban"] == "PL61 1090 1014 0000 0712 1981 2874"
         assert prefill["vat_note"] == "Reverse charge applies."
         assert prefill["account_holder"] == "AY Software Services"
 
@@ -676,33 +705,54 @@ class IssuedStateTests(InvoiceViewTestCase):
         assert response.status_code == 302
         assert self.record.state == Invoice.State.ISSUED
 
-    def test_an_issued_invoice_stays_editable(self) -> None:
-        """With no other system holding it, a correction is a correction."""
+    def test_an_issued_invoice_cannot_be_changed(self) -> None:
+        """The buyer holds a copy, so rewriting this one would only make the two disagree."""
         self._issue()
 
-        assert self._save(currency="EUR").status_code == 200
-        assert Invoice.objects.get().currency == "EUR"
+        response = self._save(currency="EUR")
 
-    def test_editing_does_not_undo_the_issuing(self) -> None:
-        self._issue()
-
-        self._save(currency="EUR")
-
+        assert response.status_code == 400
+        assert "cannot be changed" in response.json()["error"]
         self.record.refresh_from_db()
-        assert self.record.state == Invoice.State.ISSUED
+        assert self.record.currency == "CHF"
+
+    def test_an_issued_invoice_cannot_be_reopened(self) -> None:
+        """The form is refused as well as the save, so there is no way in to be turned back from."""
+        self._issue()
+
+        response = self.client.get(reverse("invoice_edit", kwargs={"pk": self.record.pk}))
+
+        assert response.status_code == 409
 
     def test_it_cannot_be_issued_twice(self) -> None:
         self._issue()
 
         assert self._issue().status_code == 409
 
-    def test_an_issued_invoice_can_still_be_deleted(self) -> None:
+    def test_an_issued_invoice_cannot_be_deleted(self) -> None:
+        """Deleting it would drop the only record of a document somebody else is holding."""
         self._issue()
 
         response = self.client.post(reverse("invoice_delete", kwargs={"pk": self.record.pk}))
 
-        assert response.status_code == 302
-        assert not Invoice.objects.exists()
+        assert response.status_code == 409
+        assert Invoice.objects.filter(pk=self.record.pk).exists()
+
+    def test_the_page_offers_neither_edit_nor_delete_once_it_is_issued(self) -> None:
+        """Nor carries their endpoints, so the page does not describe acts it would refuse."""
+        self._issue()
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk}))
+
+        self.assertNotContains(response, reverse("invoice_edit", kwargs={"pk": self.record.pk}))
+        self.assertNotContains(response, reverse("invoice_delete", kwargs={"pk": self.record.pk}))
+        self.assertNotContains(response, reverse("invoice_mark_issued", kwargs={"pk": self.record.pk}))
+
+    def test_issuing_is_confirmed_before_it_happens(self) -> None:
+        """It cannot be undone, edited or deleted, so a misclick has to be caught here."""
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk}))
+
+        self.assertContains(response, "cannot be changed or deleted afterwards")
 
     def test_the_detail_page_offers_it(self) -> None:
         response = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk}))
@@ -834,6 +884,114 @@ class EditStoredInvoiceTests(InvoiceViewTestCase):
         self.client.force_login(other)
 
         assert self._form().status_code == 404
+
+
+class UnissuedMarkTests(InvoiceViewTestCase):
+    """The mark that says a document is not an invoice.
+
+    A draft renders as a complete invoice, number and all, so without this a printed copy
+    reads as the real thing. The browser's print command cannot be taken away, which is why
+    the mark travels with the document rather than guarding the button.
+    """
+
+    def _detail(self, record: Invoice) -> str:
+        return self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk})).content.decode()
+
+    def _accepted(self) -> Invoice:
+        record = self._draft()
+        freeze(record)
+        claim_for_sending(record)
+        record_acceptance(record, ksef_number="5213870274-20260813-AABBCC-DD", upo="<UPO/>")
+
+        return record
+
+    def _issued(self) -> Invoice:
+        record = self._draft()
+        self.contract.send_to_ksef = False
+        self.contract.save()
+        self.client.post(reverse("invoice_mark_issued", kwargs={"pk": record.pk}))
+        record.refresh_from_db()
+
+        return record
+
+    def test_a_draft_says_what_it_is(self) -> None:
+        body = self._detail(self._draft())
+
+        assert "Not issued" in body
+        assert "This is not an invoice." in body
+
+    def test_an_invoice_in_flight_is_marked(self) -> None:
+        """Its fate is unknown, so a copy of it is not something anybody should be holding."""
+        record = self._draft()
+        claim_for_sending(record)
+
+        assert "Not issued" in self._detail(record)
+
+    def test_a_rejected_invoice_is_marked(self) -> None:
+        """KSeF refused it, so it was never an invoice to begin with."""
+        record = self._draft()
+        claim_for_sending(record)
+        record_rejection(record, error="Refused.")
+
+        assert "Not issued" in self._detail(record)
+
+    def test_an_accepted_invoice_is_not_marked(self) -> None:
+        assert "Not issued" not in self._detail(self._accepted())
+
+    def test_an_issued_invoice_is_not_marked(self) -> None:
+        record = self._issued()
+
+        assert record.state == Invoice.State.ISSUED
+        assert "Not issued" not in self._detail(record)
+
+    def test_the_mark_travels_with_the_document(self) -> None:
+        """Sat in the page chrome, or hidden in print, it would not reach whoever gets a copy."""
+        body = self._detail(self._draft())
+        mark = body.index("Not issued")
+        enclosing = body[body.rindex("<div", 0, mark) : mark]
+
+        assert body.index('class="invoice-page') < mark
+        assert "print:hidden" not in enclosing
+
+    def test_acceptance_takes_the_mark_off_without_a_reload(self) -> None:
+        """KSeF answers while the page is open, so the poll that hears it has to clear this.
+
+        The suite runs no JavaScript, so what is checked is that the mark and the script
+        agree on a name: renaming either one alone leaves the mark on an issued invoice.
+        """
+        body = self._detail(self._draft())
+
+        assert 'id="unissued-mark"' in body
+        assert "unissuedMark.remove()" in body
+
+    def test_reopening_a_stored_draft_keeps_the_mark(self) -> None:
+        """The edit page draws the same document, from an invoice that is by definition unissued.
+
+        Only an editable invoice can be reopened, and an editable one has not been issued. So
+        without this the one page that reopens an unissued invoice is the one that draws it
+        unmarked, while its own detail page marks it.
+        """
+        record = self._draft()
+        body = self.client.get(reverse("invoice_edit", kwargs={"pk": record.pk})).content.decode()
+
+        assert "Not issued" in body
+
+    def test_reopening_a_rejected_invoice_keeps_the_mark(self) -> None:
+        """KSeF refused it, so it was never an invoice, and it is editable again."""
+        record = self._draft()
+        claim_for_sending(record)
+        record_rejection(record, error="Refused.")
+        body = self.client.get(reverse("invoice_edit", kwargs={"pk": record.pk})).content.decode()
+
+        assert "Not issued" in body
+
+    def test_the_browser_filled_preview_carries_no_mark(self) -> None:
+        """Nothing on that page is a record yet, and a guest's printed copy is the invoice."""
+        response = self.client.get(
+            reverse("invoice", kwargs={"pk": self.contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month})
+        )
+
+        self.assertNotContains(response, "Not issued")
 
 
 class VerificationStampTests(InvoiceViewTestCase):

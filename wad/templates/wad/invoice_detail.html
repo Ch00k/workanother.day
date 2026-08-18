@@ -47,7 +47,7 @@
                 Edit
             </a>
             {% endif %}
-            <button type="button" onclick="window.print()"
+            <button type="button" data-prints
                     class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Download PDF
             </button>
@@ -65,11 +65,14 @@
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
                 <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
-                <div class="text-sm text-[#666] mt-0.5" id="ksef-status">
-                    {% if invoice.state == "accepted" %}Accepted by KSeF.
-                    {% elif invoice.state == "rejected" %}Rejected by KSeF.
-                    {% elif invoice.state == "sending" %}Sent - waiting for KSeF to confirm.
-                    {% else %}Not sent yet{% endif %}
+                <div class="flex items-center gap-2 mt-0.5">
+                    {% include "wad/_ksef_spinner.html" %}
+                    <div class="text-sm text-[#666]" id="ksef-status">
+                        {% if invoice.state == "accepted" %}Accepted by KSeF.
+                        {% elif invoice.state == "rejected" %}Rejected by KSeF.
+                        {% elif invoice.state == "sending" %}Sent - waiting for KSeF to confirm.
+                        {% else %}Not sent yet{% endif %}
+                    </div>
                 </div>
                 <div class="mt-1.5 flex items-center gap-2 flex-wrap">
                     {% if ksef_environment == "PRODUCTION" %}
@@ -107,18 +110,31 @@
     {% include "wad/_invoice_document.html" %}
 </div>
 
+{% comment %}
+Each form is present on the same terms as the button that submits it, so a page offering
+neither carries neither endpoint.
+{% endcomment %}
+{% if invoice.is_editable %}
 <form id="delete-invoice-form" method="post" action="{% url 'invoice_delete' pk=invoice.pk %}" class="hidden"
-      onsubmit="return confirm('Delete invoice {{ invoice.number }}?')">
+      data-confirm="Delete invoice {{ invoice.number }}?">
     {% csrf_token %}
 </form>
+{% endif %}
 
-<form id="issue-invoice-form" method="post" action="{% url 'invoice_mark_issued' pk=invoice.pk %}" class="hidden">
+{% if not ksef_enabled and invoice.state == "draft" %}
+{% comment %}
+Confirmed because an issued invoice can no longer be edited or discarded, so a misclick
+here spends an invoice number on a record that has to stay.
+{% endcomment %}
+<form id="issue-invoice-form" method="post" action="{% url 'invoice_mark_issued' pk=invoice.pk %}" class="hidden"
+      data-confirm="Mark invoice {{ invoice.number }} as issued? It cannot be changed or deleted afterwards.">
     {% csrf_token %}
 </form>
+{% endif %}
 
 <form id="send-invoice-form" class="hidden">{% csrf_token %}</form>
 
-<script>
+<script {% csp_nonce_attr %}>
 (() => {
     const panel = document.getElementById('ksef-panel');
     if (!panel) return;
@@ -127,6 +143,12 @@
     const statusText = document.getElementById('ksef-status');
     const errorBox = document.getElementById('ksef-error');
     const stamp = document.getElementById('ksef-stamp');
+    const spinner = document.getElementById('ksef-spinner');
+    // Turning stands for the wait itself, so it follows whether one is still on: a status
+    // line that has come to rest, however it came to rest, is not one to keep spinning over.
+    const setWaiting = waiting => { spinner.style.display = waiting ? '' : 'none'; };
+    // Absent on an invoice that was already issued when the page was drawn.
+    const unissuedMark = document.getElementById('unissued-mark');
     const token = document.getElementById('send-invoice-form').elements.csrfmiddlewaretoken.value;
 
     const SEND_URL = "{% url 'invoice_send_stored' pk=invoice.pk %}";
@@ -161,6 +183,7 @@
 
         const accepted = state.state === 'accepted';
         sendButton.disabled = accepted || state.state === 'sending';
+        setWaiting(state.state === 'sending');
         if (accepted) {
             for (const [field, value] of [['ksef_number', state.ksef_number],
                                          ['verification_url', state.verification_url]]) {
@@ -171,6 +194,11 @@
                 });
             }
             stamp.style.display = '';
+
+            // KSeF accepting it is what makes it an invoice, so the mark saying it is not
+            // one goes in the same update that fills in the number proving it is. Removed
+            // rather than hidden: whatever is printed from here on is the invoice.
+            if (unissuedMark) unissuedMark.remove();
         }
     }
 
@@ -182,12 +210,14 @@
             if (state.state !== 'sending') return;
         }
         statusText.textContent = 'Still processing. Reload this page later to check.';
+        setWaiting(false);
     }
 
     async function send() {
         sendButton.disabled = true;
         statusText.textContent = 'Sending...';
         showError('');
+        setWaiting(true);
 
         try {
             const response = await fetch(SEND_URL, { method: 'POST', headers: { 'X-CSRFToken': token } });
@@ -197,6 +227,7 @@
                 statusText.textContent = 'Not sent.';
                 showError(state.error ?? `Request failed (${response.status}).`);
                 sendButton.disabled = false;
+                setWaiting(false);
                 return;
             }
 
@@ -207,6 +238,7 @@
             // resolves it by asking KSeF rather than by sending again.
             statusText.textContent = 'Lost contact while sending.';
             showError(`${err}. Reload this page to find out whether KSeF accepted it.`);
+            setWaiting(false);
         }
     }
 

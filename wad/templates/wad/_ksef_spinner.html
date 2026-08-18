@@ -1,0 +1,16 @@
+{% comment %}
+Turns while an invoice is in flight, which is the one state a page cannot resolve by itself:
+it is waiting on KSeF and has only polling to tell it when that ended.
+
+lucide's loader-circle. Decorative, because the line beside it already says what is
+happening, and still when the reader has asked for less motion.
+
+Drawn turning only for an invoice that was already in flight when the page was opened. The
+script takes it from there, and on the month page there is no stored invoice to be in flight.
+{% endcomment %}
+<svg id="ksef-spinner" aria-hidden="true" class="size-4 shrink-0 animate-spin motion-reduce:animate-none text-[#999]"
+     style="{% if invoice.state != 'sending' %}display:none{% endif %}"
+     xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+</svg>

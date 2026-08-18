@@ -85,6 +85,33 @@ class Buyer:
 
 
 @dataclasses.dataclass(frozen=True)
+class Payment:
+    """How the invoice says it is to be settled.
+
+    The printed invoice states a due date and an account to pay into, so the structured
+    invoice states them too. The copy KSeF holds is the invoice: a buyer who reads it there
+    has to find the same terms as a buyer holding the paper, and has to be able to pay from
+    what they find.
+
+    account_number is the IBAN the seller gave, tidied of the spaces one is written with. It
+    was checked against its own check digits when it was submitted, so what arrives here is an
+    account number rather than something shaped like one.
+
+    One of the due date and the account has to be stated. FA(3) refuses a payment block with
+    nothing in it, and an invoice that says nothing about how it is to be paid says so by
+    carrying no terms at all, so terms that exist and say nothing could only be a mistake.
+    """
+
+    due_date: datetime.date | None = None
+    account_number: str = ""
+    bic: str = ""
+
+    def __post_init__(self) -> None:
+        if self.due_date is None and not self.account_number:
+            raise UnsupportedSaleError("Payment terms have to state a due date or an account to pay into.")
+
+
+@dataclasses.dataclass(frozen=True)
 class InvoiceLine:
     """A single billed item."""
 
@@ -114,6 +141,12 @@ class Invoice:
     lines: tuple[InvoiceLine, ...]
     currency: str
     service_period: tuple[datetime.date, datetime.date] | None = None
+    # None when the invoice says nothing about how it is to be paid. FA(3) refuses an empty
+    # payment block, so the absence has to be tellable from a block with nothing in it.
+    payment: Payment | None = None
+    # What the seller wrote on the invoice for which FA(3) keeps no field of its own, which
+    # is what its additional-description entries are for.
+    note: str = ""
 
     def __post_init__(self) -> None:
         if not self.lines:
