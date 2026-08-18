@@ -33,13 +33,13 @@
                class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Export .ics
             </a>
-            <button onclick="document.getElementById('import-file-{{ contract.pk }}').click()"
+            <button data-clicks="import-file-{{ contract.pk }}"
                     class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Import .ics
             </button>
             <form id="import-form-{{ contract.pk }}" method="post" action="{% url 'import_calendar' pk=contract.pk %}" enctype="multipart/form-data" class="hidden">
                 {% csrf_token %}
-                <input type="file" id="import-file-{{ contract.pk }}" name="file" accept=".ics" onchange="this.form.submit()">
+                <input type="file" id="import-file-{{ contract.pk }}" name="file" accept=".ics" data-submits>
             </form>
             {% if can_store_invoices %}
             <a href="{% url 'invoice_list' pk=contract.pk %}"
@@ -130,7 +130,8 @@
                 class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50">
             Clear
         </button>
-        <button onclick="htmx.ajax('GET', '{% url 'holiday_comparison' pk=contract.pk %}', '#holiday-comparison-content'); document.getElementById('holiday-dialog').showModal()"
+        <button data-opens="holiday-dialog"
+                data-loads="{% url 'holiday_comparison' pk=contract.pk %}" data-into="#holiday-comparison-content"
                 class="sm:ml-auto rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
             Holiday comparison
         </button>
@@ -323,10 +324,10 @@
 
     <!-- Holiday comparison dialog -->
     <dialog id="holiday-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
-            onclick="if(event.target===this)this.close()">
+            data-closes-on-backdrop>
         <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
             <h2 class="text-xl font-bold">Holiday Comparison</h2>
-            <button onclick="this.closest('dialog').close()"
+            <button data-closes-dialog
                     class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
         </div>
         <div id="holiday-comparison-content" class="px-5 py-4 overflow-y-auto max-h-[70vh]">

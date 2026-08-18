@@ -13,7 +13,7 @@
         {% if calendar_url %}
         <div class="flex items-center gap-4 flex-wrap">
             <a href="{{ calendar_url }}" class="text-sm text-[#666] underline underline-offset-2 break-all hover:text-[#333] transition">{{ calendar_url }}</a>
-            <button onclick="navigator.clipboard.writeText('{{ calendar_url }}')"
+            <button data-copies="{{ calendar_url }}"
                     class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition shrink-0">
                 Copy
             </button>

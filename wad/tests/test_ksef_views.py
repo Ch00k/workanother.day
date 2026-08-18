@@ -175,6 +175,35 @@ class SendValidationTests(KsefViewTestCase):
 
         assert response.status_code == 400
 
+    def test_a_month_the_contract_never_reached_is_refused(self) -> None:
+        """Such a month bills a period that starts after it ends, which is no period at all.
+
+        Refused before the record is made rather than after: stored, the invoice cannot be
+        rendered as FA(3), so it could neither be sent nor explained.
+        """
+        self.contract.end_date = LAST_MONTH - datetime.timedelta(days=1)
+        self.contract.save()
+
+        response = self._post(_payload(str(self.buyer.pk)))
+
+        assert response.status_code == 400
+        assert "was not running in" in response.json()["error"]
+        assert not Invoice.objects.exists()
+
+    def test_a_month_that_is_not_over_cannot_be_sent(self) -> None:
+        """The month page refuses to open, so the send endpoint cannot be the way in."""
+        this_month = TODAY.replace(day=1)
+        url = reverse(
+            "invoice_send",
+            kwargs={"pk": self.contract.pk, "year": this_month.year, "month": this_month.month},
+        )
+
+        response = self.client.post(url, data=json.dumps(_payload(str(self.buyer.pk))), content_type="application/json")
+
+        assert response.status_code == 400
+        assert "is not over yet" in response.json()["error"]
+        assert not Invoice.objects.exists()
+
 
 @override_settings(**CONFIGURED)
 class SchemaAvailabilityTests(KsefViewTestCase):
@@ -1104,3 +1133,75 @@ class SendButtonStateTests(KsefViewTestCase):
         response = self.client.post(reverse("invoice_send_stored", kwargs={"pk": self.record.pk}))
 
         assert response.status_code == 409
+
+
+class SendingSpinnerTests(KsefViewTestCase):
+    """The spinner on the KSeF status line.
+
+    It stands for a wait the page cannot end by itself: KSeF has the invoice and only
+    polling will say what became of it. So it turns while that is true and not otherwise,
+    which for a page just drawn is a question about the state it was drawn from.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.client.force_login(self.owner)
+        self.record = store_invoice(self.contract, month=LAST_MONTH)
+        freeze(self.record)
+
+    def _spinner(self, body: str) -> str:
+        start = body.index('id="ksef-spinner"')
+
+        return body[body.rindex("<svg", 0, start) : body.index(">", start)]
+
+    def _detail_spinner(self) -> str:
+        body = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk})).content.decode()
+
+        return self._spinner(body)
+
+    def test_a_draft_is_drawn_still(self) -> None:
+        """Nothing is in flight, so there is nothing to wait for."""
+        assert "display:none" in self._detail_spinner()
+
+    def test_an_invoice_in_flight_is_drawn_turning(self) -> None:
+        """Reopening the page mid-send has to look like the send it walked back into."""
+        claim_for_sending(self.record)
+
+        assert "display:none" not in self._detail_spinner()
+
+    def test_an_accepted_invoice_is_drawn_still(self) -> None:
+        claim_for_sending(self.record)
+        record_acceptance(self.record, ksef_number="5213870274-20260812-AABBCC-DD", upo="<UPO/>")
+
+        assert "display:none" in self._detail_spinner()
+
+    def test_a_rejected_invoice_is_drawn_still(self) -> None:
+        """KSeF answered, and the answer was no. Nothing is pending."""
+        claim_for_sending(self.record)
+        record_rejection(self.record, error="Rejected by KSeF.")
+
+        assert "display:none" in self._detail_spinner()
+
+    def test_it_is_decorative(self) -> None:
+        """The line beside it says what is happening; an icon read aloud would only repeat it."""
+        assert 'aria-hidden="true"' in self._detail_spinner()
+
+    def test_the_month_page_is_drawn_still(self) -> None:
+        """No invoice is stored there yet, so none of them can be in flight."""
+        body = self.client.get(
+            reverse("invoice", kwargs={"pk": self.contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month})
+        ).content.decode()
+
+        assert "display:none" in self._spinner(body)
+
+    def test_both_pages_stop_it_when_the_wait_ends(self) -> None:
+        """The suite runs no JavaScript, so what is checked is that each page wires it up."""
+        detail = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk})).content.decode()
+        month = self.client.get(
+            reverse("invoice", kwargs={"pk": self.contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month})
+        ).content.decode()
+
+        for body in (detail, month):
+            assert "const setWaiting" in body
+            assert "setWaiting(state.state === 'sending')" in body
+            assert "setWaiting(false)" in body

@@ -78,7 +78,7 @@
             <div>
                 <label for="tax_id" class="block text-sm font-medium text-[#666] mb-1">Tax identifier</label>
                 <input type="text" id="tax_id" name="tax_id" value="{% firstof form_data.tax_id party.tax_id '' %}"
-                       placeholder="CHE-123.456.789"
+                       placeholder="123456789"
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
                 <div class="text-xs text-[#999] mt-1">
                     Sent as structured data. For an EU business, the VAT number without its country prefix.
@@ -117,7 +117,7 @@
 <form id="delete-party-form" method="post" action="{{ delete_url }}" class="hidden">{% csrf_token %}</form>
 {% endif %}
 
-<script>
+<script {% csp_nonce_attr %}>
 (() => {
     const fields = document.getElementById('polish-seller-fields');
     if (!fields) return;

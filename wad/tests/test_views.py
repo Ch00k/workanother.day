@@ -85,6 +85,95 @@ class LoginViewTests(TestCase):
         assert not Guest.objects.exists()
 
 
+class DeactivatedAccountLoginTests(TestCase):
+    """A token belonging to a deactivated account.
+
+    The authentication backend already refuses such a user on every request that resolves a
+    session, so the account cannot reach its own data either way. What this view has to get
+    right is refusing before it acts: the guest transfer below it deletes the guest.
+    """
+
+    def setUp(self) -> None:
+        self.token = generate_token()
+        self.owner = User.objects.create_user(username="saved", is_active=False)
+        AccountToken.objects.create(user=self.owner, token_hash=hash_token(self.token))
+
+    def _make_guest_with_a_contract(self) -> User:
+        self.client.post(
+            "/contracts/new/",
+            {
+                "name": "Guest Contract",
+                "home_country": "NL",
+                "client_country": "CH",
+                "max_working_days": "200",
+                "start_date": "2026-01-01",
+                "end_date": "2026-12-31",
+            },
+        )
+
+        return User.objects.get(username__startswith="guest-")
+
+    def _refusal_page(self, token: str) -> str:
+        """The page this token comes back to, with the per-render secrets blanked out.
+
+        Blanked rather than sliced around, because the whole page is what a caller can read:
+        two renders differ nowhere but the CSRF token and the CSP nonce, so whatever is left
+        is what could tell one refusal from another.
+        """
+        response = self.client.post("/login/", {"token": token})
+        assert response.status_code == 200
+
+        page = response.content.decode()
+        for secret in (response.context["csrf_token"], response.context["csp_nonce"]):
+            page = page.replace(str(secret), "PER-RENDER")
+
+        return page
+
+    def test_the_token_is_refused(self) -> None:
+        response = self.client.post("/login/", {"token": self.token})
+
+        assert response.status_code == 200
+        self.assertContains(response, "Invalid access token.")
+
+    def test_no_session_is_opened(self) -> None:
+        self.client.post("/login/", {"token": self.token})
+
+        assert "_auth_user_id" not in self.client.session
+
+    def test_it_reads_the_same_as_a_token_nobody_holds(self) -> None:
+        """Otherwise the page confirms which tokens name a real account."""
+        assert self._refusal_page(self.token) == self._refusal_page(generate_token())
+
+    def test_a_visitors_contracts_are_left_alone(self) -> None:
+        """Handed over, they would sit on an account that cannot be logged into again."""
+        guest = self._make_guest_with_a_contract()
+
+        self.client.post("/login/", {"token": self.token})
+
+        assert User.objects.filter(pk=guest.pk).exists()
+        assert Guest.objects.filter(user=guest).exists()
+        assert Contract.objects.get().user == guest
+
+    def test_the_visitor_is_still_themselves_afterwards(self) -> None:
+        """Their own contracts are still on the page they were about to leave."""
+        self._make_guest_with_a_contract()
+
+        self.client.post("/login/", {"token": self.token})
+        page = self.client.get("/contracts/")
+
+        assert page.context["user"].is_authenticated
+        assert [c.name for c in page.context["contracts"]] == ["Guest Contract"]
+
+    def test_reactivating_the_account_lets_it_back_in(self) -> None:
+        """The flag is the whole of the refusal, so lifting it is the whole of the remedy."""
+        self.owner.is_active = True
+        self.owner.save()
+
+        response = self.client.post("/login/", {"token": self.token})
+
+        self.assertRedirects(response, "/contracts/")
+
+
 class LogoutViewTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="test")
