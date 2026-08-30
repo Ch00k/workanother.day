@@ -92,3 +92,39 @@ class PolicyHeaderTests(TestCase):
     def test_a_fresh_nonce_per_response(self) -> None:
         """Reused, it would be as guessable as the last page an attacker was served."""
         assert self._policy() != self._policy()
+
+
+class NoticeStylingTests(PlainTestCase):
+    """Every notice on every page states itself the same way.
+
+    A caution, a failure and a confirmation are one shape with the colour as the only
+    difference, and that shape is `.notice` in assets/tailwind.css. Checked against the
+    template sources rather than against whichever pages a test happens to render, because a
+    page styling its own box is exactly what this is here to stop: the drift is invisible until
+    two of them are seen side by side.
+    """
+
+    # A tinted ground is what a notice is made of, so anything painting one itself is one of
+    # these that got away. Hover and focus states are exempt: a button that tints while the
+    # pointer is on it is not a statement about the page.
+    HAND_ROLLED = re.compile(r"""class="[^"]*(?<!hover:)(?<!focus:)bg-(amber|red)-50[^"]*\"""")
+
+    def test_no_page_rolls_its_own(self) -> None:
+        found = [
+            f"{path.name}:{number}"
+            for path in TEMPLATES
+            for number, line in enumerate(path.read_text().splitlines(), start=1)
+            if (match := self.HAND_ROLLED.search(line)) and "notice" not in match.group(0)
+            # The guest strip, which spans the window rather than sitting in a page's flow.
+            if path.name != "base.html"
+        ]
+
+        assert not found, 'Use class="notice", "notice notice-error" or "notice notice-neutral": ' + "; ".join(found)
+
+    def test_the_tones_are_defined_once(self) -> None:
+        """In the stylesheet source, so there is one place to change how a notice looks."""
+        source = (Path(__file__).resolve().parent.parent.parent / "assets" / "tailwind.css").read_text()
+
+        assert ".notice {" in source
+        assert ".notice-error {" in source
+        assert ".notice-neutral {" in source

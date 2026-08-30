@@ -1,7 +1,9 @@
 import calendar
 import datetime
 import decimal
+import hashlib
 import json
+import logging
 import re
 from typing import Any, NamedTuple, NotRequired, TypedDict
 
@@ -20,41 +22,63 @@ from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_GET, require_POST
 from ksef2 import KSeFException
 
-from wad import parties, throttle
+from wad import ewidencja, jpk, obligations, parties, throttle
 from wad.calendar_utils import (
+    POLAND_TZ,
     MonthlySummary,
     Stats,
     compute_monthly_summary,
     compute_stats,
     get_month_calendar,
     is_weekend,
+    today_in_poland,
 )
-from wad.countries import COUNTRIES
+from wad.countries import COUNTRIES, country_name
+from wad.documents import RenderError, document_context, invoice_pdf, verification_url
 from wad.ical import ImportError as ICalImportError
 from wad.ical import export_time_off, export_user_time_off, import_time_off
-from wad.invoicing import next_number, party_snapshot, valid_iban
-from wad.ksef import sending, submission, verification
-from wad.ksef.fa3 import MAX_DESCRIPTION_LENGTH
+from wad.invoicing import (
+    fill_gaps,
+    next_number,
+    party_snapshot,
+    record_payment,
+    record_revenue,
+    record_ryczalt_rate,
+    restate_payment,
+    valid_iban,
+)
+from wad.jpk_gateway import sending as gateway
+from wad.jpk_gateway.payload import PackagingError
+from wad.jpk_gateway.submission import FilingStateError
+from wad.ksef import sending, submission
+from wad.ksef.fa3 import MAX_DESCRIPTION_LENGTH, MAX_REASON_LENGTH
 from wad.ksef.invoice import UnsupportedSaleError
-from wad.ksef.validation import SchemaUnavailableError, SchemaValidationError
+from wad.mail import send_invoice, undeliverable_reason
 from wad.middleware import create_guest_user
 from wad.models import (
     POLAND,
+    RYCZALT_RATE,
     AccountToken,
     Buyer,
     CalendarToken,
     Contract,
+    ContributionPayment,
+    CurrencySale,
+    Filing,
     Guest,
     Holiday,
     Invoice,
     InvoiceLine,
     Seller,
+    TaxPayment,
+    TaxReturn,
     TimeOff,
     generate_calendar_token,
     generate_token,
     hash_token,
     is_account_holder,
 )
+from wad.schema import SchemaUnavailableError, SchemaValidationError
 from wad.services import (
     ExternalCalendarURLError,
     fetch_external_time_off,
@@ -66,6 +90,20 @@ from wad.services import (
 # refused with a sentence rather than a database error.
 MAX_QUANTITY = decimal.Decimal(10) ** 6 - 1
 MAX_UNIT_PRICE = decimal.Decimal(10) ** 12 - 1
+
+# What the payment columns can hold. A sole trader's whole year of ZUS or of ryczałt is a few
+# tens of thousands of złote, so anything near this is a typo rather than a payment.
+MAX_PAYMENT = decimal.Decimal(10) ** 10 - 1
+MAX_NOTE_LENGTH = 200
+
+# A UPO is a short XML acknowledgement, so anything approaching this is not one.
+MAX_UPO_LENGTH = 8192
+
+# What the revenue figure authorising a filing can be. The schema takes sixteen digits; a sole
+# trader's year that reaches this was not filed from here.
+MAX_AUTHORISING_REVENUE = decimal.Decimal(10) ** 12 - 1
+
+logger = logging.getLogger(__name__)
 
 CURRENCY_PATTERN = re.compile(r"[A-Z]{3}")
 
@@ -304,7 +342,7 @@ def contract_create(request: HttpRequest) -> HttpResponse:
         return render(
             request,
             "wad/contract_create.html",
-            {"countries": COUNTRIES, **_party_options(request, None)},
+            {"countries": COUNTRIES, **_contract_form_options(request, None)},
         )
 
     errors = _validate_contract_form(
@@ -320,7 +358,7 @@ def contract_create(request: HttpRequest) -> HttpResponse:
                 "countries": COUNTRIES,
                 "errors": errors,
                 "form_data": request.POST,
-                **_party_options(request, None),
+                **_contract_form_options(request, None),
             },
         )
 
@@ -335,7 +373,7 @@ def contract_create(request: HttpRequest) -> HttpResponse:
                     "countries": COUNTRIES,
                     "errors": ["Too many contracts created from here. Try again later."],
                     "form_data": request.POST,
-                    **_party_options(request, None),
+                    **_contract_form_options(request, None),
                 },
                 status=429,
             )
@@ -362,6 +400,7 @@ def contract_create(request: HttpRequest) -> HttpResponse:
             else ""
         ),
         **_contract_party_fields(request),
+        **_contract_tax_fields(request),
     )
 
     # Pre-fetch holidays so the calendar view doesn't block on API calls
@@ -392,7 +431,7 @@ def contract_edit(request: HttpRequest, pk: str) -> HttpResponse:
                     "countries": COUNTRIES,
                     "errors": errors,
                     "form_data": request.POST,
-                    **_party_options(request, contract),
+                    **_contract_form_options(request, contract),
                 },
             )
 
@@ -405,7 +444,7 @@ def contract_edit(request: HttpRequest, pk: str) -> HttpResponse:
         contract.end_date = datetime.date.fromisoformat(request.POST["end_date"])
         if request.user.is_staff:  # ty: ignore[unresolved-attribute]
             contract.external_calendar_url = request.POST.get("external_calendar_url", "").strip()
-        for field, value in _contract_party_fields(request).items():
+        for field, value in (_contract_party_fields(request) | _contract_tax_fields(request)).items():
             setattr(contract, field, value)
         contract.save()
         return redirect("calendar", pk=contract.pk)
@@ -413,7 +452,7 @@ def contract_edit(request: HttpRequest, pk: str) -> HttpResponse:
     return render(
         request,
         "wad/contract_edit.html",
-        {"contract": contract, "countries": COUNTRIES, **_party_options(request, contract)},
+        {"contract": contract, "countries": COUNTRIES, **_contract_form_options(request, contract)},
     )
 
 
@@ -522,7 +561,7 @@ def bulk_book(request: HttpRequest, pk: str) -> HttpResponse:
     mode = request.POST.get("mode", "")
     dates_to_book = _holiday_dates_for_mode(contract, mode)
 
-    today = datetime.datetime.now(tz=datetime.UTC).date()
+    today = today_in_poland()
     weekday_dates = [d for d in dates_to_book if not is_weekend(d) and d >= today]
     TimeOff.objects.bulk_create(
         [TimeOff(contract=contract, date=d, hours=contract.working_hours_per_day) for d in weekday_dates],
@@ -540,7 +579,7 @@ def clear_time_off(request: HttpRequest, pk: str) -> HttpResponse:
 
     mode = request.POST.get("mode", "")
     dates_to_clear = _holiday_dates_for_mode(contract, mode)
-    today = datetime.datetime.now(tz=datetime.UTC).date()
+    today = today_in_poland()
     weekday_dates = [d for d in dates_to_clear if not is_weekend(d) and d >= today]
 
     contract.time_off.filter(date__in=weekday_dates).delete()  # ty: ignore[unresolved-attribute]
@@ -608,7 +647,7 @@ def _day_cell_context(
     client_name: str,
 ) -> dict[str, object]:
     """Everything one square of the calendar needs to know about its day."""
-    today = datetime.datetime.now(tz=datetime.UTC).date()
+    today = today_in_poland()
     day_str = date.isoformat()
 
     return {
@@ -749,9 +788,16 @@ def _invoice_prefill(contract: Contract) -> dict[str, object]:
     Currency, the payment note, the bank details, the buyer and the rates are the same
     most months, and they are already recorded. Reading them back is what lets the form
     keep nothing of its own.
+
+    Corrections are passed over. One carries the lines of the invoice it corrects rather than a
+    month's own, so a month starting from one would start from a figure that was withdrawn.
     """
     prefill: dict[str, object] = {}
-    last = contract.invoices.order_by("-period_start", "-issue_date").first()  # ty: ignore[unresolved-attribute]
+    last = (
+        contract.invoices.filter(corrects__isnull=True)  # ty: ignore[unresolved-attribute]
+        .order_by("-period_start", "-issue_date")
+        .first()
+    )
 
     return _prefill_from(last) if last is not None else prefill
 
@@ -776,6 +822,11 @@ def invoice_edit(request: HttpRequest, pk: str) -> HttpResponse:
     record = _owned_invoice(request, pk)
     if not record.is_editable:
         return HttpResponse(f"An invoice that is {record.state} cannot be changed.", status=409)
+
+    # A correction has a form of its own. It bills no month, so the page that opens a month
+    # has nothing to show it in.
+    if record.is_correction:
+        return redirect("correction_edit", pk=record.pk)
 
     return _invoice_form(
         request,
@@ -867,6 +918,11 @@ def _invoice_form(
         "invoice": None,
         "lines": [],
         "reverse_charge": _reverse_charge(contract),
+        # Both countries come from the contract here, there being no invoice yet to have
+        # snapshotted them, and they are the same two values the reverse-charge line above
+        # is decided from.
+        "seller_country_name": country_name(contract.home_country),
+        "buyer_country_name": country_name(contract.client_country),
         "net_total": None,
         "verification": None,
         # Marked when this page reopened a stored invoice, because only an editable one can be
@@ -948,10 +1004,12 @@ def _ksef_unavailable_reason(contract: Contract) -> str:
     than to the deployment. Each reason names something its owner can go and fix, which is
     why they are given rather than merely counted.
     """
+    # Each names KSeF itself, because the notice carrying them has no heading to say which
+    # system is being talked about.
     if contract.home_country != POLAND:
-        return "Sending applies to work done from Poland."
+        return "Sending to KSeF applies to work done from Poland."
     if not contract.send_to_ksef:
-        return "Sending is switched off for this contract."
+        return "Sending to KSeF is switched off for this contract."
     if contract.seller is None:
         return "This contract has no seller."
     if not contract.seller.ksef_token:
@@ -1048,7 +1106,7 @@ def _invoice_fields(
     period_start, period_end = _invoiceable_period(contract, year, month)
 
     issue_date = datetime.date.fromisoformat(str(payload.get("issue_date", "")))
-    if issue_date != datetime.datetime.now(tz=datetime.UTC).date():
+    if issue_date != today_in_poland():
         message = "An invoice must be dated the day it is sent, otherwise KSeF treats it as issued offline."
         raise InvoiceInputError(message)
 
@@ -1093,6 +1151,10 @@ def _invoice_fields(
         "period_end": period_end,
         "seller": contract.seller,
         "buyer": buyer,
+        # Copied in like the parties are, and for the same reason: a JPK_EWP row states the
+        # rate its revenue was taxed at, so an invoice has to keep the rate that was in
+        # force for it rather than whatever the contract says years later.
+        "ryczalt_rate": contract.ryczalt_rate,
         **party_snapshot(contract.seller, buyer, fallback_country=contract.client_country),
         "due_date": _optional_date(payload.get("due_date")),
         "vat_note": vat_note,
@@ -1164,6 +1226,13 @@ def _store_invoice(contract: Contract, payload: dict[str, Any], year: int, month
     # taken by another contract belongs to an invoice this submission is not about, and
     # overwriting it would rewrite a record its own contract still thinks it has.
     existing = Invoice.objects.filter(contract=contract, number=fields["number"]).first()
+    if existing is not None and existing.is_correction:
+        # A correction is drawn up on its own page, against the document it corrects. Storing
+        # one from here would rewrite it as an invoice for a month and leave the invoice it
+        # corrects corrected by nothing.
+        message = f"{existing.number} is a correction invoice, so it cannot be saved as an invoice for a month."
+        raise InvoiceInputError(message)
+
     if existing is None:
         if Invoice.objects.filter(user=contract.user, number=fields["number"]).exists():
             message = f"Invoice number {fields['number']} is already used by another contract."
@@ -1171,6 +1240,8 @@ def _store_invoice(contract: Contract, payload: dict[str, Any], year: int, month
 
         record = Invoice.objects.create(contract=contract, user=contract.user, **fields)
         _replace_lines(record, lines)
+        # After the lines, because the revenue being converted is their total.
+        record_revenue(record)
         return record
 
     if not existing.is_editable:
@@ -1199,6 +1270,10 @@ def _store_invoice(contract: Contract, payload: dict[str, Any], year: int, month
         )
         existing.refresh_from_db()
         _replace_lines(existing, lines)
+        # Only where something changed, so an unchanged resubmission does not go back to NBP
+        # for a rate it already holds. The period, the currency and the total are all things
+        # an edit can move, and each of them moves the conversion.
+        record_revenue(existing)
 
     return existing
 
@@ -1217,6 +1292,25 @@ def _replace_lines(record: Invoice, lines: list[tuple[str, decimal.Decimal, deci
     )
 
 
+def _replace_corrected_lines(record: Invoice, lines: list[CorrectedLine]) -> None:
+    """Store a correction's lines under the positions of the lines they restate.
+
+    Numbered by what they correct rather than in the order they were written, unlike an
+    invoice's own lines, so a position missing from the set is a line the correction withdrew.
+    """
+    record.lines.all().delete()  # ty: ignore[unresolved-attribute]
+    InvoiceLine.objects.bulk_create(
+        InvoiceLine(
+            invoice=record,
+            position=line.position,
+            description=line.description,
+            quantity=line.quantity,
+            unit_net_price=line.unit_net_price,
+        )
+        for line in lines
+    )
+
+
 def _invoice_state(record: Invoice) -> dict[str, str]:
     """Describe an invoice to the browser, including the link its QR code encodes."""
     state = {
@@ -1229,20 +1323,374 @@ def _invoice_state(record: Invoice) -> dict[str, str]:
         "verification_url": "",
     }
 
-    # An accepted invoice normally has a digest, because sending freezes one first.
-    # Guarding anyway keeps a half-recorded invoice from turning its own page into a
-    # server error.
-    if record.state == Invoice.State.ACCEPTED and record.xml_sha256:
-        # The digest taken over the bytes that were sent, so the link resolves to the
-        # invoice KSeF actually holds.
-        state["verification_url"] = verification.verification_url(
-            record.seller_nip,
-            record.issue_date,
-            record.xml_sha256,
-            settings.KSEF_QR_BASE_URL,
-        )
+    if record.state == Invoice.State.ACCEPTED:
+        state["verification_url"] = verification_url(record)
 
     return state
+
+
+class CorrectedLine(NamedTuple):
+    """One line as a correction leaves it, keeping the position of the line it restates."""
+
+    position: int
+    description: str
+    quantity: decimal.Decimal
+    unit_net_price: decimal.Decimal
+
+
+def _correctable(record: Invoice) -> str:
+    """Why this document cannot be corrected. Empty when it can.
+
+    Only an issued document can be. A draft is still its author's to rewrite, one in flight
+    has an unknown fate, and a rejected one was never issued at all - none of the three is a
+    document anybody else holds, so none of them needs unwinding.
+
+    And only the last document in a chain. A correction states the state it found and the state
+    it leaves, so two drawn up against the same state would each undo the other's arithmetic
+    and the second one issued would restate a figure that had already moved.
+    """
+    if not record.is_issued:
+        return f"An invoice that is {record.state} has not been issued, so there is nothing to correct."
+
+    existing = record.corrections.first()  # ty: ignore[unresolved-attribute]
+    if existing is None:
+        return ""
+
+    if existing.is_issued:
+        return f"{record.number} is already corrected by {existing.number}. Correct that correction instead."
+
+    return (
+        f"{record.number} already has a correction, {existing.number}, which is "
+        f"{existing.state}. Finish or discard that one first."
+    )
+
+
+def _correction_fields(corrected: Invoice, reason: str, cause: str) -> dict[str, object]:
+    """The columns of a correction of `corrected`, other than its lines.
+
+    Everything identifying the sale is the corrected invoice's own rather than the parties' or
+    the contract's as they now stand: a korekta names the same two parties, bills the same
+    period and is settled on the same account as the document it corrects, whatever has been
+    edited since. Its number belongs to that invoice's month for the same reason.
+
+    Two things are its own. The issue date is today, because a correction is issued when it is
+    drawn up and KSeF takes an earlier date as an invoice issued offline. The due date follows
+    from it at the terms the corrected invoice was given, so a correction adding to an invoice
+    says by when the addition is payable.
+    """
+    issue_date = today_in_poland()
+    terms = (corrected.due_date - corrected.issue_date) if corrected.due_date else None
+
+    return {
+        "number": next_number(corrected.user, corrected.period_start, correction=True),
+        "issue_date": issue_date,
+        "due_date": issue_date + terms if terms is not None else None,
+        "currency": corrected.currency,
+        "period_start": corrected.period_start,
+        "period_end": corrected.period_end,
+        "seller": corrected.seller,
+        "buyer": corrected.buyer,
+        "seller_name": corrected.seller_name,
+        "seller_address": corrected.seller_address,
+        "seller_nip": corrected.seller_nip,
+        "seller_country": corrected.seller_country,
+        "seller_tax_ids": corrected.seller_tax_ids,
+        "buyer_name": corrected.buyer_name,
+        "buyer_address": corrected.buyer_address,
+        "buyer_country": corrected.buyer_country,
+        "buyer_tax_id": corrected.buyer_tax_id,
+        "buyer_tax_ids": corrected.buyer_tax_ids,
+        "ryczalt_rate": corrected.ryczalt_rate,
+        "vat_note": corrected.vat_note,
+        "account_holder": corrected.account_holder,
+        "iban": corrected.iban,
+        "bic": corrected.bic,
+        "payment_reference": corrected.payment_reference,
+        "corrects": corrected,
+        "correction_reason": reason,
+        "correction_cause": cause,
+    }
+
+
+def _correction_cause(payload: QueryDict) -> str:
+    """Which of the two corrections art. 14 ust. 1m dates apart this one is.
+
+    Asked rather than inferred, and refused where it was not answered. Nothing on the document
+    says which it is - the reason is free text - and the answer decides which month's ryczalt
+    and which year's file move, so a default would silently put a discount agreed in March into
+    a January that has already been paid and filed.
+    """
+    cause = payload.get("cause", "").strip()
+    if cause not in Invoice.CorrectionCause.values:
+        message = "A correction has to say whether it puts a mistake right or follows something that happened later."
+        raise InvoiceInputError(message)
+
+    return cause
+
+
+def _correction_reason(payload: QueryDict) -> str:
+    """The reason submitted for a correction, refused where FA(3) could not carry it.
+
+    Refused here rather than at send time, where the schema rejects the whole document and
+    does it once the number has been spent.
+    """
+    reason = payload.get("reason", "").strip()
+    if not reason:
+        message = "A correction has to say why it was issued."
+        raise InvoiceInputError(message)
+
+    if len(reason) > MAX_REASON_LENGTH:
+        message = f"The reason is {len(reason)} characters. KSeF takes at most {MAX_REASON_LENGTH}."
+        raise InvoiceInputError(message)
+
+    return reason
+
+
+def _withdrawn(payload: QueryDict) -> set[int]:
+    """Which of the corrected invoice's lines the correction takes off it.
+
+    A withdrawn line leaves the state after the correction rather than staying in it at
+    nothing: a quantity of zero is refused by FA(3), and a line billed at no price would be a
+    line that was still supplied. What says it was withdrawn is the state before, which the
+    document carries either way.
+    """
+    return {int(index) for index in payload.getlist("withdraw") if index.isdigit()}
+
+
+def _corrected_lines(payload: QueryDict) -> list[CorrectedLine]:
+    """Read the lines as the correction leaves them.
+
+    Four lists read together, one entry per line of the invoice being corrected, because the
+    form is that invoice's lines opened for editing. Each keeps the position of the line it
+    restates, so reopening the form can put a correction back beside what it corrects and a
+    withdrawn line is a position that is missing rather than one that moved.
+
+    The position is submitted with the row rather than counted off it. Once anything has been
+    withdrawn the remaining positions have gaps in them, and a correction of that correction
+    is a form whose rows no longer number 1..n - so counting would restate one line's figures
+    against another line's position.
+    """
+    positions = payload.getlist("position")
+    descriptions = payload.getlist("description")
+    quantities = payload.getlist("days")
+    prices = payload.getlist("rate")
+
+    if (
+        not descriptions
+        or not len(descriptions) == len(quantities) == len(prices) == len(positions)
+        or not all(position.isdigit() for position in positions)
+    ):
+        message = "The corrected lines are not in the expected shape."
+        raise InvoiceInputError(message)
+
+    withdrawn = _withdrawn(payload)
+    lines = [
+        CorrectedLine(
+            position=int(position),
+            description=description.strip(),
+            quantity=_decimal(quantity, "Quantity", maximum=MAX_QUANTITY),
+            unit_net_price=_decimal(price, "Price", maximum=MAX_UNIT_PRICE),
+        )
+        for position, description, quantity, price in zip(positions, descriptions, quantities, prices, strict=True)
+        if int(position) not in withdrawn
+    ]
+
+    if any(not line.description for line in lines):
+        message = "Every line needs a description."
+        raise InvoiceInputError(message)
+
+    if any(line.quantity == 0 for line in lines):
+        message = "A line cannot be billed for nothing. Withdraw it instead."
+        raise InvoiceInputError(message)
+
+    return lines
+
+
+def _correction_form(
+    request: HttpRequest,
+    corrected: Invoice,
+    *,
+    editing: Invoice | None = None,
+    errors: list[str] | None = None,
+) -> HttpResponse:
+    """Render the form a correction is drawn up in.
+
+    The rows are always the corrected document's, because those are the lines there are to
+    correct: a withdrawn one is a row still on the form with its box ticked, which is what lets
+    it be put back. A refused submission comes back as it was typed, unvalidated, because what
+    it has to show is what was typed.
+    """
+    lines = _submitted_rows(request.POST) if errors else _correction_rows(corrected, editing)
+
+    return render(
+        request,
+        "wad/correction.html",
+        {
+            "contract": corrected.contract,
+            "corrected": corrected,
+            "editing": editing,
+            "errors": errors or [],
+            "reason": request.POST.get("reason", "") if errors else (editing.correction_reason if editing else ""),
+            "cause": request.POST.get("cause", "") if errors else (editing.correction_cause if editing else ""),
+            "causes": Invoice.CorrectionCause,
+            "lines": lines,
+            "max_reason_length": MAX_REASON_LENGTH,
+            # The month a correction caused by something later goes into, which is the month it
+            # is issued in and is today's whenever it is saved.
+            "today": today_in_poland(),
+        },
+    )
+
+
+def _typed(value: decimal.Decimal) -> str:
+    """A stored number as a field should offer it back, written the way somebody would type it.
+
+    A quantity is kept to six decimal places and a price to two, so both come back from the
+    database carrying zeros nobody entered. Normalised rather than formatted to a fixed number
+    of places, so half a day stays half a day, and then written out plainly, because
+    normalising a round hundred leaves it in exponent form.
+    """
+    return f"{value.normalize():f}"
+
+
+def _submitted_rows(payload: QueryDict) -> list[dict[str, object]]:
+    """The line rows as they were submitted, for a form that has to be shown again."""
+    withdrawn = _withdrawn(payload)
+
+    return [
+        {
+            "position": position,
+            "description": description,
+            "days": days,
+            "rate": rate,
+            "withdrawn": position.isdigit() and int(position) in withdrawn,
+        }
+        for position, description, days, rate in zip(
+            payload.getlist("position"),
+            payload.getlist("description"),
+            payload.getlist("days"),
+            payload.getlist("rate"),
+            strict=False,
+        )
+    ]
+
+
+def _correction_rows(corrected: Invoice, editing: Invoice | None) -> list[dict[str, object]]:
+    """The corrected document's lines, carrying whatever a correction already made of them.
+
+    Matched by position, which a correction's lines keep from the lines they restate, so a
+    correction reopened shows its own figures where it changed one and a ticked box where it
+    took a line off.
+    """
+    already = {line.position: line for line in editing.lines.all()} if editing else {}  # ty: ignore[unresolved-attribute]
+
+    rows = []
+    for line in corrected.lines.all():  # ty: ignore[unresolved-attribute]
+        shown = already.get(line.position, line)
+        rows.append(
+            {
+                "position": line.position,
+                "description": shown.description,
+                "days": _typed(shown.quantity),
+                "rate": _typed(shown.unit_net_price),
+                "withdrawn": bool(editing) and line.position not in already,
+            }
+        )
+
+    return rows
+
+
+def _store_correction(corrected: Invoice, payload: QueryDict, *, editing: Invoice | None = None) -> Invoice:
+    """Record a draft correction of an issued invoice, or rewrite one already drafted.
+
+    Rewriting reaches the same row and keeps its number, the same way resubmitting an invoice
+    does, so a correction reopened and saved again is one document rather than two. The frozen
+    XML goes with it: what it holds is a document nobody has now agreed to.
+
+    Written inside a transaction because a correction that changes nothing is only discovered
+    to change nothing once its lines are stored, that being where the difference is worked out.
+    What the refusal has to leave behind is nothing at all: a number spent on a document nobody
+    drew up would be a gap in the series with no document to explain it.
+
+    Raises InvoiceInputError for anything a correction cannot mean.
+    """
+    fields = _correction_fields(corrected, _correction_reason(payload), _correction_cause(payload))
+    lines = _corrected_lines(payload)
+
+    with transaction.atomic():
+        if editing is not None:
+            # Its own number stays: it may already have been quoted, and the sequence it came
+            # from has moved on since.
+            Invoice.objects.filter(pk=editing.pk).update(
+                **{name: value for name, value in fields.items() if name != "number"},
+                state=Invoice.State.DRAFT,
+                error="",
+                session_state="",
+                xml=None,
+                xml_sha256="",
+                frozen_at=None,
+            )
+            editing.refresh_from_db()
+            record = editing
+        else:
+            record = Invoice.objects.create(contract=corrected.contract, user=corrected.user, **fields)
+
+        _replace_corrected_lines(record, lines)
+        # After the lines, the difference being what they come to against what the corrected
+        # document came to.
+        record_revenue(record)
+
+        if record.difference == 0:
+            message = (
+                f"This correction leaves {corrected.number} at {corrected.currency} "
+                f"{corrected.net_total}, so there is nothing for it to correct."
+            )
+            raise InvoiceInputError(message)
+
+    return record
+
+
+def invoice_correct(request: HttpRequest, pk: str) -> HttpResponse:
+    """Draw up a correction of an invoice that has been issued."""
+    corrected = _owned_invoice(request, pk)
+
+    refusal = _correctable(corrected)
+    if refusal:
+        return HttpResponse(refusal, status=409)
+
+    if request.method != "POST":
+        return _correction_form(request, corrected)
+
+    try:
+        record = _store_correction(corrected, request.POST)
+    except (InvoiceInputError, UnsupportedSaleError) as error:
+        return _correction_form(request, corrected, errors=[str(error)])
+
+    return redirect("invoice_detail", pk=record.pk)
+
+
+def correction_edit(request: HttpRequest, pk: str) -> HttpResponse:
+    """Reopen a correction that has not been issued.
+
+    Its own page rather than the month form, which bills a month a correction does not have.
+    """
+    record = _owned_invoice(request, pk)
+    corrected = record.corrects
+    if corrected is None:
+        return redirect("invoice_edit", pk=record.pk)
+
+    if not record.is_editable:
+        return HttpResponse(f"A correction that is {record.state} cannot be changed.", status=409)
+
+    if request.method != "POST":
+        return _correction_form(request, corrected, editing=record)
+
+    try:
+        _store_correction(corrected, request.POST, editing=record)
+    except (InvoiceInputError, UnsupportedSaleError) as error:
+        return _correction_form(request, corrected, editing=record, errors=[str(error)])
+
+    return redirect("invoice_detail", pk=record.pk)
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
@@ -1331,6 +1779,18 @@ def seller_list(request: HttpRequest) -> HttpResponse:
     sellers = list(request.user.sellers.all())  # ty: ignore[unresolved-attribute]
     for seller in sellers:
         seller.edit_url = reverse("seller_edit", kwargs={"pk": seller.pk})
+        seller.taxes_url = ""
+
+        # Offered to every Polish taxpayer, whether or not anything has been issued yet. What
+        # is behind it is an obligation rather than a report of one, so it is somewhere to go
+        # and look before there is anything in it - and a page that appears only once it has
+        # content cannot be found by anyone wondering whether it exists. Nothing is offered for
+        # a taxpayer established elsewhere, which has no ewidencja to keep.
+        #
+        # The year now, which is the one being paid for: the year is switched on the page
+        # itself, so there is nothing to pick before arriving somewhere.
+        if seller.country == POLAND:
+            seller.taxes_url = reverse("obligations", kwargs={"pk": seller.pk, "year": today_in_poland().year})
 
     return render(
         request,
@@ -1342,6 +1802,557 @@ def seller_list(request: HttpRequest) -> HttpResponse:
             "empty_message": "No sellers yet. Add the taxpayer you invoice as.",
         },
     )
+
+
+def _owned_seller(request: HttpRequest, pk: str) -> Seller:
+    """A seller of this user's, for the pages that treat it as a taxpayer rather than a party."""
+    seller = _owned_party(request, Seller, pk)
+    if not isinstance(seller, Seller):
+        raise Http404
+
+    return seller
+
+
+class TaxYearLink(NamedTuple):
+    """One destination in the strip every annual page carries."""
+
+    label: str
+    url: str
+    active: bool
+
+
+# The three sides of a year, in the order a taxpayer wants them: what to pay this month, the
+# register the figures come from, and the file made of it once the year is over.
+TAX_YEAR_TABS = (
+    ("What falls due", "obligations"),
+    ("Ewidencja", "ewidencja"),
+    ("JPK_EWP", "filing_list"),
+)
+
+
+def _tax_year_nav(seller: Seller, year: int, current: str) -> dict[str, Any]:
+    """The strip above all three annual pages: the sides of this year, and the years to switch to.
+
+    A year earns a place by having revenue in it, by having a file produced for it, or by being
+    the one now - so a taxpayer that has issued nothing still has a year to stand in, and a year
+    whose invoices were all deleted after its file was made can still be reached.
+
+    A year switched to keeps the side being read, which is why the years are built against the
+    page asking rather than against the register.
+    """
+    years = set(ewidencja.years(seller))
+    years.update(seller.filings.values_list("year", flat=True))  # ty: ignore[unresolved-attribute]
+    years.update({today_in_poland().year, year})
+
+    return {
+        "year": year,
+        "tabs": [
+            TaxYearLink(
+                label=label,
+                url=reverse(url_name, kwargs={"pk": seller.pk, "year": year}),
+                active=url_name == current,
+            )
+            for label, url_name in TAX_YEAR_TABS
+        ],
+        "year_links": [
+            TaxYearLink(
+                label=str(other),
+                url=reverse(current, kwargs={"pk": seller.pk, "year": other}),
+                active=other == year,
+            )
+            for other in sorted(years, reverse=True)
+        ],
+    }
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def ewidencja_view(request: HttpRequest, pk: str, year: int) -> HttpResponse:
+    """A taxpayer's revenue register for one year, and what the annual return makes of it.
+
+    The register is the thing art. 15 requires to be kept, and from 1 January 2027 to be kept
+    in software able to produce the XML. So this page is the obligation itself rather than a
+    report about it.
+    """
+    seller = _owned_seller(request, pk)
+
+    # Filled in on the way rather than left for somebody to open every invoice in turn: the rate
+    # comes off the contract and the figure off a rate NBP has already published, so neither is a
+    # decision anyone has to make. What is left afterwards is what genuinely could not be filled,
+    # which is these same rows asked again rather than a second trip to the database.
+    incomplete = ewidencja.incomplete(seller)
+    fill_gaps(incomplete, year)
+
+    register = ewidencja.register(seller, year)
+
+    return render(
+        request,
+        "wad/ewidencja.html",
+        {
+            "seller": seller,
+            "register": register,
+            "unconverted": ewidencja.unconverted(incomplete, year),
+            # Named so the page can say what to go and fill in, rather than only that the
+            # file cannot be produced.
+            "missing_for_jpk": seller.missing_for_jpk,
+            "payments": list(seller.contribution_payments.filter(paid_on__year=year)),  # ty: ignore[unresolved-attribute]
+            "today": today_in_poland(),
+            **_tax_year_nav(seller, year, "ewidencja"),
+        },
+    )
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def filing_list(request: HttpRequest, pk: str, year: int) -> HttpResponse:
+    """Every JPK_EWP produced for one of a taxpayer's years.
+
+    The register is rebuilt from invoices every time it is read, so what a file holds is what
+    the year was when it was produced. The figures here are the files' own.
+    """
+    seller = _owned_seller(request, pk)
+    fill_gaps(ewidencja.incomplete(seller), year)
+
+    return render(
+        request,
+        "wad/filings.html",
+        {
+            "seller": seller,
+            "filings": list(seller.filings.filter(year=year)),  # ty: ignore[unresolved-attribute]
+            # An empty year has no valid file - the schema requires at least one row - so there
+            # is nothing for Generate to do and it is not offered.
+            "generatable": year in ewidencja.years(seller),
+            "missing_for_jpk": seller.missing_for_jpk,
+            **_tax_year_nav(seller, year, "filing_list"),
+        },
+    )
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def filing_create(request: HttpRequest, pk: str, year: int) -> HttpResponse:
+    """Generate a year's JPK_EWP and keep it.
+
+    Validated against the published schema before anything is stored, for the same reason an
+    invoice is checked before it is sent: a file rejected at filing time is rejected after the
+    deadline it was meant to meet. A schema that cannot be reached refuses to generate anything
+    rather than storing something unverified.
+
+    A year that has already been filed gets CelZlozenia 2 rather than 1. The first submission
+    for a period can only be made once, and everything after it is a correction of it. What
+    decides that is a document the Ministry accepted, not one that exists here: a file
+    generated, discarded and generated again is still nobody's first submission, and a
+    correction of a submission that was never made is rejected.
+    """
+    seller = _owned_seller(request, pk)
+
+    refusal = _filing_refusal(seller, year)
+    if refusal is not None:
+        return refusal
+
+    register = ewidencja.register(seller, year)
+    superseding = seller.filings.filter(year=year, state=Filing.State.FILED).exists()  # ty: ignore[unresolved-attribute]
+    produced_at = datetime.datetime.now(tz=datetime.UTC)
+
+    try:
+        xml = jpk.render(
+            register,
+            produced_at=produced_at,
+            purpose=jpk.Purpose.CORRECTION if superseding else jpk.Purpose.FIRST,
+        )
+        jpk.validate(xml)
+    except jpk.UnfilableError as error:
+        return HttpResponse(str(error), status=409, content_type="text/plain; charset=utf-8")
+    except SchemaValidationError as error:
+        return HttpResponse(str(error), status=500, content_type="text/plain; charset=utf-8")
+    except SchemaUnavailableError as error:
+        return HttpResponse(str(error), status=503, content_type="text/plain; charset=utf-8")
+
+    filing = Filing.objects.create(
+        seller=seller,
+        year=year,
+        xml=xml,
+        xml_sha256=hashlib.sha256(xml).hexdigest(),
+        produced_at=produced_at,
+        revenue=register.revenue,
+        entry_count=len(register.entries),
+    )
+
+    return redirect("filing_detail", pk=filing.pk)
+
+
+def _filing_refusal(seller: Seller, year: int) -> HttpResponse | None:
+    """What stops a year's file from being generated, or nothing where nothing does.
+
+    Gaps that can still be filled are filled first, exactly as the register page fills them
+    when it is read: the rate comes off the contract and the figure off a rate NBP has
+    already published, so neither decides what gets filed.
+    """
+    incomplete = ewidencja.incomplete(seller)
+    fill_gaps(incomplete, year)
+
+    if year not in ewidencja.years(seller):
+        return HttpResponse(f"{seller.name} has issued nothing whose revenue arose in {year}.", status=400)
+
+    # An issued invoice with no PLN figure is a row the register is short, and a file produced
+    # without it would state a smaller year than the one that happened - silently, since the
+    # file validates either way.
+    short = ewidencja.unconverted(incomplete, year)
+    if short:
+        numbers = ", ".join(invoice.number for invoice in short)
+        message = (
+            f"No PLN figure could be established for {numbers}, so the file would be missing "
+            f"revenue that arose in {year}. It is refused rather than generated short a row."
+        )
+        return HttpResponse(message, status=409, content_type="text/plain; charset=utf-8")
+
+    return None
+
+
+def _owned_filing(request: HttpRequest, pk: str) -> Filing:
+    filing = get_object_or_404(Filing, pk=pk)
+    _owned_seller(request, str(filing.seller.pk))
+
+    return filing
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def filing_detail(request: HttpRequest, pk: str) -> HttpResponse:
+    """One produced file: what it holds, and what became of it."""
+    filing = _owned_filing(request, pk)
+    today = today_in_poland()
+
+    return render(
+        request,
+        "wad/filing.html",
+        {
+            "filing": filing,
+            "seller": filing.seller,
+            "today": today,
+            # The year the authorising figure has to come from, which is two before the one
+            # the file is being sent in rather than two before the year it covers.
+            "authorising_year": today.year - 2,
+            "gateway": settings.JPK_GATEWAY_ENVIRONMENT,
+            # Named in the explanation behind the card rather than on it: which gateway a file
+            # goes to is worth being able to read, and worth nothing at a glance.
+            "gateway_url": settings.JPK_GATEWAY_URL,
+        },
+    )
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def filing_download(request: HttpRequest, pk: str) -> HttpResponse:
+    """The stored bytes, unchanged.
+
+    Rendered once and handed back as many times as it is asked for. Rendering again on each
+    download would be a second chance to generate something else.
+    """
+    filing = _owned_filing(request, pk)
+
+    response = HttpResponse(bytes(filing.xml), content_type="application/xml")
+    response["Content-Disposition"] = content_disposition_header(
+        as_attachment=True,
+        filename=jpk.filename(filing.seller.nip, filing.year),
+    )
+
+    return response
+
+
+def _filing_state(filing: Filing) -> dict[str, object]:
+    """Describe a filing to the browser, in the terms the gateway panel shows it in."""
+    return {
+        "state": filing.state,
+        # Whether there is anything left to wait for, which is what the spinner turns on
+        # and what the page polls until.
+        "in_flight": filing.is_in_flight,
+        "reference_number": filing.reference_number,
+        "error": filing.error,
+    }
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def filing_send(request: HttpRequest, pk: str) -> HttpResponse:
+    """Hand this file to the Ministry's gateway, authorised with the taxpayer's own figures.
+
+    The revenue figure is the whole of what is asked for here. Everything else the
+    authorisation needs is already on the seller, and the figure itself is not kept: it
+    authorises this submission and nothing beyond it.
+
+    The gateway takes the document and processes it afterwards, so this ends with the file in
+    flight rather than filed. What became of it is established by asking for its status.
+    """
+    filing = _owned_filing(request, pk)
+
+    try:
+        revenue = _authorising_revenue(request.POST.get("revenue", ""))
+    except ValueError as error:
+        return JsonResponse({**_filing_state(filing), "error": str(error)}, status=400)
+
+    try:
+        gateway.send(filing, revenue=revenue)
+    except FilingStateError as error:
+        return JsonResponse({**_filing_state(filing), "error": str(error)}, status=409)
+    except PackagingError as error:
+        return JsonResponse({**_filing_state(filing), "error": str(error)}, status=500)
+    except gateway.GatewayError as error:
+        return JsonResponse({**_filing_state(filing), "error": str(error)}, status=502)
+
+    return JsonResponse(_filing_state(filing))
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def filing_status(request: HttpRequest, pk: str) -> HttpResponse:
+    """Ask the gateway what became of a file it is holding, and record the answer.
+
+    Asking is also how an interrupted send is finished. The reference is stored before
+    anything is uploaded, so a document whose fate went unrecorded is one this can settle -
+    which is the alternative to submitting a second file for the same period.
+
+    A POST because the answer is recorded: the row moves to filed or rejected and takes the
+    UPO with it. A GET carries no CSRF token and is fair game for a prefetch or a scanner, and
+    a tax filing is not a document to move on a request nobody meant to make.
+    """
+    filing = _owned_filing(request, pk)
+
+    try:
+        gateway.resolve(filing)
+    except FilingStateError as error:
+        return JsonResponse({**_filing_state(filing), "error": str(error)}, status=409)
+    except gateway.GatewayError as error:
+        return JsonResponse({**_filing_state(filing), "error": str(error)}, status=502)
+
+    return JsonResponse(_filing_state(filing))
+
+
+def _authorising_revenue(value: object) -> decimal.Decimal:
+    """The figure standing in for a signature, as a taxpayer would type it off their return.
+
+    Refused rather than rounded where it is not an amount: it is checked against what the tax
+    office holds, and a figure that is out by a grosz authorises nothing.
+    """
+    written = str(value).strip().replace(" ", "").replace(",", ".")
+
+    try:
+        revenue = decimal.Decimal(written)
+    except decimal.InvalidOperation as error:
+        message = f"{written or 'That'} is not an amount, and the figure has to match the return exactly."
+        raise ValueError(message) from error
+
+    if not revenue.is_finite() or revenue < 0 or revenue > MAX_AUTHORISING_REVENUE:
+        message = "That is not a revenue figure a return could state."
+        raise ValueError(message)
+
+    return revenue
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def filing_record(request: HttpRequest, pk: str) -> HttpResponse:
+    """Record by hand that this file was filed, and the UPO that came back.
+
+    Still here now that the gateway can send it, because the Ministry's own client can send it
+    too - and a UPO that came back from there is the same proof of filing. Refused while the
+    gateway is holding the document: what it made of that submission is not this to say.
+    """
+    filing = _owned_filing(request, pk)
+    if filing.is_in_flight:
+        return HttpResponse("The gateway is still processing this file. Ask for its status first.", status=409)
+
+    try:
+        filed_on = _optional_date(str(request.POST.get("filed_on", "")).strip())
+    except ValueError:
+        return HttpResponse("That is not a date.", status=400)
+
+    if filed_on and filed_on > today_in_poland():
+        return HttpResponse("A file cannot have been sent on a day that has not arrived.", status=400)
+
+    # Read in Polish civil time, which is what the date on the form means. produced_at is
+    # stored in UTC, and a file produced late in the Polish evening still carries the
+    # previous UTC date, which would accept a filing date a day before the file existed.
+    if filed_on and filed_on < filing.produced_at.astimezone(POLAND_TZ).date():
+        return HttpResponse("This file did not exist before it was generated.", status=400)
+
+    filing.filed_on = filed_on
+    filing.upo = str(request.POST.get("upo", "")).strip()[:MAX_UPO_LENGTH]
+    filing.state = Filing.State.FILED if filed_on else Filing.State.PRODUCED
+    filing.save(update_fields=["filed_on", "upo", "state"])
+
+    return redirect("filing_detail", pk=filing.pk)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def filing_delete(request: HttpRequest, pk: str) -> HttpResponse:
+    """Discard a file generated by mistake.
+
+    Refused once it has been filed: what was sent to the tax office is a thing that happened,
+    and the copy here is the only record of which bytes went. Refused while the gateway is
+    holding it for the same reason, one step earlier.
+    """
+    filing = _owned_filing(request, pk)
+    if filing.is_filed:
+        return HttpResponse("This file has been filed, so the copy of what was sent is kept.", status=409)
+
+    if filing.is_in_flight:
+        return HttpResponse("The gateway is holding this file, so what became of it is not settled.", status=409)
+
+    seller = filing.seller
+    year = filing.year
+    filing.delete()
+
+    return redirect("filing_list", pk=seller.pk, year=year)
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def obligations_view(request: HttpRequest, pk: str, year: int) -> HttpResponse:
+    """What a taxpayer owes month by month in one year, and the day each payment falls due.
+
+    Deadlines move off Saturdays and days off work under art. 12 § 5 Ordynacji podatkowej, so
+    Poland's holidays decide the dates and are fetched for the year and the one after it - the
+    December payment, the return and the health settlement all fall in the following spring.
+    """
+    seller = _owned_seller(request, pk)
+
+    holidays, stale = get_holidays_for_years(POLAND, [year, year + 1])
+    schedule = obligations.schedule(seller, year, {holiday.date for holiday in holidays})
+
+    # The year being paid for right now, when it is not the year on the page. ZUS publishes
+    # its bases each January and nothing here goes and fetches them, so an instance can be
+    # months into a year it cannot place a contribution in without anybody opening that
+    # year's page to find out - February being spent on last year, for the return.
+    today = today_in_poland()
+    unpublished_year = today.year if today.year != year and not obligations.is_published(today.year) else None
+
+    return render(
+        request,
+        "wad/obligations.html",
+        {
+            "seller": seller,
+            "schedule": schedule,
+            "holidays_stale": stale,
+            # What was done about the year, as against what it owes. Neither changes a figure
+            # above: a tax payment is no deduction and a return that went is not a payment.
+            "payments": list(seller.tax_payments.filter(covers__year=year)),  # ty: ignore[unresolved-attribute]
+            "tax_return": seller.tax_returns.filter(year=year).first(),  # ty: ignore[unresolved-attribute]
+            "unpublished_year": unpublished_year,
+            "today": today,
+            **_tax_year_nav(seller, year, "obligations"),
+        },
+    )
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def contribution_add(request: HttpRequest, pk: str) -> HttpResponse:
+    """Record a ZUS payment against a taxpayer.
+
+    By hand, because ZUS publishes no filing API for a sole trader. The date is the day it was
+    paid: art. 11 ust. 1 and ust. 1a both work on a cash basis, so that is what decides which
+    year deducts it.
+    """
+    seller = _owned_seller(request, pk)
+
+    try:
+        paid_on = datetime.date.fromisoformat(str(request.POST.get("paid_on", "")).strip())
+        social = _decimal(request.POST.get("social") or 0, "Social contributions", maximum=MAX_PAYMENT)
+        health = _decimal(request.POST.get("health") or 0, "Health contribution", maximum=MAX_PAYMENT)
+    except (ValueError, InvoiceInputError) as error:
+        return HttpResponse(str(error) or "That is not a date.", status=400)
+
+    if paid_on > today_in_poland():
+        return HttpResponse("A payment cannot have been made on a day that has not arrived.", status=400)
+
+    ContributionPayment.objects.create(
+        seller=seller,
+        paid_on=paid_on,
+        social=social,
+        health=health,
+        note=str(request.POST.get("note", "")).strip()[:MAX_NOTE_LENGTH],
+    )
+
+    return redirect("ewidencja", pk=seller.pk, year=paid_on.year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def contribution_delete(request: HttpRequest, pk: str) -> HttpResponse:
+    """Discard a recorded payment, because one entered wrongly changes what a year deducts."""
+    payment = get_object_or_404(ContributionPayment, pk=pk)
+    seller = _owned_seller(request, str(payment.seller.pk))
+
+    year = payment.paid_on.year
+    payment.delete()
+
+    return redirect("ewidencja", pk=seller.pk, year=year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def tax_payment_add(request: HttpRequest, pk: str) -> HttpResponse:
+    """Record a ryczałt payment against the month it covers.
+
+    By hand, nothing being filed with a ryczałt payment for anything here to read back. The
+    month covered rather than the day of the transfer decides which year it belongs to,
+    because what a return settles is the tax for its own months and December's is paid in
+    January.
+    """
+    seller = _owned_seller(request, pk)
+
+    try:
+        covers = datetime.date.fromisoformat(str(request.POST.get("covers", "")).strip())
+        paid_on = datetime.date.fromisoformat(str(request.POST.get("paid_on", "")).strip())
+        amount = _decimal(request.POST.get("amount") or 0, "The payment", maximum=MAX_PAYMENT)
+    except (ValueError, InvoiceInputError) as error:
+        return HttpResponse(str(error) or "That is not a date.", status=400)
+
+    if paid_on > today_in_poland():
+        return HttpResponse("A payment cannot have been made on a day that has not arrived.", status=400)
+
+    if not amount:
+        return HttpResponse("A payment of nothing is not a payment.", status=400)
+
+    # Normalised rather than refused, the day in the month carrying no meaning.
+    TaxPayment.objects.create(seller=seller, covers=covers.replace(day=1), paid_on=paid_on, amount=amount)
+
+    return redirect("obligations", pk=seller.pk, year=covers.year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def tax_payment_delete(request: HttpRequest, pk: str) -> HttpResponse:
+    """Discard a recorded payment, because one entered wrongly misstates what a return settles."""
+    payment = get_object_or_404(TaxPayment, pk=pk)
+    seller = _owned_seller(request, str(payment.seller.pk))
+
+    year = payment.covers.year
+    payment.delete()
+
+    return redirect("obligations", pk=seller.pk, year=year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def tax_return_record(request: HttpRequest, pk: str, year: int) -> HttpResponse:
+    """Record that a year's PIT-28 was filed, and the UPO that came back.
+
+    By hand, because the return is filed in e-Urząd Skarbowy and nothing here produces the
+    document. Clearing the date takes the record off again: a return with no date is not one
+    anybody sent.
+    """
+    seller = _owned_seller(request, pk)
+
+    try:
+        filed_on = _optional_date(str(request.POST.get("filed_on", "")).strip())
+    except ValueError:
+        return HttpResponse("That is not a date.", status=400)
+
+    if filed_on is None:
+        TaxReturn.objects.filter(seller=seller, year=year).delete()
+        return redirect("obligations", pk=seller.pk, year=year)
+
+    if filed_on > today_in_poland():
+        return HttpResponse("A return cannot have been filed on a day that has not arrived.", status=400)
+
+    TaxReturn.objects.update_or_create(
+        seller=seller,
+        year=year,
+        defaults={
+            "filed_on": filed_on,
+            "upo": str(request.POST.get("upo", "")).strip()[:MAX_UPO_LENGTH],
+        },
+    )
+
+    return redirect("obligations", pk=seller.pk, year=year)
 
 
 @require_GET  # ty: ignore[invalid-argument-type]
@@ -1426,15 +2437,21 @@ def buyer_delete(request: HttpRequest, pk: str) -> HttpResponse:
 
 
 def _delete_party(party: Seller | Buyer, *, redirect_to: str) -> HttpResponse:
-    """Discard a party, unless an invoice was issued naming it.
+    """Discard a party, unless an invoice was issued naming it or a contract points at it.
 
     An invoice already issued keeps its own copy of the details, but the reference is how
-    it is found again, and a legal record should not lose its counterparty.
+    it is found again, and a legal record should not lose its counterparty. A contract holds
+    the party under protection for the same reason, and says so rather than failing: a
+    contract with nothing to invoice as, or nobody to invoice, is not a contract.
     """
     if party.invoices.exists():  # ty: ignore[unresolved-attribute]
         return HttpResponse("This has invoices issued against it and cannot be deleted.", status=409)
 
-    party.delete()
+    try:
+        party.delete()
+    except ProtectedError:
+        return HttpResponse("This is named on a contract and cannot be deleted.", status=409)
+
     return redirect(redirect_to)
 
 
@@ -1462,30 +2479,6 @@ def _reverse_charge(contract: Contract) -> bool:
     return contract.home_country == POLAND and contract.client_country != POLAND
 
 
-def _invoice_reverse_charge(record: Invoice) -> bool:
-    """Whether a stored invoice bears the reverse-charge annotation.
-
-    Read from the invoice's own copy of the two countries, the same values the frozen XML
-    was rendered from. Asking the contract would let editing it afterwards redraw a
-    document that has already been issued - dropping the annotation art. 106e requires,
-    on a record whose party snapshots and XML have not changed at all.
-    """
-    return record.seller_country == POLAND and record.buyer_country != POLAND
-
-
-def _document_context(record: Invoice) -> dict[str, object]:
-    """Values for the printable invoice, named as the document template expects them."""
-    lines = list(record.lines.all())  # ty: ignore[unresolved-attribute]
-    return {
-        "invoice": record,
-        "lines": lines,
-        "reverse_charge": _invoice_reverse_charge(record),
-        "net_total": record.net_total,
-        "verification": _invoice_state(record) if record.state == Invoice.State.ACCEPTED else None,
-        "unissued": not record.is_issued,
-    }
-
-
 @require_GET  # ty: ignore[invalid-argument-type]
 def invoice_list(request: HttpRequest, pk: str) -> HttpResponse:
     """List a contract's invoices, which is what makes a stored one findable again."""
@@ -1499,8 +2492,12 @@ def invoice_list(request: HttpRequest, pk: str) -> HttpResponse:
         {
             "contract": contract,
             # Lines come along because the list prints each invoice's total, which is the
-            # sum of them: without this the page runs a query per row.
-            "invoices": list(contract.invoices.prefetch_related("lines")),  # ty: ignore[unresolved-attribute]
+            # sum of them: without this the page runs a query per row. A correction's own
+            # amount is measured against the document it corrects, whose lines come with it
+            # for the same reason.
+            "invoices": list(
+                contract.invoices.prefetch_related("lines", "corrects__lines").select_related("corrects")  # ty: ignore[unresolved-attribute]
+            ),
         },
     )
 
@@ -1510,18 +2507,100 @@ def invoice_detail(request: HttpRequest, pk: str) -> HttpResponse:
     """Show one stored invoice: the document, and where it stands with KSeF."""
     record = _owned_invoice(request, pk)
 
+    # A conversion that could not be made when the invoice was stored is made here instead,
+    # so an NBP outage costs a page load rather than a permanently missing figure. Only when
+    # it is missing: one already frozen stays frozen, which is the whole point of freezing it.
+    if record.converts_to_pln and record.revenue_pln is None:
+        record_revenue(record)
+
+    # And the rate, for an invoice stored before its contract was on ryczalt. Both are what
+    # the register needs of an invoice, and this is the only screen either can be filled in
+    # from once it has been issued.
+    record_ryczalt_rate(record)
+
     return render(
         request,
         "wad/invoice_detail.html",
         {
-            **_document_context(record),
+            **document_context(record),
             "contract": record.contract,
             "ksef_enabled": record.contract.issues_through_ksef,
             "ksef_in_scope": _ksef_in_scope(record.contract),
             "ksef_unavailable_reason": _ksef_note(record.contract),
             "ksef_environment": settings.KSEF_ENVIRONMENT,
+            # The payment date is a date that has been and gone, so the field cannot offer
+            # one that has not.
+            "today": today_in_poland(),
+            # Whether a correction may be drawn up against this document, and what stops one
+            # where it may not. Only stated for something that has been issued: for anything
+            # else the reason is that it has not been, which its own state already says.
+            "uncorrectable_reason": _correctable(record) if record.is_issued else "",
+            "corrections": list(record.corrections.all()),  # ty: ignore[unresolved-attribute]
+            # Whether this can be sent to the buyer, and every attempt so far. Stated only
+            # for something issued, for the same reason a correction is: for anything else
+            # the answer is that it has not been issued, which its own state already says.
+            "undeliverable_reason": undeliverable_reason(record) if record.is_issued else "",
+            "deliveries": list(record.deliveries.all()),  # ty: ignore[unresolved-attribute]
+            # And whether a sale of the currency may be recorded against it, which needs the
+            # payment recorded and converted first. Stated only once there is a payment for a
+            # sale to draw on: before that the reason is that nothing has arrived to sell.
+            "unsaleable_reason": _unsaleable_reason(record) if record.paid_on else "",
         },
     )
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def invoice_document(request: HttpRequest, pk: str) -> HttpResponse:
+    """Hand over the invoice as a PDF, printed here rather than by the reader's browser.
+
+    A browser's print command produces whatever that browser and its settings make of the
+    page: its own margins, its own header and footer, background graphics dropped or kept.
+    The document the buyer is given cannot vary that way, so it is printed on the server -
+    and it is the same file that goes out by mail.
+
+    Rendered on each request rather than kept. Everything the document is drawn from is
+    frozen once the invoice is issued, so nothing about it moves; what is worth keeping is
+    the copy that was actually delivered, and that is a record of an act rather than of a
+    document.
+    """
+    record = _owned_invoice(request, pk)
+
+    try:
+        pdf = invoice_pdf(record)
+    except RenderError:
+        # The reason is for whoever runs the instance rather than for the reader: it names a
+        # browser that would not start, which is nothing the reader can act on.
+        logger.exception("No document could be produced for invoice %s", record.number)
+        return HttpResponse("The document could not be produced. Try again in a moment.", status=503)
+
+    response = HttpResponse(pdf, content_type="application/pdf")
+    response["Content-Disposition"] = content_disposition_header(
+        as_attachment=True,
+        filename=f"{record.number}.pdf",
+    )
+
+    return response
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def invoice_deliver(request: HttpRequest, pk: str) -> HttpResponse:
+    """Send the invoice to its buyer, which art. 106gb ust. 4 requires of it.
+
+    Sending it to KSeF is not sending it to the buyer: a buyer with no Polish NIP cannot go
+    and read it there, so the document has to reach them by the channel they agreed to.
+
+    An attempt is recorded whichever way it goes, so this comes back to the invoice either
+    way rather than reporting a failure the page would then have no record of.
+    """
+    record = _owned_invoice(request, pk)
+
+    reason = undeliverable_reason(record)
+    if reason:
+        return HttpResponse(reason, status=409)
+
+    send_invoice(record)
+
+    return redirect("invoice_detail", pk=record.pk)
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
@@ -1577,6 +2656,191 @@ def invoice_mark_issued(request: HttpRequest, pk: str) -> HttpResponse:
         return HttpResponse(f"An invoice that is {record.state} cannot be issued again.", status=409)
 
     Invoice.objects.filter(pk=record.pk).update(state=Invoice.State.ISSUED)
+    record.refresh_from_db()
+    restate_payment(record)
+
+    return redirect("invoice_detail", pk=record.pk)
+
+
+def _unsettleable_reason(record: Invoice) -> str:
+    """Why no payment can be recorded against this document. Empty when one can.
+
+    A correction is not settled on its own: what is paid is the invoice as corrected, and the
+    day the money lands is recorded against that invoice, whose amount the correction moved.
+    """
+    if not record.converts_to_pln:
+        return "This invoice's revenue is not counted in PLN, so no rate applies to it."
+    if not record.is_issued:
+        return f"An invoice that is {record.state} has not been paid."
+    if record.is_correction:
+        return f"{record.number} corrects {record.original.number}, so record the payment against that invoice."
+
+    return ""
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def invoice_payment(request: HttpRequest, pk: str) -> HttpResponse:
+    """Record the day this invoice was paid, which is what the exchange difference needs.
+
+    Kept for issued invoices only. An invoice still open to change has not been sent to
+    anybody, so there is nothing for a payment to be settling.
+
+    Submitting an empty date takes the payment off again, because a date entered wrongly has
+    to be correctable: it decides a figure that adjusts revenue. Once currency has been sold
+    against the payment it is correctable only by taking those sales off first, the rate on
+    receipt being what each of them is measured from.
+    """
+    record = _owned_invoice(request, pk)
+
+    unsettleable = _unsettleable_reason(record)
+    if unsettleable:
+        return HttpResponse(unsettleable, status=409)
+
+    try:
+        paid_on = _optional_date(request.POST.get("paid_on", "").strip())
+    except ValueError:
+        return HttpResponse("That is not a date.", status=400)
+
+    # Every sale of this invoice's currency is priced against the rate on the day the money
+    # landed. Moving that day reprices all of them and can date a sale before the inflow it
+    # came from; clearing it erases the rate, and each sale's difference with it. Neither is
+    # something to do quietly behind figures that are already in a register, so the sales are
+    # named and go first.
+    if paid_on != record.paid_on and record.currency_sales.exists():  # ty: ignore[unresolved-attribute]
+        message = (
+            f"{record.currency_sales.count()} sale(s) of this invoice's currency are measured "  # ty: ignore[unresolved-attribute]
+            f"against what it was worth on {record.paid_on:%-d %B %Y}. Delete them before "
+            f"changing the day the money landed."
+        )
+        return HttpResponse(message, status=409)
+
+    # A day still to come has no rate published for the working day before it, and no money
+    # has landed on it either.
+    if paid_on and paid_on > today_in_poland():
+        return HttpResponse("A payment cannot have landed on a day that has not arrived.", status=400)
+
+    # Nor before the revenue it settles arose. Art. 24c measures the difference between what the
+    # revenue was booked at and what it was worth when the money came in, so a receipt dated
+    # before the revenue date is not an early payment but a date entered wrongly - and it would
+    # put the difference in the ewidencja before the invoice it arose on.
+    if paid_on and paid_on < record.revenue_date:
+        message = (
+            f"This invoice's revenue arose on {record.revenue_date:%-d %B %Y}, the last day of "
+            f"its service period, so it cannot have been paid before then."
+        )
+        return HttpResponse(message, status=400)
+
+    record_payment(record, paid_on)
+    return redirect("invoice_detail", pk=record.pk)
+
+
+def _unsaleable_reason(record: Invoice) -> str:
+    """Why no sale of currency can be recorded against this invoice. Empty when one can.
+
+    A sale is measured against what the currency was worth when it came in, so the payment
+    has to have been recorded and converted first. Both halves matter: without a date there
+    is no inflow, and without a rate the inflow has no value to measure from.
+    """
+    unsettleable = _unsettleable_reason(record)
+    if unsettleable:
+        return unsettleable
+
+    if record.paid_on is None:
+        return "Record the day the money landed first: a sale is measured against what it was worth then."
+    if record.payment_rate is None:
+        return f"{record.number} was paid in PLN, or its rate on receipt was never established, so nothing was sold."
+    if record.currency_unsold <= 0:
+        return f"All {record.currency} this invoice brought in has been sold."
+
+    return ""
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def currency_sale_add(request: HttpRequest, pk: str) -> HttpResponse:
+    """Record a sale of the currency one invoice was paid in.
+
+    By hand, for the same reason the payment date is: nothing here watches a bank account,
+    and the rate a kantor dealt at is published by nobody. The confirmation is the document
+    behind the register entry, so it is named rather than optional.
+    """
+    record = _owned_invoice(request, pk)
+
+    unsaleable = _unsaleable_reason(record)
+    if unsaleable:
+        return HttpResponse(unsaleable, status=409)
+
+    # The unsold balance is read and then claimed, so the two happen in one transaction. The
+    # database runs in IMMEDIATE mode, which takes the write lock at the start of it, so a
+    # second sale of the same payment waits and reads the balance the first one left rather
+    # than the one it started from - which would let the pair of them oversell the inflow.
+    with transaction.atomic():
+        try:
+            sale = _submitted_sale(record, request.POST)
+        except (ValueError, InvoiceInputError) as error:
+            return HttpResponse(str(error) or "That is not a date.", status=400)
+
+        CurrencySale.objects.create(invoice=record, **sale._asdict())
+
+    return redirect("invoice_detail", pk=record.pk)
+
+
+class _Sale(NamedTuple):
+    sold_on: datetime.date
+    amount: decimal.Decimal
+    rate: decimal.Decimal
+    reference: str
+
+
+def _submitted_sale(record: Invoice, payload: QueryDict) -> _Sale:
+    """Read a sale off the form, refusing the ones this invoice cannot have made.
+
+    Raises InvoiceInputError describing what is wrong with it, and ValueError where the date
+    is not one.
+    """
+    sold_on = datetime.date.fromisoformat(str(payload.get("sold_on", "")).strip())
+    amount = _decimal(payload.get("amount") or 0, "The amount sold", maximum=MAX_PAYMENT)
+    rate = _decimal(payload.get("rate") or 0, "The rate", maximum=MAX_PAYMENT)
+    reference = str(payload.get("reference", "")).strip()[:MAX_NOTE_LENGTH]
+
+    if not amount or not rate:
+        message = "A sale needs both an amount and the rate it went at."
+        raise InvoiceInputError(message)
+
+    if not reference:
+        message = "Name the confirmation: it is the document this entry is made on."
+        raise InvoiceInputError(message)
+
+    # Bounded by what the payment actually brought in. Selling more than that is currency from
+    # somewhere else, and pricing it against this invoice's inflow rate would be a difference
+    # measured from a day it never arrived on.
+    if amount > record.currency_unsold:
+        message = (
+            f"Only {record.currency_unsold} {record.currency} of this invoice is unsold. "
+            f"Currency from another payment is a sale recorded against that invoice."
+        )
+        raise InvoiceInputError(message)
+
+    # Bounded at both ends, like the payment date. Currency cannot be sold before it arrives,
+    # and it cannot be sold on a day that has not come.
+    if record.paid_on and sold_on < record.paid_on:
+        message = f"The money landed on {record.paid_on:%-d %B %Y}, so none of it could have been sold before then."
+        raise InvoiceInputError(message)
+
+    if sold_on > today_in_poland():
+        message = "Currency cannot have been sold on a day that has not arrived."
+        raise InvoiceInputError(message)
+
+    return _Sale(sold_on=sold_on, amount=amount, rate=rate, reference=reference)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def currency_sale_delete(request: HttpRequest, pk: str) -> HttpResponse:
+    """Discard a recorded sale, because one entered wrongly is revenue a year does not have."""
+    sale = get_object_or_404(CurrencySale, pk=pk)
+    record = _owned_invoice(request, str(sale.invoice.pk))
+
+    sale.delete()
+
     return redirect("invoice_detail", pk=record.pk)
 
 
@@ -1595,7 +2859,7 @@ def invoice_send_stored(request: HttpRequest, pk: str) -> HttpResponse:
     if reason:
         return JsonResponse({"error": reason}, status=503)
 
-    if record.state == Invoice.State.DRAFT and record.issue_date != datetime.datetime.now(tz=datetime.UTC).date():
+    if record.state == Invoice.State.DRAFT and record.issue_date != today_in_poland():
         return JsonResponse(
             {
                 **_invoice_state(record),
@@ -1662,7 +2926,7 @@ def _can_invoice_month(year: int, month: int) -> bool:
     """
     if settings.DEBUG:
         return True
-    today = datetime.datetime.now(tz=datetime.UTC).date()
+    today = today_in_poland()
     return _month_end(year, month) <= today
 
 
@@ -1780,7 +3044,7 @@ def _build_calendar_context(contract: Contract, time_off_entries: list[TimeOff] 
         "half_day_dates": half_day_dates,
         "holiday_comparison": comparison,
         "holidays_stale": holidays.stale,
-        "today": datetime.datetime.now(tz=datetime.UTC).date(),
+        "today": today_in_poland(),
     }
 
 
@@ -1854,8 +3118,12 @@ def _validate_contract_form(request: HttpRequest, post_data: QueryDict, *, exter
     return errors
 
 
-def _party_options(request: HttpRequest, contract: Contract | None) -> dict[str, object]:
-    """The sellers and buyers this user may pick from, and the ones already chosen."""
+def _contract_form_options(request: HttpRequest, contract: Contract | None) -> dict[str, object]:
+    """What the contract form offers to choose from, and what is chosen already.
+
+    Every selection is compared as text, so a value read back from the database and one just
+    submitted match each other rather than only themselves.
+    """
     authenticated = request.user.is_authenticated
     return {
         "sellers": list(request.user.sellers.all()) if authenticated else [],  # ty: ignore[unresolved-attribute]
@@ -1865,6 +3133,10 @@ def _party_options(request: HttpRequest, contract: Contract | None) -> dict[str,
         "buyers": list(request.user.buyers.all()) if authenticated else [],  # ty: ignore[unresolved-attribute]
         "selected_buyer": (
             request.POST.get("buyer") or (str(contract.buyer.pk) if contract and contract.buyer else "")
+        ),
+        "ryczalt_rate": RYCZALT_RATE,
+        "on_ryczalt": (
+            bool(request.POST.get("ryczalt")) if request.method == "POST" else bool(contract and contract.ryczalt_rate)
         ),
     }
 
@@ -1883,6 +3155,23 @@ def _contract_party_fields(request: HttpRequest) -> dict[str, object]:
         "buyer": Buyer.objects.filter(pk=buyer_id, user=request.user).first() if buyer_id else None,
         "send_to_ksef": bool(request.POST.get("send_to_ksef")),
     }
+
+
+def _contract_tax_fields(request: HttpRequest) -> dict[str, object]:
+    """Read the Polish tax facts a submitted contract form states.
+
+    Ryczalt is a Polish form of taxation, so a contract billed from anywhere else carries no
+    rate however the form was filled in.
+
+    The form asks whether the contract is on ryczalt rather than at what rate, because
+    art. 12 ust. 1 pkt 2b lit. b answers the rate for services related to software and this
+    application deals in no others. The rate is still stored as a number, so an invoice keeps
+    the one it was issued under.
+    """
+    if str(request.POST.get("home_country", "")).strip().upper() != POLAND:
+        return {"ryczalt_rate": None}
+
+    return {"ryczalt_rate": RYCZALT_RATE if request.POST.get("ryczalt") else None}
 
 
 def _validate_ksef_fields(request: HttpRequest, *, home_country: str) -> list[str]:

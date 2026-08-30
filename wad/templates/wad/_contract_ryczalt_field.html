@@ -1,0 +1,35 @@
+{# The note is inside the toggled element, so it goes away with the field it explains. #}
+<div id="ryczalt-field" class="sm:col-span-2">
+    <label class="flex items-center gap-2 text-sm font-medium text-[#666]">
+        <input type="checkbox" id="ryczalt" name="ryczalt" value="1" {% if on_ryczalt %}checked{% endif %}>
+        Taxed under ryczalt at {{ ryczalt_rate|floatformat:"-2" }}%
+    </label>
+    <div class="text-xs text-[#999] mt-1">
+        Ryczalt od przychodow ewidencjonowanych. Art. 12 ust. 1 pkt 2b lit. b sets
+        {{ ryczalt_rate|floatformat:"-2" }}% for services related to software, which is the rate
+        this asserts. Turning it on gives the contract an annual revenue register and a JPK_EWP
+        to file; each invoice keeps the rate it was issued under.
+    </div>
+</div>
+
+<script {% csp_nonce_attr %}>
+(() => {
+    const field = document.getElementById('ryczalt-field');
+    if (!field) return;
+
+    const homeCountry = document.getElementById('home_country');
+    const toggle = document.getElementById('ryczalt');
+
+    // Ryczalt is a Polish form of taxation, so the option is absent entirely for work billed
+    // from elsewhere rather than shown as something that does not apply. The server drops the
+    // rate for a non-Polish contract too; this only keeps the form honest.
+    function sync() {
+        const inPoland = homeCountry.value.toUpperCase() === 'PL';
+        if (!inPoland) toggle.checked = false;
+        field.style.display = inPoland ? '' : 'none';
+    }
+
+    homeCountry.addEventListener('change', sync);
+    sync();
+})();
+</script>

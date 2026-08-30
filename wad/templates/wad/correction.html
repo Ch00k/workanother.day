@@ -1,0 +1,199 @@
+{% extends "wad/base.html" %}
+{% load explainer money %}
+{% block title %}Correct {{ corrected.number }} - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'contract_list' %}">Contracts</a> /
+        <a href="{% url 'calendar' pk=contract.pk %}">{{ contract.name }}</a> /
+        <a href="{% url 'invoice_list' pk=contract.pk %}">Invoices</a> /
+        <a href="{% url 'invoice_detail' pk=corrected.pk %}">{{ corrected.number }}</a> /
+        <span aria-current="page">{% if editing %}{{ editing.number }}{% else %}Correct{% endif %}</span>
+    </nav>
+    <h1 class="text-[28px] font-bold tracking-tight leading-tight">
+        {% if editing %}{{ editing.number }}{% else %}Correct {{ corrected.number }}{% endif %}
+    </h1>
+    <div class="text-xs text-[#888] mt-1">
+        Faktura koryguj&#261;ca &middot; {{ corrected.period_start|date:"F Y" }}
+    </div>
+
+    {% if errors %}
+    <div class="notice notice-error mt-4">
+        {% for error in errors %}<div>{{ error }}</div>{% endfor %}
+    </div>
+    {% endif %}
+
+    {% comment %}
+    That a month is going to move, said before the form rather than discovered afterwards.
+    Which month it is depends on what caused the correction, so it is stated against each of
+    the two answers below rather than here.
+    {% endcomment %}
+    <div class="notice mt-4">
+        This moves a month of the register. Where that month is already paid and filed, its
+        rycza&#322;t and its JPK_EWP have to be settled again.
+    </div>
+
+    <div class="mt-5 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
+        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1">Correcting</div>
+        <table class="w-full border-collapse text-sm mt-2">
+            <tr class="border-b border-[#eee]">
+                <td class="py-2 text-[#888] w-[210px]">Invoice</td>
+                <td class="py-2 text-right">
+                    <a class="underline hover:no-underline" href="{% url 'invoice_detail' pk=corrected.pk %}">{{ corrected.number }}</a>
+                    <div class="text-xs text-[#999] mt-0.5">issued {{ corrected.issue_date|date:"j F Y" }}</div>
+                </td>
+            </tr>
+            {% if corrected.ksef_number %}
+            <tr class="border-b border-[#eee]">
+                <td class="py-2 text-[#888] align-top">KSeF number</td>
+                <td class="py-2 text-right money text-xs break-all">{{ corrected.ksef_number }}</td>
+            </tr>
+            {% endif %}
+            <tr>
+                <td class="py-2 text-[#888]">As it stands</td>
+                <td class="py-2 text-right money font-semibold">{{ corrected.currency }} {{ corrected.net_total|money }}</td>
+            </tr>
+        </table>
+    </div>
+
+    <div class="relative mt-4 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
+        {% explainer "correction-help" %}
+        <p>
+            A korekta restates the invoice it corrects rather than replacing it. Both states go on
+            the document and KSeF takes the difference between them, so a withdrawn line stays on it
+            as the state before rather than disappearing, and withdrawing every line unwinds the
+            invoice.
+        </p>
+        <p>
+            The reason is printed on the correction and sent with it. Art. 106e has not required one
+            since 2022 and this does: it is the only thing on the document that says what happened.
+        </p>
+        <p>
+            Art. 14 ust. 1m dates the two kinds of correction apart. One that puts a mistake right
+            restates revenue that arose when the invoice said it did, so it goes back into that
+            month. One caused by something that happened afterwards is revenue of the month the
+            korekta is issued in, which can be a later month and a later year.
+        </p>
+        <p>
+            It is saved as a draft, dated today and numbered in {{ corrected.number }}'s own month,
+            and issued from its own page the same way an invoice is. Whichever month it lands in,
+            it is converted at the exchange rate the corrected invoice was converted at.
+        </p>
+        {% endexplainer %}
+        <form method="post" class="grid gap-4">
+            {% csrf_token %}
+            <div>
+                <label for="reason" class="block text-sm font-medium text-[#666] mb-1">Reason <span class="text-red-600" aria-hidden="true">*</span></label>
+                <input type="text" id="reason" name="reason" required maxlength="{{ max_reason_length }}"
+                       value="{{ reason }}" placeholder="Day count corrected to the days approved"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">
+                    Printed on the correction, up to {{ max_reason_length }} characters.
+                </div>
+            </div>
+
+            {% comment %}
+            The reason above is free text and says what happened; this says which of the two
+            art. 14 ust. 1m dates apart it was. Each answer states the month it puts the figure
+            in, because that is the whole of what the answer decides here.
+            {% endcomment %}
+            <fieldset>
+                <legend class="block text-sm font-medium text-[#666] mb-1">What brought it about <span class="text-red-600" aria-hidden="true">*</span></legend>
+                <div class="grid gap-2">
+                    <label class="flex gap-3 items-start rounded-[10px] border border-[#ddd] px-4 py-2.5">
+                        {% comment %}
+                        Neither is checked to begin with. It decides which month is going to be
+                        settled again, so it is answered rather than accepted.
+                        {% endcomment %}
+                        <input type="radio" name="cause" value="{{ causes.MISTAKE }}" required
+                               {% if cause == causes.MISTAKE %}checked{% endif %} class="mt-1">
+                        <span class="text-sm">
+                            A mistake on {{ corrected.number }}
+                            <span class="block text-xs text-[#999] mt-0.5">
+                                Revenue arose when the invoice said it did, so this goes into
+                                {{ corrected.period_end|date:"F Y" }} with it.
+                            </span>
+                        </span>
+                    </label>
+                    <label class="flex gap-3 items-start rounded-[10px] border border-[#ddd] px-4 py-2.5">
+                        <input type="radio" name="cause" value="{{ causes.LATER_EVENT }}" required
+                               {% if cause == causes.LATER_EVENT %}checked{% endif %} class="mt-1">
+                        <span class="text-sm">
+                            Something that happened after it
+                            <span class="block text-xs text-[#999] mt-0.5">
+                                A discount agreed since, work returned or refused. Art. 14 ust. 1m
+                                puts it in {{ today|date:"F Y" }}, the month this correction is
+                                issued in.
+                            </span>
+                        </span>
+                    </label>
+                </div>
+            </fieldset>
+
+            <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-2">Lines, as they should read</div>
+            <div>
+                <div class="hidden sm:flex gap-2 mb-2 text-sm font-medium text-[#666]">
+                    <div class="flex-[56]">Description</div>
+                    <div class="flex-[14]">Qty</div>
+                    <div class="flex-[14]">Price</div>
+                    <div class="flex-[16]">Withdraw</div>
+                </div>
+                <div class="grid gap-3">
+                    {% for line in lines %}
+                    <div class="flex flex-col gap-3 sm:flex-row sm:gap-2 sm:items-center">
+                        {% comment %}
+                        The position of the line this row restates, travelling with the row
+                        rather than being counted off the form. A correction that withdrew a
+                        line leaves gaps in the positions, so the row's place in the form and
+                        the position it corrects stop agreeing as soon as there is one.
+                        {% endcomment %}
+                        <input type="hidden" name="position" value="{{ line.position }}">
+                        <label class="block sm:flex-[56] min-w-0">
+                            <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Description</span>
+                            <input type="text" name="description" required value="{{ line.description }}"
+                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        </label>
+                        <label class="block sm:flex-[14]">
+                            <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Qty</span>
+                            <input type="number" inputmode="decimal" name="days" required min="0" step="0.5"
+                                   value="{{ line.days }}"
+                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        </label>
+                        <label class="block sm:flex-[14]">
+                            <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Price</span>
+                            <input type="number" inputmode="decimal" name="rate" required min="0" step="any"
+                                   value="{{ line.rate }}"
+                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        </label>
+                        {% comment %}
+                        The box carries the corrected line's own position, because an unticked
+                        checkbox is not submitted at all: what arrives is the positions to take
+                        off, matched against the positions submitted beside them.
+                        {% endcomment %}
+                        <label class="flex items-center gap-2 sm:flex-[16] text-sm text-[#666]">
+                            <input type="checkbox" name="withdraw" value="{{ line.position }}"
+                                   {% if line.withdrawn %}checked{% endif %}
+                                   class="rounded border-[#ddd]">
+                            <span class="sm:hidden">Withdraw this line</span>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="text-xs text-[#999] mt-2">
+                    The lines the corrected invoice carries, as the correction leaves them.
+                </div>
+            </div>
+
+            <div class="flex gap-3 items-center mt-2">
+                <button type="submit"
+                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                    Save correction
+                </button>
+                <a href="{% url 'invoice_detail' pk=corrected.pk %}"
+                   class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

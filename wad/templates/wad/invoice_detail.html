@@ -1,4 +1,5 @@
 {% extends "wad/base.html" %}
+{% load explainer money %}
 {% block title %}Invoice {{ invoice.number }} - Work Another Day{% endblock %}
 
 {% block body %}
@@ -28,9 +29,12 @@
 
     <div class="flex items-center justify-between flex-wrap gap-3 mb-4 print:hidden">
         <div>
-            <h1 class="text-[28px] font-bold tracking-tight leading-tight">Invoice {{ invoice.number }}</h1>
+            <h1 class="text-[28px] font-bold tracking-tight leading-tight">
+                {% if invoice.is_correction %}Correction {{ invoice.number }}{% else %}Invoice {{ invoice.number }}{% endif %}
+            </h1>
             <div class="text-xs text-[#888] mt-1">
                 {{ contract.name }} &middot; {{ invoice.period_start|date:"F Y" }}
+                {% if invoice.is_correction %}&middot; corrects <a class="underline hover:no-underline" href="{% url 'invoice_detail' pk=invoice.corrects.pk %}">{{ invoice.corrects.number }}</a>{% endif %}
                 {% if not ksef_enabled %}&middot; {{ invoice.get_state_display }}{% endif %}
             </div>
         </div>
@@ -42,15 +46,41 @@
             </button>
             {% endif %}
             {% if invoice.is_editable %}
-            <a href="{% url 'invoice_edit' pk=invoice.pk %}"
+            <a href="{% if invoice.is_correction %}{% url 'correction_edit' pk=invoice.pk %}{% else %}{% url 'invoice_edit' pk=invoice.pk %}{% endif %}"
                class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Edit
             </a>
             {% endif %}
-            <button type="button" data-prints
+            {% comment %}
+            Correcting is offered only where it is the remedy: for something already issued,
+            which is the only thing that cannot simply be edited. Where it cannot be offered the
+            reason is stated below rather than the button being left out silently.
+            {% endcomment %}
+            {% if invoice.is_issued and not uncorrectable_reason %}
+            <a href="{% url 'invoice_correct' pk=invoice.pk %}"
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                Issue a correction
+            </a>
+            {% endif %}
+            {% comment %}
+            Offered for something issued and deliverable. Sending again is allowed and
+            deliberately so: a buyer saying nothing arrived is answered by sending it, and
+            each attempt is recorded below rather than replacing the last one.
+            {% endcomment %}
+            {% if invoice.is_issued and not undeliverable_reason %}
+            <button type="submit" form="deliver-invoice-form"
                     class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
-                Download PDF
+                {% if deliveries %}Send again{% else %}Send to client{% endif %}
             </button>
+            {% endif %}
+            {% comment %}
+            The server prints it, so what is downloaded here is the same file the buyer is
+            sent - not whatever this browser's print dialogue would have made of the page.
+            {% endcomment %}
+            <a href="{% url 'invoice_document' pk=invoice.pk %}"
+               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                Download PDF
+            </a>
             {% if invoice.is_editable %}
             <button type="submit" form="delete-invoice-form"
                     class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
@@ -61,12 +91,32 @@
     </div>
 
     {% if ksef_enabled %}
-    <div id="ksef-panel" class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
-        <div class="flex items-center justify-between flex-wrap gap-3">
+    <div id="ksef-panel" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        {% explainer "ksef-help" %}
+        <p>
+            KSeF is Poland's national e-invoicing system. An invoice sent there is issued by KSeF
+            accepting it: the number it gives back and the link that verifies it are what make the
+            document an invoice, and until then this is a draft nobody holds.
+        </p>
+        <p>
+            It is authorised with the seller's KSeF token, and both parties are identified by tax
+            identifier rather than by name - which is why a buyer without one falls outside it.
+        </p>
+        <p>
+            The date on the invoice has to be the day it is sent. KSeF treats an earlier one as
+            issued offline, which needs a certificate and a second QR code this does not produce.
+        </p>
+        <p>
+            Sending ends with the invoice in flight rather than accepted: KSeF processes it
+            afterwards, so this page waits and says what came back. A rejected invoice keeps the
+            reason in KSeF's own words and can be sent again once the cause is fixed.
+        </p>
+        {% endexplainer %}
+        <div class="flex items-center justify-between flex-wrap gap-3 pr-7">
             <div>
                 <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
                 <div class="flex items-center gap-2 mt-0.5">
-                    {% include "wad/_ksef_spinner.html" %}
+                    {% include "wad/_spinner.html" with id="ksef-spinner" spinning=invoice.is_in_flight %}
                     <div class="text-sm text-[#666]" id="ksef-status">
                         {% if invoice.state == "accepted" %}Accepted by KSeF.
                         {% elif invoice.state == "rejected" %}Rejected by KSeF.
@@ -80,7 +130,7 @@
                     <span class="text-xs text-red-800">Invoices sent here have legal effect.</span>
                     {% else %}
                     <span class="rounded-[6px] bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold tracking-wide">{{ ksef_environment }}</span>
-                    <span class="text-xs text-amber-700">Sandbox. Use fictional data only.</span>
+                    <span class="text-xs text-amber-700">Sandbox</span>
                     {% endif %}
                 </div>
             </div>
@@ -97,14 +147,76 @@
                 </button>
             </div>
         </div>
-        <div id="ksef-error" class="mt-3 text-sm text-[#a33] leading-relaxed"
+        <div id="ksef-error" class="notice notice-error mt-3"
              style="{% if not invoice.error %}display:none{% endif %}">{{ invoice.error }}</div>
     </div>
     {% elif ksef_unavailable_reason %}
-    <div id="ksef-note" class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
-        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
-        <div class="text-sm text-[#666] mt-1">{{ ksef_unavailable_reason }}</div>
+    <div id="ksef-note" class="notice mb-4 print:hidden">{{ ksef_unavailable_reason }}</div>
+    {% endif %}
+
+    {% comment %}
+    What has been drawn up against this document, and what stops another one being. Both are
+    about the document rather than part of it, so they sit above the invoice and off the print.
+    {% endcomment %}
+    {% if corrections %}
+    <div class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-2">Corrected by</div>
+        <div class="grid gap-1 text-sm">
+            {% for correction in corrections %}
+            <div class="sm:flex sm:gap-3">
+                <a class="sm:w-[140px] shrink-0 money underline hover:no-underline" href="{% url 'invoice_detail' pk=correction.pk %}">{{ correction.number }}</a>
+                <span class="money {% if correction.difference < 0 %}text-[#a33]{% endif %}">
+                    {% if correction.difference > 0 %}+{% endif %}{{ correction.currency }} {{ correction.difference|money }}
+                </span>
+                <span class="text-[#888]">{{ correction.get_state_display|lower }} &middot; {{ correction.correction_reason }}</span>
+            </div>
+            {% endfor %}
+        </div>
     </div>
+    {% endif %}
+
+    {% if uncorrectable_reason %}
+    <div class="notice mb-4 print:hidden">{{ uncorrectable_reason }}</div>
+    {% endif %}
+
+    {% comment %}
+    Whether the buyer has been given the invoice, which art. 106gb ust. 4 requires of an
+    invoice to a buyer with no Polish NIP and KSeF does not answer for. Every attempt, so a
+    failure is visible as the reason the invoice is still undelivered rather than vanishing.
+    {% endcomment %}
+    {% if deliveries %}
+    <div class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-2">Sent to client</div>
+        <div class="grid gap-1 text-sm">
+            {% for delivery in deliveries %}
+            <div class="sm:flex sm:gap-3">
+                <span class="sm:w-[180px] shrink-0 text-[#888]">{{ delivery.attempted_at|date:"j F Y, H:i" }}</span>
+                <span class="sm:w-[220px] shrink-0">{{ delivery.recipient }}</span>
+                {% if delivery.delivered %}
+                <span class="text-[#888]">sent</span>
+                {% else %}
+                <span class="text-[#a33]">failed &middot; {{ delivery.error }}</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% elif invoice.is_issued %}
+    <div class="notice mb-4 print:hidden">
+        {% if undeliverable_reason %}{{ undeliverable_reason }}
+        {% else %}This invoice has not been sent to the client yet.{% endif %}
+    </div>
+    {% endif %}
+
+    {% if invoice.converts_to_pln %}
+    {% include "wad/_revenue_pln.html" %}
+    {% comment %}
+    The sales come after the payment, because the payment is what they are measured against and
+    the form for one is in the card above. Nothing to show until the money has landed.
+    {% endcomment %}
+    {% if invoice.is_issued and invoice.paid_on and not invoice.is_correction %}
+    {% include "wad/_currency_sales.html" %}
+    {% endif %}
     {% endif %}
 
     {% include "wad/_invoice_document.html" %}
@@ -128,6 +240,18 @@ here spends an invoice number on a record that has to stay.
 {% endcomment %}
 <form id="issue-invoice-form" method="post" action="{% url 'invoice_mark_issued' pk=invoice.pk %}" class="hidden"
       data-confirm="Mark invoice {{ invoice.number }} as issued? It cannot be changed or deleted afterwards.">
+    {% csrf_token %}
+</form>
+{% endif %}
+
+{% if invoice.is_issued and not undeliverable_reason %}
+{% comment %}
+Confirmed because it puts the document in somebody else's hands, and because the address it
+goes to is not on the button. Sending twice is untidy rather than harmful, which is why this
+asks rather than refuses.
+{% endcomment %}
+<form id="deliver-invoice-form" method="post" action="{% url 'invoice_deliver' pk=invoice.pk %}" class="hidden"
+      data-confirm="Send invoice {{ invoice.number }} to {{ invoice.buyer.email }}?">
     {% csrf_token %}
 </form>
 {% endif %}

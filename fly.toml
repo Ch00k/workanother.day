@@ -16,6 +16,12 @@ primary_region = "fra"
   DJANGO_CANONICAL_HOST = "workanother.day"
   DJANGO_DB_PATH = "/app/data/db.sqlite3"
   DJANGO_STATIC_ROOT = "/app/staticfiles"
+  # Both settings default to the sandbox, so the deployment that issues and files with
+  # legal effect is the one that has to name the real KSeF and document gateway. Neither
+  # is a secret: which gateway is being talked to belongs in the open, next to the
+  # hostname, where a wrong value is visible in a diff.
+  JPK_GATEWAY_ENVIRONMENT = "PRODUCTION"
+  KSEF_ENVIRONMENT = "PRODUCTION"
 
 # SQLite is a single local file, so the app runs as exactly one machine
 # backed by one persistent volume. Do not scale beyond a single machine.

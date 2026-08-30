@@ -1,0 +1,281 @@
+{% extends "wad/base.html" %}
+{% load explainer money %}
+{% block title %}Ewidencja {{ year }} - {{ seller.name }} - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'seller_list' %}">Sellers</a> /
+        <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
+        <span aria-current="page">Taxes {{ year }}</span>
+    </nav>
+
+    <h1 class="text-[28px] font-bold tracking-tight leading-tight">Ewidencja przychodów {{ year }}</h1>
+    <div class="text-xs text-[#888] mt-1">{{ seller.name }}{% if seller.nip %} &middot; NIP {{ seller.nip }}{% endif %}</div>
+
+    {% include "wad/_tax_year_nav.html" %}
+
+    {% comment %}
+    The completeness caveat, stated rather than implied. JPK_EWP has to cover all revenue, and
+    this file is built from the invoices in this application and the currency sales entered
+    against them, so anything invoiced elsewhere and any sale left unentered is missing from it
+    and nothing here can tell.
+    {% endcomment %}
+    <div class="notice mt-5">
+        This register is built from the invoices stored here and the currency sales entered
+        against them. JPK_EWP must cover <strong>all</strong> revenue for the year, so a file is
+        complete only if every invoice you issued went through this application and every sale of
+        the currency they were paid in is entered on the invoice it came from. Anything invoiced
+        or sold elsewhere has to be added before filing, and nothing here can detect it.
+    </div>
+
+    {% if missing_for_jpk %}
+    <div class="notice mt-4">
+        JPK_EWP names the taxpayer as a person, so {{ seller.name }} needs
+        {% for item in missing_for_jpk %}{% if not forloop.first %}{% if forloop.last %} and {% else %}, {% endif %}{% endif %}{{ item }}{% endfor %}.
+        <a href="{% url 'seller_edit' pk=seller.pk %}">Fill them in</a>.
+    </div>
+    {% endif %}
+
+    {% comment %}
+    What is left after the page has filled in everything it could. Two reasons remain, and they
+    are told apart per invoice rather than lumped together: one passes on its own and the other
+    is worth trying again.
+    {% endcomment %}
+    {% if unconverted %}
+    <div class="notice mt-4">
+        These invoices have no PLN figure yet, so they are not entered below.
+        {% comment %}
+        The number in a column of its own, so the reasons line up and read down rather than
+        having to be picked out of a run of text one separator at a time.
+        {% endcomment %}
+        <div class="mt-2 grid gap-1">
+            {% for invoice in unconverted %}
+            <div class="sm:flex sm:gap-3">
+                <a class="sm:w-[100px] shrink-0 money" href="{% url 'invoice_detail' pk=invoice.pk %}">{{ invoice.number }}</a>
+                <span>
+                    {% if invoice.revenue_date > today %}
+                    Its period ends {{ invoice.revenue_date|date:"j F Y" }}, and NBP publishes no
+                    rate for a future date.
+                    {% else %}
+                    NBP could not be reached for the rate of the working day before
+                    {{ invoice.revenue_date|date:"j F Y" }}. Reloading this page tries again.
+                    {% endif %}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="relative mt-6 flex items-center justify-between gap-3">
+        <h2 class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">The register</h2>
+        {% explainer "register-help" beside %}
+        <p>
+            The ewidencja przychodow art. 15 requires to be kept, rather than a report about one.
+            From 1 January 2027 the law requires it to be kept in software able to produce the
+            JPK_EWP XML, which is what this is.
+        </p>
+        <p>
+            Entries come from two places. Every issued invoice becomes one, dated by its revenue
+            date - art. 14 ust. 1e makes an issued invoice revenue whether or not it has been paid,
+            while a draft is a document nobody holds. Every exchange difference becomes another,
+            dated the day the money landed and carrying the rate of the invoice it arose on, a
+            negative difference as a negative amount.
+        </p>
+        <p>
+            A correction invoice is an invoice for this purpose, entered for the difference it made
+            and dated by the corrected invoice's revenue date, with a note naming what it restates.
+        </p>
+        {% endexplainer %}
+    </div>
+    <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
+        {% if register.entries %}
+        <div class="overflow-x-auto">
+            <table class="w-full border-collapse">
+                <thead>
+                    <tr class="border-b border-[#eee]">
+                        <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Lp.</th>
+                        <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Entered</th>
+                        <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Revenue date</th>
+                        <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Document</th>
+                        <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Revenue PLN</th>
+                        <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Rate</th>
+                    </tr>
+                </thead>
+                <tbody class="text-sm">
+                    {% for entry in register.entries %}
+                    <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa]">
+                        <td class="py-3 px-5 money text-[#888]">{{ entry.position }}</td>
+                        <td class="py-3 px-5 text-[#666]">{{ entry.entered_on|date:"j M Y" }}</td>
+                        <td class="py-3 px-5 text-[#666]">{{ entry.revenue_date|date:"j M Y" }}</td>
+                        <td class="py-3 px-5">
+                            {{ entry.document }}
+                            {% if entry.note %}<div class="text-xs text-[#888] mt-0.5">{{ entry.note }}</div>{% endif %}
+                            {% if entry.ksef_number %}
+                            <div class="text-xs text-[#999] money mt-0.5 break-all">{{ entry.ksef_number }}</div>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 px-5 text-right money {% if entry.amount < 0 %}text-[#a33]{% endif %}">{{ entry.amount|money }}</td>
+                        <td class="py-3 px-5 text-right money text-[#666]">{{ entry.rate|floatformat:"-2" }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="border-t border-[#eee] bg-[#fafafa]">
+                        <td colspan="4" class="py-3 px-5 text-right text-sm font-semibold">Suma przychodów</td>
+                        <td class="py-3 px-5 text-right money text-sm font-semibold">{{ register.revenue|money }}</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <div class="px-5 py-8 text-sm text-[#666]">
+            Nothing entered for {{ year }}. Only issued invoices on ryczalt are entered, so a year
+            of drafts is an empty register &mdash; and an empty year has no JPK_EWP to file, because
+            the file states how many rows it carries and the schema requires at least one.
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="mt-6 grid gap-4 lg:grid-cols-2">
+        {% comment %}
+        Contributions, by hand. ZUS publishes no filing API for a sole trader, so there is
+        nothing to fetch. The date is the day of payment because art. 11 works on a cash basis.
+        {% endcomment %}
+        <div>
+            <div class="relative flex items-center justify-between gap-3">
+                <h2 class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">ZUS paid in {{ year }}</h2>
+                {% explainer "zus-help" beside %}
+                <p>
+                    Entered by hand, because ZUS publishes no filing API for a sole trader: the DRA
+                    is filed in eZUS and there is nothing here to fetch.
+                </p>
+                <p>
+                    The date is the day the payment was made rather than the month it covered. Art.
+                    11 ust. 1 and ust. 1a are both cash-basis, so what a year deducts is what was
+                    paid during it - a January payment for December belongs to the year it left the
+                    account in.
+                </p>
+                {% endexplainer %}
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
+                {% if payments %}
+                <table class="w-full border-collapse">
+                    <thead>
+                        <tr class="border-b border-[#eee]">
+                            <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Paid</th>
+                            <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Social</th>
+                            <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Health</th>
+                            <th class="border-b border-[#eee]"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-sm">
+                        {% for payment in payments %}
+                        <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa]">
+                            <td class="py-3 px-5">
+                                {{ payment.paid_on|date:"j M Y" }}
+                                {% if payment.note %}<div class="text-xs text-[#888] mt-0.5">{{ payment.note }}</div>{% endif %}
+                            </td>
+                            <td class="py-3 px-5 text-right money">{{ payment.social|money }}</td>
+                            <td class="py-3 px-5 text-right money">{{ payment.health|money }}</td>
+                            <td class="py-3 px-5 text-right">
+                                <form method="post" action="{% url 'contribution_delete' pk=payment.pk %}"
+                                      data-confirm="Remove the payment of {{ payment.paid_on|date:'j M Y' }}?">
+                                    {% csrf_token %}
+                                    <button type="submit" class="text-xs text-red-600 hover:underline">Remove</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% endif %}
+
+                <form method="post" action="{% url 'contribution_add' pk=seller.pk %}"
+                      class="px-5 py-4 grid gap-4 {% if payments %}border-t border-[#eee]{% endif %}">
+                    {% csrf_token %}
+                    <div class="grid gap-4 sm:grid-cols-3">
+                        <div>
+                            <label for="paid_on" class="block text-sm font-medium text-[#666] mb-1">Paid on</label>
+                            <input type="date" id="paid_on" name="paid_on" required max="{{ today|date:'Y-m-d' }}"
+                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        </div>
+                        <div>
+                            <label for="social" class="block text-sm font-medium text-[#666] mb-1">Social</label>
+                            <input type="number" id="social" name="social" step="0.01" min="0" placeholder="0.00"
+                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        </div>
+                        <div>
+                            <label for="health" class="block text-sm font-medium text-[#666] mb-1">Health</label>
+                            <input type="number" id="health" name="health" step="0.01" min="0" placeholder="0.00"
+                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        </div>
+                    </div>
+                    <div>
+                        <label for="note" class="block text-sm font-medium text-[#666] mb-1">Note</label>
+                        <input type="text" id="note" name="note" maxlength="200" placeholder="For example the month it covers"
+                               class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                    </div>
+                    <div>
+                        <button type="submit"
+                                class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                            Add
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div>
+            <h2 class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">PIT-28 for {{ year }}</h2>
+            <div class="relative mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+                {% explainer "pit-28-figures-help" %}
+                <p>
+                    Art. 11 ust. 1 deducts social contributions paid and art. 11 ust. 1a half the
+                    health contribution paid, both on a cash basis, so what a year deducts is what
+                    was paid during it.
+                </p>
+                <p>
+                    The base and the tax are each rounded to whole zlote under art. 63 &sect; 1
+                    Ordynacji podatkowej.
+                </p>
+                <p>Figures to check against, not a return.</p>
+                {% endexplainer %}
+                <table class="w-full border-collapse text-sm">
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Przychód</td>
+                        <td class="py-2 text-right money">{{ register.revenue|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Less social contributions paid</td>
+                        <td class="py-2 text-right money">{{ register.social_paid|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Less half the health contribution paid</td>
+                        <td class="py-2 text-right money">{{ register.health_paid|money }} &divide; 2</td>
+                    </tr>
+                    <tr {% if register.rates|length == 1 %}class="border-b border-[#eee]"{% endif %}>
+                        <td class="py-2 font-semibold">Podstawa</td>
+                        <td class="py-2 text-right money font-semibold">{{ register.taxable|money }}</td>
+                    </tr>
+                    {% if register.rates|length == 1 %}
+                    <tr>
+                        <td class="py-2 font-semibold">Ryczałt at {{ register.rates.0|floatformat:"-2" }}%</td>
+                        <td class="py-2 text-right money font-semibold">{{ register.tax|money:0 }}</td>
+                    </tr>
+                    {% endif %}
+                </table>
+                {% if register.rates|length > 1 %}
+                <div class="notice mt-3">
+                    This year holds revenue at more than one rate, so the base has to be apportioned
+                    between them under art. 11 ust. 3. Nothing here does that, so no tax figure is
+                    stated.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

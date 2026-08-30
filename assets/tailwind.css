@@ -5,6 +5,12 @@ a, button, summary { cursor: pointer; }
 /* Undo that for anything switched off, wherever it is, so no button lies about being ready. */
 button:disabled { cursor: not-allowed; }
 
+/* Whatever holds an amount. The groups of an amount are parted by a thin space, which a line may
+   break at, and `119 596.79` split across two lines is two numbers - so the element that holds
+   one does not wrap. `test_money.py` fails the build on a template that prints an amount outside
+   an element carrying this, because a missing class is a split nobody sees until it happens. */
+.money { white-space: nowrap; }
+
 /* The trail above a page title. Inline flow rather than flex so a long one wraps as text. */
 .crumbs {
   font-size: 0.75rem;
@@ -18,6 +24,68 @@ button:disabled { cursor: not-allowed; }
   text-underline-offset: 2px;
 }
 .crumbs [aria-current] { color: #666; }
+
+/* Something true about what is on the page that the reader has to know: that a register is only
+   as complete as what was invoiced here, that a taxpayer is short a field, that a figure could
+   not be established. One style for all of them, defined once, so a notice reads as a notice
+   wherever it appears rather than as whatever the page it landed on made of it.
+
+   Margins are the caller's, because where a notice sits on a page is the page's business. */
+.notice {
+  @apply rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-2 text-[13px] leading-relaxed text-amber-900;
+}
+
+/* For something that actually went wrong, as against something to be aware of. Same shape, so
+   the two read as one family and the colour is the whole of the difference. */
+.notice-error {
+  @apply border-red-200 bg-red-50 text-red-900;
+}
+
+/* For a state of affairs with nothing to act on: everything agrees, nothing is outstanding.
+   Amber would ask for attention that a confirmation does not want. */
+.notice-neutral {
+  @apply border-[#ddd] bg-[#f5f5f5] text-[#666];
+}
+
+/* Underlined by default: a link on a tinted ground is not obvious from its colour alone. */
+.notice a { text-decoration: underline; text-underline-offset: 2px; }
+.notice a:hover { text-decoration: none; }
+
+/* Why a card is the way it is, for the reader who wants to know and out of the way of the one
+   who does not. A card states what it holds; the paragraph explaining the law behind it, or
+   what a figure has to match, is a second thing and belongs behind the mark in its corner.
+
+   Sits in the corner of the card that carries it, so that card has to be `relative`. */
+.explainer {
+  @apply absolute top-3 right-3;
+}
+
+/* Beside a section heading rather than in the card below it, for a card that clips what is
+   inside it: clipping is what rounds a table's corners, and it would clip the panel too. The
+   row the heading sits in carries `relative`, and the panel hangs from it over the card. */
+.explainer-beside {
+  @apply static;
+}
+.explainer-beside .explainer-panel {
+  @apply top-6;
+}
+
+.explainer-button {
+  @apply rounded-[8px] p-1 text-[#999] transition hover:bg-gray-100 hover:text-[#666];
+}
+.explainer-button[aria-expanded="true"] {
+  @apply bg-gray-100 text-[#666];
+}
+
+/* A card of its own, above the page rather than in it, and wide enough for prose to read as
+   prose. Held open until something is done about it, because text being read is text that may
+   be about to be copied - see the explainer handling in static/js/ui.js. */
+.explainer-panel {
+  @apply absolute top-9 right-0 z-20 w-[min(24rem,calc(100vw-3rem))] rounded-[14px] border border-black/5 bg-white px-4 py-3 text-xs leading-relaxed text-[#666] shadow-lg;
+}
+.explainer-panel p + p { @apply mt-2; }
+.explainer-panel a { text-decoration: underline; text-underline-offset: 2px; }
+.explainer-panel a:hover { text-decoration: none; }
 @theme {
   --color-weekend: #f0f0f0;
   --color-home-holiday: #2b6cb0;

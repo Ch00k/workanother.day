@@ -122,6 +122,22 @@ COUNTRIES = (
     ("ZW", "Zimbabwe"),
 )
 
+COUNTRY_NAMES = dict(COUNTRIES)
+
+
+def country_name(code: str) -> str:
+    """What a document calls the country a party is established in.
+
+    The code is what the invoice asserts and what is sent as structured data; this is how it
+    reads on the face of the document. A code not in the list comes back as itself, because
+    it is still what the invoice says, and nothing is served by printing nothing instead.
+    """
+    if not code:
+        return ""
+
+    return COUNTRY_NAMES.get(code.upper(), code)
+
+
 # Member states of the European Union. A sale to a business in one of these is reported
 # differently from a sale to a business outside it, so invoicing needs to tell them apart.
 EU_COUNTRY_CODES = frozenset(

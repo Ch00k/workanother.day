@@ -10,7 +10,7 @@
     <h1 class="text-[28px] font-bold tracking-tight leading-tight">{{ title }}</h1>
 
     {% if errors %}
-    <div class="mt-4 rounded-[10px] bg-red-50 px-4 py-2 text-[13px] text-red-600">
+    <div class="notice notice-error mt-4">
         {% for error in errors %}<div>{{ error }}</div>{% endfor %}
     </div>
     {% endif %}
@@ -18,9 +18,6 @@
     <div class="mt-5 rounded-[14px] bg-white px-5 py-5 shadow-sm border border-black/5">
         <form method="post" class="grid gap-4">
             {% csrf_token %}
-            <div class="text-xs text-[#999]">
-                <span class="text-red-600" aria-hidden="true">*</span> required
-            </div>
             <div>
                 <label for="name" class="block text-sm font-medium text-[#666] mb-1">Name <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="name" name="name" required value="{% firstof form_data.name party.name '' %}"
@@ -54,6 +51,20 @@
                     {% endif %}
                 </div>
             </div>
+            <div>
+                <label for="email" class="block text-sm font-medium text-[#666] mb-1">Email</label>
+                <input type="email" id="email" name="email" value="{% firstof form_data.email party.email '' %}"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">
+                    {% if is_seller %}
+                    Invoices are sent from here, so replies come straight back to you. The mail
+                    server this instance sends through has to be allowed to send as it.
+                    {% else %}
+                    Where this client's invoices are sent. Art. 106gb ust. 4 requires the invoice
+                    to reach a buyer with no Polish NIP outside KSeF as well as through it.
+                    {% endif %}
+                </div>
+            </div>
             {% if is_seller %}
             <div id="polish-seller-fields" class="grid gap-4">
             <div>
@@ -71,6 +82,58 @@
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
                 <div class="text-xs text-[#999] mt-1">
                     Can issue invoices under the NIP above until you revoke it. Never shown again once saved.
+                </div>
+            </div>
+            {% comment %}
+            The taxpayer as a person, which no invoice asks for: JPK_EWP identifies a sole
+            trader by name and date of birth rather than by the trading name on the document.
+            Not required to save, because a seller exists long before it files anything - the
+            annual register says what is still missing.
+            {% endcomment %}
+            <div class="grid gap-4 sm:grid-cols-2">
+                <div>
+                    <label for="first_name" class="block text-sm font-medium text-[#666] mb-1">First name</label>
+                    <input type="text" id="first_name" name="first_name" maxlength="30"
+                           value="{% firstof form_data.first_name party.first_name '' %}"
+                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                </div>
+                <div>
+                    <label for="last_name" class="block text-sm font-medium text-[#666] mb-1">Surname</label>
+                    <input type="text" id="last_name" name="last_name" maxlength="81"
+                           value="{% firstof form_data.last_name party.last_name '' %}"
+                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                </div>
+                <div>
+                    <label for="date_of_birth" class="block text-sm font-medium text-[#666] mb-1">Date of birth</label>
+                    <input type="date" id="date_of_birth" name="date_of_birth"
+                           value="{% firstof form_data.date_of_birth party.date_of_birth|date:'Y-m-d' '' %}"
+                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                </div>
+                <div>
+                    <label for="business_started_on" class="block text-sm font-medium text-[#666] mb-1">Business started <span class="text-red-600" aria-hidden="true">*</span></label>
+                    <input type="date" id="business_started_on" name="business_started_on" required
+                           value="{% firstof form_data.business_started_on party.business_started_on|date:'Y-m-d' '' %}"
+                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                    <div class="text-xs text-[#999] mt-1">
+                        Required, unlike the three above it: contributions are owed from the month
+                        it started, whether or not anything was billed in them, and there is no
+                        way to work that out from the invoices.
+                    </div>
+                </div>
+                <div>
+                    <label for="kod_urzedu" class="block text-sm font-medium text-[#666] mb-1">Tax office code</label>
+                    <input type="text" id="kod_urzedu" name="kod_urzedu" inputmode="numeric" maxlength="4"
+                           pattern="\d{4}" title="A tax office code is four digits."
+                           {% comment %}
+                           A shape rather than a suggestion: no office has this code, so it
+                           cannot be copied into the field by mistake.
+                           {% endcomment %}
+                           value="{% firstof form_data.kod_urzedu party.kod_urzedu '' %}" placeholder="0000"
+                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                </div>
+                <div class="sm:col-span-2 text-xs text-[#999]">
+                    Needed to generate a JPK_EWP, and nothing else. The four-digit code identifies
+                    the urzad skarbowy the file is addressed to.
                 </div>
             </div>
             </div>
@@ -114,7 +177,13 @@
 </div>
 
 {% if party and can_delete %}
-<form id="delete-party-form" method="post" action="{{ delete_url }}" class="hidden">{% csrf_token %}</form>
+{% comment %}
+A seller carries the whole of a taxpayer's annual side - contributions, ryczalt payments, files
+generated and returns filed - and every one of those cascades, so the question names them. A
+buyer carries nothing of its own. Neither can be deleted once an invoice names it.
+{% endcomment %}
+<form id="delete-party-form" method="post" action="{{ delete_url }}" class="hidden"
+      data-confirm="{% if is_seller %}Delete {{ party.name }}? Its contributions, ryczalt payments, generated files and filed returns go with it.{% else %}Delete {{ party.name }}?{% endif %}">{% csrf_token %}</form>
 {% endif %}
 
 <script {% csp_nonce_attr %}>
@@ -127,8 +196,16 @@
     // A NIP and a KSeF token are Polish, so for a seller established elsewhere they are
     // absent rather than shown as something that does not apply. The server drops them for
     // such a seller too; this only keeps the form honest.
+    //
+    // The required fields among them are released when the block is hidden. A required input
+    // inside a hidden block stops the form submitting at all, and the browser cannot show
+    // which one is at fault because it cannot focus it.
+    const started = document.getElementById('business_started_on');
+
     function sync() {
-        fields.style.display = country.value.toUpperCase() === 'PL' ? '' : 'none';
+        const polish = country.value.toUpperCase() === 'PL';
+        fields.style.display = polish ? '' : 'none';
+        if (started) started.required = polish;
     }
 
     country.addEventListener('change', sync);
