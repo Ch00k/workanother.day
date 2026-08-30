@@ -34,6 +34,10 @@ primary_region = "fra"
   force_https = true
   min_machines_running = 1
 
+# Chromium prints the invoices, and V8 reserves a code range larger than half a gigabyte
+# before it will start. The kernel's heuristic overcommit refuses any writable mapping
+# bigger than the machine's whole memory, so on a 512mb machine that reservation cannot
+# succeed at any moment, however idle it is, and the renderer dies at startup.
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = "768mb"
