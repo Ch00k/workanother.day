@@ -9,14 +9,21 @@ from wad.ksef.invoice import TaxTreatment
 
 if TYPE_CHECKING:
     import datetime
+    from collections.abc import Iterable
 
-    # Not re-exported from ksef2.fa3, but naming the type is what lets the checker see that
+    # Not re-exported from ksef2.fa3, but naming the types is what lets the checker see that
     # the payment block is handed back to the same builder the rest of the body is built on.
+    # Either body builder can be that one: an invoice and the correction of an invoice differ
+    # in what FA(3) calls the body, and in nothing this module does to it afterwards.
+    from ksef2.services.builders.fa3.body.correction import CorrectionBodyBuilder
     from ksef2.services.builders.fa3.body.standard import StandardBodyBuilder
+    from ksef2.services.builders.fa3.sub.rows import RowsBuilder
 
-    from wad.ksef.invoice import Invoice, Payment
+    from wad.ksef.invoice import Correction, Invoice, InvoiceLine, Payment
 
-    Body = StandardBodyBuilder[StandardInvoiceBuilder]
+    CorrectionBody = CorrectionBodyBuilder[StandardInvoiceBuilder]
+    Body = StandardBodyBuilder[StandardInvoiceBuilder] | CorrectionBody
+    Rows = RowsBuilder[Body]
 
 NAMESPACE = "http://crd.gov.pl/wzor/2025/06/25/13775/"
 
@@ -41,6 +48,11 @@ NOTE_LABEL = "Uwagi"
 # long to serialize fails validation for the whole invoice, at send time, once the number is
 # spent and the bytes are frozen.
 MAX_DESCRIPTION_LENGTH = 256
+
+# And how long a correction's reason may be, which is the same TZnakowy and the same reason for
+# checking it early. Kept apart from the note's because the two are different fields, and a
+# schema that gave one of them more room would not be giving it to the other.
+MAX_REASON_LENGTH = 256
 
 SALE_CATEGORIES = {
     TaxTreatment.OUTSIDE_EU: SaleCategory.OUT_OF_SCOPE_OUTSIDE_TERRITORY,
@@ -85,13 +97,15 @@ def render(invoice: Invoice, created_at: datetime.datetime) -> bytes:
         )
     )
 
-    body = (
-        _identify_buyer(builder, invoice)
-        .standard()
-        .currency(invoice.currency)
-        .invoice_number(invoice.number)
-        .issue_date(invoice.issue_date)
+    identified = _identify_buyer(builder, invoice)
+    # A correction is a body of its own in FA(3), differing from an invoice's in what it says
+    # about the document it corrects and in nothing this function does to it afterwards.
+    body: Body = (
+        _corrects(identified.correction(), invoice.correction)
+        if invoice.correction is not None
+        else identified.standard()
     )
+    body = body.currency(invoice.currency).invoice_number(invoice.number).issue_date(invoice.issue_date)
 
     if invoice.service_period is not None:
         start, end = invoice.service_period
@@ -108,17 +122,58 @@ def render(invoice: Invoice, created_at: datetime.datetime) -> bytes:
     body = _settled_by(body, invoice.payment)
 
     rows = body.rows()
-    for line in invoice.lines:
+    # The state before the correction first, flagged, and the state after it as further rows.
+    # FA(3) reads a flagged row as a value being withdrawn, so the summary fields come out as
+    # the difference between the two without either being stated twice.
+    if invoice.correction is not None:
+        rows = _lines(rows, invoice.correction.before, treatment, before_correction=True)
+
+    rows = _lines(rows, invoice.lines, treatment)
+
+    xml = rows.done().done().to_xml(pretty_print=False)
+    return xml.encode()
+
+
+def _lines(
+    rows: Rows, lines: Iterable[InvoiceLine], treatment: TaxTreatment, *, before_correction: bool = False
+) -> Rows:
+    """Add billed items to the rows block, all designated the same way.
+
+    A correction's own lines and the lines it corrects carry the same designation, because it
+    is the same sale: what the correction changes is the amount, never whether Polish VAT
+    arises on it.
+    """
+    for line in lines:
         rows = rows.add_line(
             name=line.description,
             quantity=line.quantity,
             unit_price_net=line.unit_net_price,
             unit_of_measure=UNIT,
             sale_category=SALE_CATEGORIES[treatment],
+            before_correction=before_correction,
         )
 
-    xml = rows.done().done().to_xml(pretty_print=False)
-    return xml.encode()
+    return rows
+
+
+def _corrects(body: CorrectionBody, correction: Correction) -> CorrectionBody:
+    """Name the invoice this document corrects, in the block FA(3) keeps for it.
+
+    The corrected invoice is identified by its KSeF number where it has one, and otherwise by
+    the flag saying it was issued outside KSeF - an invoice raised before this application was
+    sending them, or one by a seller the system does not cover.
+    """
+    return (
+        body.correction()
+        .reason(correction.reason)
+        .add_corrected_invoice(
+            issue_date=correction.issue_date,
+            invoice_number=correction.number,
+            ksef_id=correction.ksef_number or None,
+            outside_ksef=not correction.ksef_number,
+        )
+        .done()
+    )
 
 
 def _settled_by(body: Body, payment: Payment | None) -> Body:

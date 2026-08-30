@@ -5,6 +5,7 @@ from django.test import TestCase
 from ksef2 import KSeFException
 from ksef2.domain.models.session import InvoiceStatusInfo, SessionInvoiceStatusResponse
 
+from wad.calendar_utils import today_in_poland
 from wad.ksef.sending import _accepted_number, resolve, send
 from wad.ksef.submission import InvoiceStateError
 from wad.models import Buyer, Contract, Invoice, Seller
@@ -23,7 +24,7 @@ from wad.tests.ksef_session import (
 
 KSEF_NUMBER = "5213870274-20260813-AABBCC-DD"
 
-TODAY = datetime.datetime.now(tz=datetime.UTC).date()
+TODAY = today_in_poland()
 LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
 
 

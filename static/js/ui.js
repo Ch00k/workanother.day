@@ -7,7 +7,35 @@
 (() => {
     const byId = id => document.getElementById(id);
 
+    const closeExplainers = () => {
+        document.querySelectorAll('[data-explains][aria-expanded="true"]').forEach(button => {
+            button.setAttribute('aria-expanded', 'false');
+            byId(button.dataset.explains).hidden = true;
+        });
+    };
+
+    // Closed by a press that starts outside it, rather than by any click anywhere: a click
+    // whose press began in the panel is somebody selecting the text to copy it, and a panel
+    // that vanished on release would take the selection with it. Escape closes it too, below.
+    document.addEventListener('pointerdown', event => {
+        if (event.target.closest('.explainer-panel, [data-explains]')) return;
+
+        closeExplainers();
+    });
+
     document.addEventListener('click', event => {
+        const explaining = event.target.closest('[data-explains]');
+        if (explaining) {
+            const panel = byId(explaining.dataset.explains);
+            const opening = panel.hidden;
+
+            // One open at a time, so a page of cards does not end up a page of panels.
+            closeExplainers();
+            panel.hidden = !opening;
+            explaining.setAttribute('aria-expanded', String(opening));
+            return;
+        }
+
         // A click landing on the dialog itself is a click on its backdrop: anything inside
         // it has a child as the target.
         if (event.target.matches('[data-closes-on-backdrop]')) {
@@ -48,6 +76,17 @@
             htmx.ajax('GET', opener.dataset.loads, opener.dataset.into);
         }
         byId(opener.dataset.opens).showModal();
+    });
+
+    // Escape puts the reader back on the mark they opened, which is where they were.
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+
+        const open = document.querySelector('[data-explains][aria-expanded="true"]');
+        if (!open) return;
+
+        closeExplainers();
+        open.focus();
     });
 
     document.addEventListener('submit', event => {

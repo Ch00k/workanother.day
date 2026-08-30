@@ -395,15 +395,12 @@ class ValidationStylingTests(TestCase):
     def test_a_refused_contract_reads_as_an_error(self) -> None:
         body = self._refuse("contract_create")
 
-        assert "bg-red-50" in body
-        assert "text-red-600" in body
-        assert "bg-[#f5f5f5]" not in body
+        assert "notice notice-error" in body
 
     def test_a_refused_seller_reads_the_same_way(self) -> None:
         body = self._refuse("seller_create")
 
-        assert "bg-red-50" in body
-        assert "text-red-600" in body
+        assert "notice notice-error" in body
         assert "border-l-[3px]" not in body
 
 
@@ -540,15 +537,13 @@ class RequiredFieldMarkingTests(TestCase):
             assert starred, f"{url_name} marks nothing as required"
             assert starred == required, f"{url_name}: starred {starred}, required {required}"
 
-    def test_each_form_explains_the_star(self) -> None:
+    def test_no_form_explains_the_star(self) -> None:
+        """A red asterisk against a label says it on its own, so a legend above the fields only
+        spends a line saying what the next line shows."""
         for url_name in ("contract_create", "seller_create", "buyer_create"):
             form = self._form(url_name)
-            legend = re.search(r'aria-hidden="true">\*</span>\s*required', form)
-            first_field = self.LABEL.search(form)
 
-            assert legend, f"{url_name} has no legend"
-            assert first_field, f"{url_name} has no fields"
-            assert legend.start() < first_field.start(), f"{url_name} explains the star too late"
+            assert not re.search(r'aria-hidden="true">\*</span>\s*required', form), f"{url_name} still explains it"
 
     def test_optional_is_no_longer_marked_the_other_way_round(self) -> None:
         """Two markings for one thing would leave unmarked fields ambiguous."""

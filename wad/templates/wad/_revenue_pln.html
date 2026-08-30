@@ -1,0 +1,221 @@
+{% load explainer money %}
+{% comment %}
+What this invoice comes to in PLN, which is the currency every Polish threshold, rate and
+return is written in. Beside the invoice rather than on it: with no VAT to state there is no
+element of art. 106e that asks for a PLN figure, so this is a record of the revenue rather
+than part of the document.
+
+Laid out as the two-column table the rest of the application states figures in, with each
+figure's provenance under it rather than trailing off to its right: the rate, the table number
+and its date are what make a figure checkable, and they are too long to read as a suffix.
+{% endcomment %}
+<div id="revenue-pln" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+    {% explainer "revenue-pln-help" %}
+    <p>
+        PLN is the currency every Polish threshold, rate and return is written in. This sits beside
+        the invoice rather than on it: with no VAT to state, no element of art. 106e asks for a PLN
+        figure, so it is a record of the revenue rather than part of the document.
+    </p>
+    <p>
+        The revenue date is the last day of the service period under art. 14 ust. 1e, and the figure
+        is the invoice converted at the NBP rate of the last working day before it. The rate, the
+        table it came from and its date are stated with every figure, which is what makes one
+        checkable.
+    </p>
+    {% if invoice.is_correction %}
+    <p>
+        A correction is converted at the rate the invoice it corrects was converted at rather than
+        at one of its own: it restates revenue already booked, and at any other rate a korekta
+        unwinding an invoice in full would leave a remainder in zlote behind it.
+    </p>
+    {% else %}
+    <p>
+        Art. 6 ust. 1c of the ryczalt act applies art. 24c PIT, so the revenue is also worth
+        whatever it was worth on the day the money landed. The difference between the two days
+        adjusts it, and goes into the register dated the day of payment.
+    </p>
+    {% endif %}
+    {% endexplainer %}
+    <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-3">Revenue in PLN</div>
+
+    <table class="w-full border-collapse text-sm">
+        <tr class="border-b border-[#eee]">
+            <td class="py-2 text-[#888] align-top w-[210px]">Revenue date</td>
+            <td class="py-2 text-right">
+                {{ invoice.revenue_date|date:"j F Y" }}
+                <div class="text-xs text-[#999] mt-0.5">
+                    {% comment %}
+                    Art. 14 ust. 1m dates a correction by what caused it, so the date is said
+                    with the cause it follows from: a mistake restates revenue that arose when
+                    the invoice said it did, and anything later is revenue of the month the
+                    korekta was issued in.
+                    {% endcomment %}
+                    {% if invoice.follows_later_event %}
+                    the day this correction was issued, art. 14 ust. 1m
+                    {% elif invoice.is_correction %}
+                    the last day of the corrected invoice's service period
+                    {% else %}
+                    the last day of the service period
+                    {% endif %}
+                </div>
+            </td>
+        </tr>
+
+        {# Ruled off only when there is a figure and a row below it to separate from. #}
+        <tr {% if invoice.revenue_pln != None %}{% if invoice.ryczalt_rate or invoice.is_issued %}class="border-b border-[#eee]"{% endif %}{% endif %}>
+            <td class="py-2 text-[#888] align-top">{% if invoice.is_correction %}Revenue correction{% else %}Revenue{% endif %}</td>
+            <td class="py-2 text-right">
+                {% if invoice.revenue_pln == None %}
+                {% comment %}
+                Three reasons a figure is missing, and they want telling apart. A revenue date
+                still to come is not a failure at all: NBP publishes no table for a day that has
+                not arrived, so there is nothing yet rather than something that went wrong.
+                {% endcomment %}
+                {% if invoice.revenue_date > today %}
+                <span class="text-[#666]">Not yet</span>
+                {% else %}
+                <span class="text-[#a33]">Not established</span>
+                {% endif %}
+                {% else %}
+                <span class="money font-semibold">{% if invoice.revenue_pln > 0 and invoice.is_correction %}+{% endif %}PLN {{ invoice.revenue_pln|money }}</span>
+                {% if invoice.revenue_rate %}
+                <div class="text-xs text-[#999] money mt-0.5">
+                    {% comment %}
+                    A correction is converted at the rate the invoice it corrects was converted
+                    at, not at one of its own: it restates revenue already booked, and at any
+                    other rate a korekta unwinding an invoice in full would leave a remainder in
+                    złote behind it.
+                    {% endcomment %}
+                    {{ invoice.currency }} {% if invoice.is_correction %}{{ invoice.difference|money }}{% else %}{{ net_total|money }}{% endif %} at
+                    {{ invoice.revenue_rate|floatformat:"-6" }} &middot; table
+                    {{ invoice.revenue_rate_table }} of {{ invoice.revenue_rate_date|date:"j F Y" }}
+                </div>
+                {% endif %}
+                {% endif %}
+            </td>
+        </tr>
+
+        {% comment %}
+        What the invoice has brought in once its corrections are counted, which is the figure the
+        exchange difference below is measured from. Only where there is a correction to count:
+        for an invoice standing as issued it would repeat the row above it.
+        {% endcomment %}
+        {% if invoice.issued_corrections %}
+        <tr class="border-b border-[#eee]">
+            <td class="py-2 text-[#888] align-top">After corrections</td>
+            <td class="py-2 text-right">
+                <span class="money font-semibold">PLN {{ invoice.revenue_after_corrections|money }}</span>
+                <div class="text-xs text-[#999] mt-0.5">
+                    <span class="money">{{ invoice.currency }} {{ invoice.total_after_corrections|money }}</span> billed, corrected by
+                    {% for correction in invoice.issued_corrections %}{% if not forloop.first %}, {% endif %}{{ correction.number }}{% endfor %}
+                </div>
+            </td>
+        </tr>
+        {% endif %}
+
+        {% comment %}
+        Why the figure is missing goes in a row of its own, left-aligned. A sentence right-aligned
+        into the value column reads as ragged text hanging off the number beside it.
+        {% endcomment %}
+        {% if invoice.revenue_pln == None %}
+        <tr {% if invoice.ryczalt_rate or invoice.is_issued %}class="border-b border-[#eee]"{% endif %}>
+            <td colspan="2" class="pb-2 text-xs text-[#999]">
+                {% if invoice.revenue_date > today %}
+                The service period ends {{ invoice.revenue_date|date:"j F Y" }}, and NBP publishes
+                no rate for a future date. The figure is filled in once that day has passed.
+                {% else %}
+                NBP could not be reached for the rate of the working day before
+                {{ invoice.revenue_date|date:"j F Y" }}. Reopening this page tries again.
+                {% endif %}
+            </td>
+        </tr>
+        {% endif %}
+
+        {% if invoice.ryczalt_rate %}
+        <tr {% if invoice.is_issued %}class="border-b border-[#eee]"{% endif %}>
+            <td class="py-2 text-[#888] align-top">Ryczalt rate</td>
+            <td class="py-2 text-right money">{{ invoice.ryczalt_rate|floatformat:"-2" }}%</td>
+        </tr>
+        {% endif %}
+
+        {% comment %}
+        The payment side. Art. 6 ust. 1c of the ryczalt act applies art. 24c PIT, so revenue is
+        also worth whatever it was worth on the day the money landed, and the difference between
+        the two days adjusts it. Offered once the invoice has been issued, because until then
+        there is nothing for a payment to settle.
+
+        Not for a correction, which is not settled on its own: what is paid is the invoice as
+        corrected, and the day it lands is recorded against that invoice.
+        {% endcomment %}
+        {% if invoice.is_issued and invoice.paid_on and not invoice.is_correction %}
+        <tr {% if invoice.exchange_difference != None %}class="border-b border-[#eee]"{% endif %}>
+            <td class="py-2 text-[#888] align-top">Value on receipt</td>
+            <td class="py-2 text-right">
+                {% if invoice.payment_pln == None %}
+                <span class="text-[#a33]">Not established</span>
+                <div class="text-xs text-[#999] mt-0.5 text-left">
+                    NBP could not be reached for the rate of the working day before
+                    {{ invoice.paid_on|date:"j F Y" }}. Save the date again to retry.
+                </div>
+                {% else %}
+                <span class="money">PLN {{ invoice.payment_pln|money }}</span>
+                {% if invoice.payment_rate %}
+                <div class="text-xs text-[#999] money mt-0.5">
+                    at {{ invoice.payment_rate|floatformat:"-6" }} &middot; table
+                    {{ invoice.payment_rate_table }} of {{ invoice.payment_rate_date|date:"j F Y" }}
+                </div>
+                {% endif %}
+                {% endif %}
+            </td>
+        </tr>
+
+        {% if invoice.exchange_difference != None %}
+        <tr>
+            <td class="py-2 text-[#888] align-top">Exchange difference</td>
+            <td class="py-2 text-right">
+                <span class="money font-semibold {% if invoice.exchange_difference < 0 %}text-[#a33]{% endif %}">
+                    {% if invoice.exchange_difference > 0 %}+{% endif %}PLN {{ invoice.exchange_difference|money }}
+                </span>
+                <div class="text-xs text-[#999] mt-0.5">
+                    {% if invoice.exchange_difference > 0 %}increases revenue
+                    {% elif invoice.exchange_difference < 0 %}reduces revenue
+                    {% else %}both days converted alike{% endif %}
+                </div>
+            </td>
+        </tr>
+        {% endif %}
+        {% endif %}
+    </table>
+
+    {% if not invoice.ryczalt_rate %}
+    <div class="text-xs text-[#999] mt-3">This contract is not on ryczalt, so no rate is carried.</div>
+    {% endif %}
+
+    {% if invoice.is_issued and not invoice.is_correction %}
+    <form method="post" action="{% url 'invoice_payment' pk=invoice.pk %}"
+          class="mt-4 pt-4 border-t border-[#eee] flex flex-wrap gap-3 items-end">
+        {% csrf_token %}
+        <div>
+            <label for="paid_on" class="block text-sm font-medium text-[#666] mb-1">Paid on</label>
+            {% comment %}
+            Bounded at both ends. Money cannot land on a day that has not arrived, and it cannot
+            settle revenue that had not arisen: art. 24c measures the difference from the revenue
+            date forward, and an earlier receipt would put the difference in the register ahead of
+            the invoice it came from. The view refuses both as well.
+            {% endcomment %}
+            <input type="date" id="paid_on" name="paid_on"
+                   min="{{ invoice.revenue_date|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"
+                   value="{{ invoice.paid_on|date:'Y-m-d' }}"
+                   class="rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+        </div>
+        <button type="submit"
+                class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+            Save
+        </button>
+        <div class="text-xs text-[#999] basis-full">
+            Not before {{ invoice.revenue_date|date:"j F Y" }}, when the revenue arose. Clearing the
+            date takes the payment off again.
+        </div>
+    </form>
+    {% endif %}
+</div>

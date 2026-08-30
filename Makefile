@@ -28,7 +28,7 @@ static:
 test: static
 	uv run pytest
 
-# The suite minus the one test that reaches the Ministry of Finance, for working
+# The suite minus the tests that reach the Ministry of Finance and NBP, for working
 # without a network.
 test-offline: static
 	uv run pytest -m "not live"

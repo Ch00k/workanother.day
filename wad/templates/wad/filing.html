@@ -1,0 +1,309 @@
+{% extends "wad/base.html" %}
+{% load explainer money %}
+{% block title %}JPK_EWP {{ filing.year }} - {{ seller.name }} - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'seller_list' %}">Sellers</a> /
+        <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
+        <a href="{% url 'filing_list' pk=seller.pk year=filing.year %}">JPK_EWP {{ filing.year }}</a> /
+        <span aria-current="page">{{ filing.produced_at|date:"j M Y, H:i" }}</span>
+    </nav>
+
+    <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div>
+            <h1 class="text-[28px] font-bold tracking-tight leading-tight">JPK_EWP {{ filing.year }}</h1>
+            <div class="text-xs text-[#888] mt-1">
+                Generated {{ filing.produced_at|date:"j F Y, H:i" }} UTC
+                {% if filing.is_filed %}&middot; filed {{ filing.filed_on|date:"j F Y" }}{% endif %}
+                {% if filing.is_in_flight %}&middot; with the gateway{% endif %}
+            </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <a href="{% url 'filing_download' pk=filing.pk %}"
+               class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                Download
+            </a>
+            {% if not filing.is_filed and not filing.is_in_flight %}
+            <button type="submit" form="delete-filing-form"
+                    class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                Delete
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    {% comment %}
+    First on the page, above the document it is about, for the same reason the KSeF panel is:
+    what a reader comes here to do is send this and find out what became of it. Everything the
+    gateway needs is on the seller except the revenue figure, which is typed in here and kept
+    nowhere - the explanation behind the mark says what it is for.
+    {% endcomment %}
+    <div id="gateway-panel" class="relative rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 mb-4">
+        {% explainer "gateway-help" %}
+        <p>
+            The file goes to the Ministry's document gateway at {{ gateway_url }}, which takes
+            the document and processes it afterwards - so a submission ends in flight, and this
+            page waits and says what came back.
+        </p>
+        <p>
+            It is authorised with dane autoryzujace rather than a signature:
+            {{ seller.first_name }} {{ seller.last_name }}, born
+            {{ seller.date_of_birth|date:"j F Y" }}, NIP {{ seller.nip }}, and the figure asked
+            for here. That figure is the revenue PIT-28 states for {{ authorising_year }} - two
+            years before the one this is being sent in, whichever year the file covers - in PLN
+            to the grosz. It is checked against what the tax office holds, so one out by a grosz
+            authorises nothing, and it is not kept here once the submission has gone.
+        </p>
+        <p>
+            A second submission for a period is a correction of the first whatever it was meant
+            to be, so a send that was interrupted is settled by asking what became of it rather
+            than by sending again.
+        </p>
+        {% endexplainer %}
+
+        <div class="flex items-start justify-between flex-wrap gap-3 pr-7">
+            <div>
+                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">Document gateway</div>
+                <div class="flex items-center gap-2 mt-0.5">
+                    {% include "wad/_spinner.html" with id="gateway-spinner" spinning=filing.is_in_flight %}
+                    <div class="text-sm text-[#666]" id="gateway-status">
+                        {% if filing.is_filed %}Filed {{ filing.filed_on|date:"j F Y" }}{% if filing.reference_number %} under reference {{ filing.reference_number }}{% endif %}.
+                        {% elif filing.is_in_flight %}With the gateway under reference {{ filing.reference_number }} - waiting for it to say what it made of the document.
+                        {% elif filing.error %}Refused. The same file goes again once the cause is fixed.
+                        {% else %}Not sent yet{% endif %}
+                    </div>
+                </div>
+                <div class="mt-1.5 flex items-center gap-2 flex-wrap">
+                    {% if gateway == "PRODUCTION" %}
+                    <span class="rounded-[6px] bg-red-100 text-red-800 px-2 py-0.5 text-xs font-bold tracking-wide">PRODUCTION</span>
+                    <span class="text-xs text-red-800">A file sent here is filed with the tax office.</span>
+                    {% else %}
+                    <span class="rounded-[6px] bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold tracking-wide">{{ gateway }}</span>
+                    <span class="text-xs text-amber-700">Sandbox</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% comment %}
+            The figure and the button together, because the figure is the whole of what filing
+            asks for. Absent for a document in flight or already filed: the one has nothing to
+            decide and the other nothing left to send.
+            {% endcomment %}
+            {% if filing.is_sendable %}
+            <div class="flex flex-wrap items-end gap-2">
+                <div>
+                    <label for="revenue" class="block text-sm font-medium text-[#666] mb-1">
+                        Revenue stated in the {{ authorising_year }} return
+                    </label>
+                    <input type="text" inputmode="decimal" id="revenue" name="revenue"
+                           placeholder="0.00" autocomplete="off" spellcheck="false"
+                           class="w-[240px] rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                </div>
+                <button type="button" id="gateway-send-button"
+                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2.5 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                    Submit
+                </button>
+            </div>
+            {% endif %}
+        </div>
+
+        <div id="gateway-error" class="notice notice-error mt-3 money text-xs"
+             style="{% if not filing.error %}display:none{% endif %}">{{ filing.error }}</div>
+    </div>
+
+    <div class="relative rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 mb-4">
+        {% explainer "the-file-help" %}
+        <p>
+            These are the bytes as they were generated, kept rather than rendered again. The
+            register is rebuilt from your invoices every time it is read, so a late payment, a
+            corrected invoice or a republished schema each move what the same code would generate
+            now &mdash; and what was filed has to stay reproducible.
+        </p>
+        <p>
+            The digest is what identifies them, and downloading hands back these bytes rather than
+            making a file again.
+        </p>
+        {% endexplainer %}
+        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-3">The file</div>
+        <table class="w-full border-collapse text-sm">
+            <tr class="border-b border-[#eee]">
+                <td class="py-2 text-[#888] w-[220px]">Revenue as filed</td>
+                <td class="py-2 text-right money">{{ filing.revenue|money }}</td>
+            </tr>
+            <tr class="border-b border-[#eee]">
+                <td class="py-2 text-[#888]">Rows</td>
+                <td class="py-2 text-right money">{{ filing.entry_count }}</td>
+            </tr>
+            <tr>
+                <td class="py-2 text-[#888]">SHA-256</td>
+                <td class="py-2 text-right money text-xs break-all">{{ filing.xml_sha256 }}</td>
+            </tr>
+        </table>
+    </div>
+
+    {% if filing.is_filed %}
+    <div class="rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 mt-4">
+        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-1">UPO</div>
+        <div class="text-xs text-[#999] mb-3">
+            The receipt for this submission, which is a separate one from PIT-28 sharing its
+            deadline.
+        </div>
+        {% if filing.upo %}
+        <pre class="rounded-[10px] bg-[#fafafa] border border-[#eee] p-3 text-[11px] money overflow-x-auto max-h-[320px]">{{ filing.upo }}</pre>
+        {% else %}
+        <div class="text-sm text-[#666]">Recorded as filed with no receipt kept.</div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% comment %}
+    Still here now that the gateway can send it, because the Ministry's own client can send it
+    too - and the UPO that comes back from there is the same proof of filing.
+    {% endcomment %}
+    {% if not filing.is_in_flight %}
+    <div class="relative rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 mt-4">
+        {% explainer "filed-elsewhere-help" %}
+        <p>
+            For a file sent with the Ministry's own <span class="money">Klient JPK_WEB</span>,
+            signing with Profil Zaufany or a qualified signature instead of the gateway above:
+            download it, send it there, and record what came back.
+        </p>
+        <p>
+            The UPO from there is the same proof of filing, and either way this is a separate
+            submission from PIT-28 rather than part of it.
+        </p>
+        {% endexplainer %}
+        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-4">Filed elsewhere</div>
+
+        <form method="post" action="{% url 'filing_record' pk=filing.pk %}" class="grid gap-4">
+            {% csrf_token %}
+            <div>
+                <label for="filed_on" class="block text-sm font-medium text-[#666] mb-1">Filed on</label>
+                <input type="date" id="filed_on" name="filed_on"
+                       min="{{ filing.produced_at|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"
+                       value="{{ filing.filed_on|date:'Y-m-d' }}"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">Clearing the date takes the filing record off again.</div>
+            </div>
+            <div>
+                <label for="upo" class="block text-sm font-medium text-[#666] mb-1">UPO</label>
+                <textarea id="upo" name="upo" rows="4" spellcheck="false"
+                          placeholder="Paste the Urzedowe Poswiadczenie Odbioru here"
+                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">{{ filing.upo }}</textarea>
+            </div>
+            <div>
+                <button type="submit"
+                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                    Save
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+</div>
+
+{% if not filing.is_filed and not filing.is_in_flight %}
+<form id="delete-filing-form" method="post" action="{% url 'filing_delete' pk=filing.pk %}" class="hidden"
+      data-confirm="Discard the file generated for {{ filing.year }}?">{% csrf_token %}</form>
+{% endif %}
+
+<form id="send-filing-form" class="hidden">{% csrf_token %}</form>
+
+<script {% csp_nonce_attr %}>
+(() => {
+    const statusText = document.getElementById('gateway-status');
+    const errorBox = document.getElementById('gateway-error');
+    const spinner = document.getElementById('gateway-spinner');
+    // Absent for a document in flight or already filed, which is nothing left to send.
+    const sendButton = document.getElementById('gateway-send-button');
+    const revenue = document.getElementById('revenue');
+    const token = document.getElementById('send-filing-form').elements.csrfmiddlewaretoken.value;
+
+    const SEND_URL = "{% url 'filing_send' pk=filing.pk %}";
+    const STATUS_URL = "{% url 'filing_status' pk=filing.pk %}";
+    const POLL_INTERVAL_MS = 3000;
+    const POLL_ATTEMPTS = 20;
+
+    // Turning stands for the wait itself, so it follows whether one is still on.
+    const setWaiting = waiting => { spinner.style.display = waiting ? '' : 'none'; };
+    const showError = message => {
+        errorBox.textContent = message ?? '';
+        errorBox.style.display = message ? '' : 'none';
+    };
+
+    async function ask(url, options) {
+        const response = await fetch(url, { headers: { 'Accept': 'application/json' }, ...options });
+        const state = await response.json();
+
+        if (!response.ok) showError(state.error ?? `Request failed (${response.status}).`);
+
+        return state;
+    }
+
+    // What the gateway made of the document decides the whole page - the receipt, whether the
+    // file may still be discarded, what the year's list says - so a document that has stopped
+    // moving is drawn again by the server rather than patched into place here.
+    async function poll() {
+        for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+            try {
+                // Asking records what comes back, so it is a POST like the send is.
+                const asked = await ask(STATUS_URL, { method: 'POST', headers: { 'X-CSRFToken': token } });
+                if (!asked.in_flight) {
+                    window.location.reload();
+                    return;
+                }
+            } catch (err) {
+                // The gateway still has the document, so this is the asking that failed rather
+                // than the submission. Reloading asks again.
+                statusText.textContent = 'Could not ask the gateway what became of it.';
+                showError(`${err}. Reload this page to ask again.`);
+                setWaiting(false);
+                return;
+            }
+        }
+        statusText.textContent = 'Still being processed. Reload this page later to ask again.';
+        setWaiting(false);
+    }
+
+    async function send() {
+        sendButton.disabled = true;
+        statusText.textContent = 'Sending...';
+        showError('');
+        setWaiting(true);
+
+        try {
+            const state = await ask(SEND_URL, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': token, 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ revenue: revenue.value }),
+            });
+
+            // A send that took ends with the document in flight, never filed, so anything
+            // else is a submission that did not happen - and the gateway holding it after a
+            // failure is still something to wait on rather than to send again.
+            if (state.in_flight) {
+                statusText.textContent = 'With the gateway - waiting for it to say what it made of the document.';
+                await poll();
+            } else {
+                statusText.textContent = 'Not sent.';
+                setWaiting(false);
+                sendButton.disabled = false;
+            }
+        } catch (err) {
+            // The document may well have reached the gateway, so sending stays disabled. A
+            // second submission for a period is a correction of the first whatever it was
+            // meant to be, so this is settled by asking rather than by sending again.
+            statusText.textContent = 'Lost contact while sending.';
+            showError(`${err}. Reload this page to find out whether the gateway took it.`);
+            setWaiting(false);
+        }
+    }
+
+    if (sendButton) sendButton.addEventListener('click', send);
+    {% if filing.is_in_flight %}poll();{% endif %}
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% comment %}
+One strip above all three annual pages: the sides of the year on the left, the years on the
+right. A side is switched between and a year is switched to in the same place on each of them,
+so neither is a cross-link one page happens to carry and another does not. Switching the year
+stays on the side being read.
+
+Both rows are the same control - one of several, one of them current - so both are drawn from
+one class string rather than from two that would drift.
+{% endcomment %}
+{% with pill="rounded-[10px] border-2 px-3 py-2 text-sm transition" current="border-[#333] text-[#222] font-semibold" other="border-[#ddd] text-[#666] hover:border-[#bbb] hover:bg-gray-100" %}
+<div class="mt-4 flex items-center justify-between flex-wrap gap-3 print:hidden">
+    <div class="flex flex-wrap gap-2">
+        {% for tab in tabs %}
+        <a href="{{ tab.url }}" class="{{ pill }} {% if tab.active %}{{ current }}{% else %}{{ other }}{% endif %}"
+           {% if tab.active %}aria-current="page"{% endif %}>
+            {{ tab.label }}
+        </a>
+        {% endfor %}
+    </div>
+    <div class="flex flex-wrap gap-2">
+        {% for link in year_links %}
+        <a href="{{ link.url }}" class="{{ pill }} {% if link.active %}{{ current }}{% else %}{{ other }}{% endif %}">
+            {{ link.label }}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endwith %}

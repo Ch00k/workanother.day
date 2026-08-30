@@ -1,0 +1,51 @@
+<!DOCTYPE html>{% comment %}
+The invoice on a page of its own, which is what is rendered to PDF and sent to the buyer.
+Nothing of the application around it: no navigation, no panel saying where the invoice
+stands, nothing but the document.
+
+The stylesheet is carried inline because the renderer is handed a file and can reach
+nothing else. The document itself is the same partial the screen draws, so the two cannot
+come to disagree about what an invoice looks like.
+{% endcomment %}
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{{ invoice.number }}</title>
+    <style>{{ stylesheet|safe }}</style>
+    <style>
+        {% comment %}
+        The margin belongs to the page rather than to the document, so an invoice long enough
+        to run onto a second sheet is set in from the edges there too. On screen the same
+        space is the card's own padding, which only the first sheet would have.
+        {% endcomment %}
+        @page { size: A4; margin: 14mm 18mm; }
+        {% comment %}
+        The document names its own face. The stack the application inherits from Tailwind
+        asks for ui-sans-serif and system-ui, neither of which exists on a Linux image, and
+        fontconfig answers a family it does not hold with whichever one scores best - which
+        for a slim image is a monospace face. Arial is the metric alias Liberation Sans
+        answers to, so this resolves whether or not the renderer has Arial itself.
+        {% endcomment %}
+        body { background: #fff; font-family: Arial, "Liberation Sans", Helvetica, sans-serif; }
+        .invoice-page {
+            margin: 0;
+            box-shadow: none;
+            border: none;
+            border-radius: 0;
+            max-width: none;
+            padding: 0;
+        }
+        .invoice-page .money { font-variant-numeric: tabular-nums; }
+        {% comment %}
+        Each block of the document stays on one sheet: the parties, the totals, the notes,
+        the payment details, the KSeF code. What may be split is the table of billed lines,
+        because it is the only part that can grow without limit - and its rows are held
+        together one by one so a break falls between lines rather than through one.
+        {% endcomment %}
+        .invoice-page > div, .invoice-page tr { break-inside: avoid; }
+    </style>
+</head>
+<body>
+{% include "wad/_invoice_document.html" %}
+</body>
+</html>

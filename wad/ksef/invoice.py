@@ -126,6 +126,34 @@ class InvoiceLine:
 
 
 @dataclasses.dataclass(frozen=True)
+class Correction:
+    """What a faktura korygująca says about the invoice it corrects.
+
+    `before` is the corrected invoice's lines. FA(3) takes a correction's own values as the
+    difference between the two states, and the way this application states them is the one the
+    schema describes for it: the lines as they were and the lines as they are, as separate rows
+    with separate numbering, the earlier ones flagged. The difference is then arithmetic on
+    what is in the document rather than a figure anybody has to work out and enter.
+
+    `ksef_number` is empty for an invoice issued outside KSeF, which the correction has to say
+    rather than leave unstated: the schema keeps a flag for each case and exactly one of them
+    has to be given.
+    """
+
+    reason: str
+    number: str
+    issue_date: datetime.date
+    ksef_number: str = ""
+    before: tuple[InvoiceLine, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.reason:
+            raise UnsupportedSaleError("A correction invoice has to say why it was issued.")
+        if not self.before:
+            raise UnsupportedSaleError("A correction invoice has to state the lines it corrects.")
+
+
+@dataclasses.dataclass(frozen=True)
 class Invoice:
     """An invoice for services taxed outside Poland.
 
@@ -147,9 +175,14 @@ class Invoice:
     # What the seller wrote on the invoice for which FA(3) keeps no field of its own, which
     # is what its additional-description entries are for.
     note: str = ""
+    # Set where this document corrects another, which makes it a faktura korygująca rather
+    # than an invoice: `lines` are then the state after the correction.
+    correction: Correction | None = None
 
     def __post_init__(self) -> None:
-        if not self.lines:
+        # A correction may leave nothing billed, which is what unwinding an invoice in full
+        # looks like: the lines it withdrew are still in the document, as the state before it.
+        if not self.lines and self.correction is None:
             raise UnsupportedSaleError("An invoice needs at least one line.")
 
     @property
