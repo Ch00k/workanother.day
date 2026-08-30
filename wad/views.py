@@ -1655,14 +1655,15 @@ def _month_end(year: int, month: int) -> datetime.date:
 def _can_invoice_month(year: int, month: int) -> bool:
     """Whether an invoice can be generated for this month.
 
-    In production, only months whose last day is strictly before today are
-    invoiceable. In development (DEBUG=True) all months are invoiceable so
-    future months can be exercised locally.
+    In production, a month is invoiceable once its last day has arrived, so the
+    current month can be invoiced on the last day of that month. In development
+    (DEBUG=True) all months are invoiceable so future months can be exercised
+    locally.
     """
     if settings.DEBUG:
         return True
     today = datetime.datetime.now(tz=datetime.UTC).date()
-    return _month_end(year, month) < today
+    return _month_end(year, month) <= today
 
 
 def holiday_comparison(request: HttpRequest, pk: str) -> HttpResponse:
