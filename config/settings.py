@@ -183,6 +183,67 @@ KSEF_QR_BASE_URL = {
     "PRODUCTION": "https://qr.ksef.mf.gov.pl",
 }[KSEF_ENVIRONMENT]
 
+# JPK gateway
+# Where a JPK_EWP is filed, and the certificate its payload is sealed to. The two are chosen
+# together, because the test gateway holds a different private key: a document sealed to the
+# wrong certificate is accepted, stored and then rejected as improperly encrypted. It defaults
+# to the sandbox for the same reason KSeF does - a half-configured instance should not be able
+# to file anything.
+#
+# Who files is not here. A file is authorised with the taxpayer's own dane autoryzujące, which
+# are the seller's identity and one revenue figure typed in when it is sent.
+JPK_GATEWAY_ENVIRONMENT = os.environ.get("JPK_GATEWAY_ENVIRONMENT", "TEST")
+JPK_GATEWAY_URL = {
+    "TEST": "https://test-e-dokumenty.mf.gov.pl",
+    "PRODUCTION": "https://e-dokumenty.mf.gov.pl",
+}[JPK_GATEWAY_ENVIRONMENT]
+
+# The Ministry reissues these every two years and publishes them on the JPK downloads page.
+# Both are in the tree; the path is a setting so a reissued certificate can be put in place
+# without waiting for a release.
+JPK_GATEWAY_CERTIFICATE = os.environ.get(
+    "DJANGO_JPK_GATEWAY_CERTIFICATE",
+    BASE_DIR / "wad" / "jpk_gateway" / "certificates" / f"{JPK_GATEWAY_ENVIRONMENT.lower()}.pem",
+)
+
+# Mail
+# What is configured here is the mail server invoices are submitted through, not who they
+# come from: the sender is the seller's own address, so this account has to be one that is
+# allowed to send as it. Submitting through the seller's own provider is what makes the
+# message pass DMARC at the buyer's end.
+#
+# Port 587 with STARTTLS because Fly blocks outbound port 25 outright, so delivery goes
+# through a provider's submission port rather than straight to the buyer's MX.
+#
+# Development prints the message instead of sending it, so a mistyped covering note costs
+# nothing and no address has to exist. The two configurations are written out separately
+# because MAILERS passes OPTIONS straight to the backend, and a backend given a setting it
+# has no use for refuses to start rather than ignoring it.
+if DEBUG:
+    MAILERS = {"default": {"BACKEND": "django.core.mail.backends.console.EmailBackend"}}
+else:
+    MAILERS = {
+        "default": {
+            "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+            "OPTIONS": {
+                "host": os.environ.get("DJANGO_EMAIL_HOST", ""),
+                "port": int(os.environ.get("DJANGO_EMAIL_PORT", "587")),
+                "username": os.environ.get("DJANGO_EMAIL_USER", ""),
+                "password": os.environ.get("DJANGO_EMAIL_PASSWORD", ""),
+                "use_tls": True,
+                # A send happens inside a request, so a provider that stops answering must
+                # not hold the single worker open indefinitely.
+                "timeout": 30,
+            },
+        }
+    }
+
+# Documents
+# The browser that prints an invoice to PDF, which is the same engine the Download PDF
+# button uses from the screen. Installed in the image; configurable because a development
+# machine keeps it somewhere else.
+CHROMIUM_PATH = os.environ.get("DJANGO_CHROMIUM_PATH", "/usr/bin/chromium")
+
 # Auth
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"

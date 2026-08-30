@@ -1,4 +1,5 @@
 import datetime
+import decimal
 import json
 from typing import Any
 
@@ -6,11 +7,14 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
+from wad.calendar_utils import today_in_poland
 from wad.ksef.submission import claim_for_sending, freeze, record_acceptance, record_rejection
-from wad.models import Buyer, Contract, Guest, Invoice, Seller
+from wad.models import RYCZALT_RATE, Buyer, Contract, Guest, Invoice, Seller
+from wad.templatetags.money import money
 from wad.tests.factories import store_invoice
+from wad.tests.http import NBP_API, Publisher
 
-TODAY = datetime.datetime.now(tz=datetime.UTC).date()
+TODAY = today_in_poland()
 LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
 PERIOD = (LAST_MONTH, TODAY.replace(day=1) - datetime.timedelta(days=1))
 
@@ -207,7 +211,7 @@ class ListAndDetailTests(InvoiceViewTestCase):
 
         content = self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk})).content
 
-        assert b"14400.00" in content
+        assert money(decimal.Decimal("14400.00")).encode() in content
         assert b"Software development services" in content
 
     def test_an_accepted_invoice_shows_its_ksef_number_and_link(self) -> None:
@@ -491,6 +495,67 @@ class PartyDisplayTests(InvoiceViewTestCase):
 
     def test_the_browser_keeps_nothing(self) -> None:
         self.assertContains(self._get_form(), "const STORED = true")
+
+
+class PartyCountryTests(InvoiceViewTestCase):
+    """The country closes each party's address on the face of the document.
+
+    It is stored apart from the address as a code, and it is the part of the address the
+    invoice actually asserts: it decides whether the sale is reverse-charged and it is what
+    goes to KSeF as structured data.
+    """
+
+    def _document(self, page: str) -> str:
+        """The face of the document, which is where a country is printed. Scoped to it because
+        the pages around it name countries of their own - what KSeF is, for one."""
+        return page.split('class="invoice-page', 1)[1]
+
+    def _stored(self) -> str:
+        record = self._draft()
+        page = self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk})).content.decode()
+
+        return self._document(page)
+
+    def _form(self) -> str:
+        response = self.client.get(
+            reverse("invoice", kwargs={"pk": self.contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month})
+        )
+
+        return self._document(response.content.decode())
+
+    def test_a_stored_invoice_prints_both_countries(self) -> None:
+        content = self._stored()
+
+        assert "Poland" in content
+        assert "Switzerland" in content
+
+    def test_the_month_form_prints_both_countries(self) -> None:
+        """The browser fills the addresses but not these, so the server renders them."""
+        content = self._form()
+
+        assert "Poland" in content
+        assert "Switzerland" in content
+
+    def test_an_issued_invoice_keeps_the_country_it_was_drawn_up_against(self) -> None:
+        """Moving the buyer afterwards must not redraw a document that has been issued."""
+        record = self._draft()
+        self.buyer.country = "DE"
+        self.buyer.save()
+
+        content = self._document(self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk})).content.decode())
+
+        assert "Switzerland" in content
+        assert "Germany" not in content
+
+    def test_a_country_nobody_named_prints_nothing(self) -> None:
+        """A guest's invoice may name no seller at all, and an empty line is not an address."""
+        record = self._draft()
+        Invoice.objects.filter(pk=record.pk).update(seller_country="", buyer_country="")
+
+        content = self._document(self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk})).content.decode())
+
+        assert "Poland" not in content
+        assert "Switzerland" not in content
 
 
 class GuestPartyFieldTests(TestCase):
@@ -1023,3 +1088,392 @@ class VerificationStampTests(InvoiceViewTestCase):
         assert "text-[11px]" in stamp
         assert "text-sm" not in stamp
         assert "text-xs" not in stamp
+
+
+class RevenueInPlnTests(InvoiceViewTestCase):
+    """The PLN revenue frozen onto an invoice, which every Polish figure is a sum over.
+
+    The seller in this fixture is Polish and bills in CHF, so every invoice here has to be
+    restated in PLN before any threshold, rate or return can be reasoned about.
+    """
+
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
+
+    # 18 days at 800 CHF, restated at 4.3189: 14 400 x 4.3189 is 62 192.16.
+    NET_TOTAL = decimal.Decimal("14400.00")
+    REVENUE_PLN = decimal.Decimal("62192.16")
+
+    def _publish(self, mid: str = "4.3189", table: str = "189/A/NBP/2026") -> None:
+        """Have NBP publish a rate for the working day before the revenue date."""
+        self.publisher.add_rate("CHF", PERIOD[1] - datetime.timedelta(days=1), mid, table)
+
+    def test_the_revenue_date_is_the_end_of_the_service_period(self) -> None:
+        """Art. 14 ust. 1e: the last day of the settlement period, not the day of issue."""
+        record = self._draft()
+
+        assert record.revenue_date == PERIOD[1]
+        assert record.issue_date != record.revenue_date
+
+    def test_saving_freezes_the_rate_and_the_amount(self) -> None:
+        self._publish()
+
+        record = self._draft()
+
+        assert record.revenue_pln == self.REVENUE_PLN
+        assert record.revenue_rate == decimal.Decimal("4.3189")
+        assert record.revenue_rate_table == "189/A/NBP/2026"
+        assert record.revenue_rate_date == PERIOD[1] - datetime.timedelta(days=1)
+
+    def test_the_rate_is_the_one_before_the_period_ended_not_before_it_was_issued(self) -> None:
+        """The one fact this whole conversion turns on, and the easy one to get wrong.
+
+        The invoice is issued in the month after the one it bills, so the day before its
+        issue date has a rate of its own. Taking that one would convert September's revenue
+        at an October rate.
+        """
+        self._publish()
+        self.publisher.add_rate("CHF", TODAY - datetime.timedelta(days=1), "9.9999", "wrong")
+
+        record = self._draft()
+
+        assert record.revenue_rate_table == "189/A/NBP/2026"
+
+    def test_an_invoice_in_pln_needs_no_rate(self) -> None:
+        record = store_invoice(self.contract, month=LAST_MONTH, currency="PLN")
+
+        assert record.revenue_pln == self.NET_TOTAL
+        assert record.revenue_rate is None
+        assert record.revenue_rate_table == ""
+        assert self.publisher.requests == []
+
+    def test_a_seller_outside_poland_gets_no_figure(self) -> None:
+        """Revenue no Polish provision counts is not revenue this converts."""
+        self.seller.country = "NL"
+        self.seller.save()
+
+        record = self._draft()
+
+        assert record.revenue_pln is None
+        assert self.publisher.requests == []
+
+    def test_nbp_being_unreachable_still_stores_the_invoice(self) -> None:
+        """An invoice is a legal record whether or not a rate could be looked up for it."""
+        self.publisher.unreachable(NBP_API)
+
+        record = self._draft()
+
+        assert record.revenue_pln is None
+        assert record.revenue_rate is None
+        assert Invoice.objects.filter(pk=record.pk).exists()
+
+    def test_a_figure_that_could_not_be_established_is_filled_in_later(self) -> None:
+        """So an outage costs a page load rather than a permanently missing figure."""
+        record = self._draft()
+        assert record.revenue_pln is None
+
+        self._publish()
+        self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk}))
+
+        record.refresh_from_db()
+        assert record.revenue_pln == self.REVENUE_PLN
+
+    def test_a_frozen_figure_is_never_derived_again(self) -> None:
+        """The point of freezing it. NBP restating a rate must not restate an issued invoice."""
+        self._publish()
+        record = self._draft()
+        asked = len(self.publisher.requests)
+
+        self._publish(mid="9.9999", table="restated")
+        self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk}))
+
+        record.refresh_from_db()
+        assert record.revenue_pln == self.REVENUE_PLN
+        assert record.revenue_rate_table == "189/A/NBP/2026"
+        assert len(self.publisher.requests) == asked
+
+    def test_editing_a_draft_restates_it(self) -> None:
+        """A different total is a different revenue, so the frozen amount follows it."""
+        self._publish()
+        self._save()
+
+        self._save(lines=[{"description": "Software development services", "days": "9", "rate": "800.00"}])
+
+        record = Invoice.objects.get()
+        assert record.revenue_pln == self.REVENUE_PLN / 2
+
+    def test_resaving_unchanged_details_asks_nbp_nothing(self) -> None:
+        self._publish()
+        self._save()
+        asked = len(self.publisher.requests)
+        assert asked
+
+        self._save()
+
+        assert len(self.publisher.requests) == asked
+
+    def test_a_draft_repointed_out_of_poland_loses_the_figure(self) -> None:
+        """A stale PLN amount beside a Dutch seller states a revenue no provision counts."""
+        self._publish()
+        self._save()
+        assert Invoice.objects.get().revenue_pln == self.REVENUE_PLN
+
+        self.seller.country = "NL"
+        self.seller.save()
+        self._save()
+
+        record = Invoice.objects.get()
+        assert record.revenue_pln is None
+        assert record.revenue_rate is None
+        assert record.revenue_rate_table == ""
+
+    def test_the_ryczalt_rate_is_copied_off_the_contract(self) -> None:
+        """A JPK_EWP row states the rate its revenue was taxed at, so the invoice keeps it."""
+        self.contract.ryczalt_rate = RYCZALT_RATE
+        self.contract.save()
+
+        record = self._draft()
+
+        assert record.ryczalt_rate == RYCZALT_RATE
+
+    def test_taking_the_contract_off_ryczalt_leaves_a_stored_rate_alone(self) -> None:
+        """An invoice already issued was taxed at the rate of its own year, whatever changes."""
+        self.contract.ryczalt_rate = RYCZALT_RATE
+        self.contract.save()
+        record = self._draft()
+
+        self.contract.ryczalt_rate = None
+        self.contract.save()
+
+        record.refresh_from_db()
+        assert record.ryczalt_rate == RYCZALT_RATE
+
+    def test_the_detail_page_shows_the_figure_and_the_table_it_came_from(self) -> None:
+        self._publish()
+        record = self._draft()
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk}))
+
+        self.assertContains(response, "Revenue in PLN")
+        self.assertContains(response, money(decimal.Decimal("62192.16")))
+        self.assertContains(response, "189/A/NBP/2026")
+
+    def test_the_figure_is_not_printed_on_the_document(self) -> None:
+        """With no VAT to state, no element of art. 106e asks for a PLN amount."""
+        self._publish()
+        record = self._draft()
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk}))
+        body = response.content.decode()
+
+        assert body.index("Revenue in PLN") < body.index('class="invoice-page')
+
+    def test_a_seller_outside_poland_is_shown_nothing_about_it(self) -> None:
+        """Rather than being shown a Polish figure as something they have failed to fill in."""
+        self.seller.country = "NL"
+        self.seller.save()
+        record = self._draft()
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk}))
+
+        self.assertNotContains(response, "Revenue in PLN")
+
+    def test_a_figure_that_could_not_be_established_says_so(self) -> None:
+        """An empty row would read as nothing owed rather than as nothing known."""
+        record = self._draft()
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk}))
+
+        self.assertContains(response, "Not established")
+        self.assertContains(response, "NBP could not be reached")
+
+    def test_a_period_that_has_not_ended_is_not_reported_as_a_failure(self) -> None:
+        """No rate exists for a day that has not arrived, which is a different thing from one
+        that could not be fetched. Saying NBP could not be reached blamed an outage for the
+        calendar."""
+        record = self._draft()
+        Invoice.objects.filter(pk=record.pk).update(
+            period_end=TODAY + datetime.timedelta(days=40),
+            revenue_pln=None,
+        )
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk}))
+
+        self.assertContains(response, "Not yet")
+        self.assertContains(response, "no rate for a future date")
+        self.assertNotContains(response, "Not established")
+
+
+class PaymentDateTests(InvoiceViewTestCase):
+    """The day the money landed, and the exchange difference art. 24c PIT makes of it."""
+
+    publisher: Publisher
+
+    REVENUE_PLN = decimal.Decimal("62192.16")
+    # 14 400 at 4.4000, which is 63 360.00.
+    PAYMENT_PLN = decimal.Decimal("63360.00")
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Outside KSeF, so the invoice can be issued here without sending anything.
+        self.contract.send_to_ksef = False
+        self.contract.save()
+
+        self.paid_on = TODAY - datetime.timedelta(days=1)
+        self.publisher.add_rate("CHF", PERIOD[1] - datetime.timedelta(days=1), "4.3189", "189/A/NBP/2026")
+        self.publisher.add_rate("CHF", self.paid_on - datetime.timedelta(days=1), "4.4000", "220/A/NBP/2026")
+
+        self._save()
+        self.record = Invoice.objects.get()
+
+    def _issue(self) -> None:
+        self.client.post(reverse("invoice_mark_issued", kwargs={"pk": self.record.pk}))
+        self.record.refresh_from_db()
+
+    def _pay(self, paid_on: str):  # noqa: ANN202
+        return self.client.post(reverse("invoice_payment", kwargs={"pk": self.record.pk}), {"paid_on": paid_on})
+
+    def test_recording_a_payment_converts_at_the_rate_before_it(self) -> None:
+        self._issue()
+
+        response = self._pay(self.paid_on.isoformat())
+
+        self.record.refresh_from_db()
+        assert response.status_code == 302
+        assert self.record.paid_on == self.paid_on
+        assert self.record.payment_pln == self.PAYMENT_PLN
+        assert self.record.payment_rate == decimal.Decimal("4.4000")
+        assert self.record.payment_rate_table == "220/A/NBP/2026"
+
+    def test_the_exchange_difference_is_what_the_two_days_are_apart(self) -> None:
+        """Positive here, so it increases revenue rather than becoming a cost."""
+        self._issue()
+
+        self._pay(self.paid_on.isoformat())
+
+        self.record.refresh_from_db()
+        assert self.record.exchange_difference == self.PAYMENT_PLN - self.REVENUE_PLN
+
+    def test_there_is_no_difference_until_the_money_has_landed(self) -> None:
+        self._issue()
+
+        assert self.record.exchange_difference is None
+
+    def test_clearing_the_date_clears_the_conversion_with_it(self) -> None:
+        """The two must never disagree: a date with a stale amount beside it states a false one."""
+        self._issue()
+        self._pay(self.paid_on.isoformat())
+
+        self._pay("")
+
+        self.record.refresh_from_db()
+        assert self.record.paid_on is None
+        assert self.record.payment_pln is None
+        assert self.record.payment_rate is None
+        assert self.record.payment_rate_table == ""
+        assert self.record.exchange_difference is None
+
+    def test_a_draft_has_not_been_paid(self) -> None:
+        """Nothing has gone out, so there is nothing for a payment to be settling."""
+        response = self._pay(self.paid_on.isoformat())
+
+        assert response.status_code == 409
+        self.record.refresh_from_db()
+        assert self.record.paid_on is None
+
+    def test_a_day_that_has_not_arrived_is_refused(self) -> None:
+        self._issue()
+
+        response = self._pay((TODAY + datetime.timedelta(days=1)).isoformat())
+
+        assert response.status_code == 400
+        self.record.refresh_from_db()
+        assert self.record.paid_on is None
+
+    def test_a_day_before_the_revenue_arose_is_refused(self) -> None:
+        """Art. 24c measures the difference from the revenue date forward, so a receipt dated
+        before it is not an early payment but a date entered wrongly - and it would put the
+        difference in the register ahead of the invoice it came from."""
+        self._issue()
+
+        response = self._pay((self.record.revenue_date - datetime.timedelta(days=1)).isoformat())
+
+        assert response.status_code == 400
+        assert b"cannot have been paid before" in response.content
+        self.record.refresh_from_db()
+        assert self.record.paid_on is None
+
+    def test_the_revenue_date_itself_is_allowed(self) -> None:
+        """The boundary is inclusive: money can land on the last day of the period."""
+        self._issue()
+        revenue_date = self.record.revenue_date
+        self.publisher.add_rate("CHF", revenue_date - datetime.timedelta(days=1), "4.3189", "189/A/NBP/2026")
+
+        response = self._pay(revenue_date.isoformat())
+        self.record.refresh_from_db()
+
+        assert response.status_code == 302
+        assert self.record.paid_on == revenue_date
+
+    def test_the_form_offers_no_earlier_day(self) -> None:
+        """Bounded in the browser as well, so the refusal is not the first anyone hears of it."""
+        self._issue()
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk}))
+
+        self.assertContains(response, f'min="{self.record.revenue_date:%Y-%m-%d}"')
+
+    def test_something_that_is_not_a_date_is_refused(self) -> None:
+        self._issue()
+
+        assert self._pay("the fifteenth").status_code == 400
+
+    def test_a_seller_outside_poland_has_no_rate_to_apply(self) -> None:
+        self.seller.country = "NL"
+        self.seller.save()
+        self._save()
+        self.record.refresh_from_db()
+        self._issue()
+
+        response = self._pay(self.paid_on.isoformat())
+
+        assert response.status_code == 409
+
+    def test_the_page_offers_the_field_once_the_invoice_is_issued(self) -> None:
+        self._issue()
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk}))
+
+        self.assertContains(response, reverse("invoice_payment", kwargs={"pk": self.record.pk}))
+        self.assertContains(response, 'name="paid_on"')
+
+    def test_a_draft_is_not_offered_the_field(self) -> None:
+        """Nor carries its endpoint, so the page does not describe an act it would refuse."""
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk}))
+
+        self.assertNotContains(response, reverse("invoice_payment", kwargs={"pk": self.record.pk}))
+
+    def test_a_receipt_value_that_could_not_be_established_says_so(self) -> None:
+        """The date is kept either way, because it is what a later attempt converts."""
+        self._issue()
+        self.publisher.unreachable(NBP_API)
+
+        self._pay(self.paid_on.isoformat())
+
+        self.record.refresh_from_db()
+        assert self.record.paid_on == self.paid_on
+        assert self.record.payment_pln is None
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk}))
+        self.assertContains(response, "Not established")
+        self.assertNotContains(response, "Exchange difference")
+
+    def test_the_page_shows_the_difference(self) -> None:
+        self._issue()
+        self._pay(self.paid_on.isoformat())
+
+        response = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk}))
+
+        self.assertContains(response, "Exchange difference")
+        self.assertContains(response, money(decimal.Decimal("1167.84")))
+        self.assertContains(response, "increases revenue")

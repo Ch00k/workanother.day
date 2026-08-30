@@ -3,6 +3,17 @@ FROM ghcr.io/astral-sh/uv:0.12.5-python3.14-trixie-slim
 ENV UV_LINK_MODE=copy
 WORKDIR /app
 
+# Chromium prints the invoice to PDF, which is what the buyer is sent. The same engine
+# already produces that document from the browser's own print command, so there is one
+# document printed one way whether it goes out from a screen or by mail.
+#
+# The fonts are not optional. Nothing here declares a font of its own, so the document asks
+# for the default sans-serif stack, and a slim image satisfies none of it; Liberation Sans
+# carries the Arial metrics that stack ends in, along with the Polish diacritics.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
 # COPY instead of --mount=type=bind so that Docker includes file contents in the
 # layer cache key. Bind mounts are not part of the cache key, so changes to
 # uv.lock (e.g. a bumped git dependency commit) would not invalidate the layer,

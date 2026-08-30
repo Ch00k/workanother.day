@@ -9,6 +9,7 @@ from lxml import etree
 from wad.ksef import fa3
 from wad.ksef.invoice import (
     Buyer,
+    Correction,
     Invoice,
     InvoiceLine,
     Payment,
@@ -17,7 +18,8 @@ from wad.ksef.invoice import (
     UnsupportedSaleError,
     tax_treatment,
 )
-from wad.ksef.validation import SchemaUnavailableError, SchemaValidationError, validate
+from wad.ksef.validation import validate
+from wad.schema import SchemaUnavailableError, SchemaValidationError
 from wad.tests.http import PUBLISHER, Publisher
 
 NS = {"fa": fa3.NAMESPACE}
@@ -69,6 +71,36 @@ def _invoice(
         payment=payment,
         note=note,
     )
+
+
+# A KSeF number of the shape TNumerKSeF demands. A shorter placeholder validates nowhere.
+KSEF_NUMBER = "5213870274-20260812-0100AA-BBCCDD-EF"
+REASON = "Day count corrected to the days the Company approved"
+
+CORRECTION = Correction(
+    reason=REASON,
+    number="2026-08-001",
+    issue_date=datetime.date(2026, 8, 12),
+    ksef_number=KSEF_NUMBER,
+    before=DEFAULT_LINES,
+)
+
+
+def _days(quantity: int) -> tuple[InvoiceLine, ...]:
+    """The invoice's own line, billed for a different number of days."""
+    return (dataclasses.replace(DEFAULT_LINES[0], quantity=decimal.Decimal(quantity)),)
+
+
+def _correction(
+    correction: Correction = CORRECTION,
+    lines: tuple[InvoiceLine, ...] = _days(16),
+) -> Invoice:
+    """A correction of the invoice above, as the application draws one up.
+
+    Its lines are the state after the correction. What it corrects comes along as the state
+    before, so the difference is in the document rather than being a figure somebody entered.
+    """
+    return dataclasses.replace(_invoice(), number="2026-08-002", lines=lines, correction=correction)
 
 
 def _find(xml: bytes, path: str) -> etree._Element | None:
@@ -134,6 +166,10 @@ class InvoiceTests(TestCase):
     def test_invoice_without_lines_is_rejected(self) -> None:
         with pytest.raises(UnsupportedSaleError, match="at least one line"):
             _invoice(lines=())
+
+    def test_a_correction_may_leave_nothing_billed(self) -> None:
+        """Unwinding an invoice in full is a correction whose state after it is empty."""
+        assert _correction(lines=()).net_total == decimal.Decimal(0)
 
 
 class RenderSwissInvoiceTests(TestCase):
@@ -203,6 +239,95 @@ class RenderEuInvoiceTests(TestCase):
         assert _text(self.xml, "fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:KodUE") == "DE"
         assert _text(self.xml, "fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:NrVatUE") == "123456789"
         assert _find(self.xml, "fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:NrID") is None
+
+
+class CorrectionTests(TestCase):
+    def test_a_correction_without_a_reason_is_refused(self) -> None:
+        """FA(3) leaves the reason optional; a document that does not say why does not go out."""
+        with pytest.raises(UnsupportedSaleError, match="why it was issued"):
+            dataclasses.replace(CORRECTION, reason="")
+
+    def test_a_correction_without_the_state_it_corrects_is_refused(self) -> None:
+        """The difference is the two states against each other, so one of them is not enough."""
+        with pytest.raises(UnsupportedSaleError, match="lines it corrects"):
+            dataclasses.replace(CORRECTION, before=())
+
+
+class RenderCorrectionTests(TestCase):
+    """A faktura korygująca: the same sale, restated, and the difference between the two."""
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.xml = fa3.render(_correction(), CREATED_AT)
+
+    def test_conforms_to_the_official_schema(self) -> None:
+        validate(self.xml)
+
+    def test_is_a_correction_rather_than_an_invoice(self) -> None:
+        assert _text(self.xml, "fa:Fa/fa:RodzajFaktury") == "KOR"
+
+    def test_carries_the_reason(self) -> None:
+        assert _text(self.xml, "fa:Fa/fa:PrzyczynaKorekty") == REASON
+
+    def test_names_the_corrected_invoice_by_its_ksef_number(self) -> None:
+        """The KSeF number is what identifies an invoice in the system that holds it."""
+        corrected = "fa:Fa/fa:DaneFaKorygowanej"
+
+        assert _text(self.xml, f"{corrected}/fa:NrFaKorygowanej") == "2026-08-001"
+        assert _text(self.xml, f"{corrected}/fa:DataWystFaKorygowanej") == "2026-08-12"
+        assert _text(self.xml, f"{corrected}/fa:NrKSeFFaKorygowanej") == KSEF_NUMBER
+        assert _find(self.xml, f"{corrected}/fa:NrKSeFN") is None
+
+    def test_an_invoice_issued_outside_ksef_is_named_by_the_flag_instead(self) -> None:
+        """The schema keeps a flag for each case, and one of the two has to be given."""
+        xml = fa3.render(_correction(dataclasses.replace(CORRECTION, ksef_number="")), CREATED_AT)
+        validate(xml)
+
+        assert _text(xml, "fa:Fa/fa:DaneFaKorygowanej/fa:NrKSeFN") == "1"
+        assert _find(xml, "fa:Fa/fa:DaneFaKorygowanej/fa:NrKSeFFaKorygowanej") is None
+
+    def test_both_states_are_stated_as_separate_rows(self) -> None:
+        """The state before the correction first, marked, and the state after it as its own rows."""
+        rows = etree.fromstring(self.xml).findall("fa:Fa/fa:FaWiersz", NS)
+
+        assert [row.findtext("fa:NrWierszaFa", namespaces=NS) for row in rows] == ["1", "2"]
+        assert [row.findtext("fa:StanPrzed", namespaces=NS) for row in rows] == ["1", None]
+        assert [row.findtext("fa:P_11", namespaces=NS) for row in rows] == ["14400.00", "12800.00"]
+
+    def test_the_summary_carries_the_difference(self) -> None:
+        """A reducing correction is a negative amount, which is what the schema asks for."""
+        assert _text(self.xml, "fa:Fa/fa:P_13_8") == "-1600.00"
+        assert _text(self.xml, "fa:Fa/fa:P_15") == "-1600.00"
+
+    def test_an_increase_is_a_positive_difference(self) -> None:
+        xml = fa3.render(_correction(lines=_days(22)), CREATED_AT)
+        validate(xml)
+
+        assert _text(xml, "fa:Fa/fa:P_15") == "3200.00"
+
+    def test_withdrawing_every_line_unwinds_the_invoice(self) -> None:
+        """The state after a full unwind is nothing billed, and the whole invoice is withdrawn.
+
+        The document is not empty: the lines it took off are in it as the state before, which is
+        what the difference is measured from.
+        """
+        xml = fa3.render(_correction(lines=()), CREATED_AT)
+        validate(xml)
+
+        rows = etree.fromstring(xml).findall("fa:Fa/fa:FaWiersz", NS)
+        assert [row.findtext("fa:StanPrzed", namespaces=NS) for row in rows] == ["1"]
+        assert _text(xml, "fa:Fa/fa:P_15") == "-14400.00"
+
+    def test_the_correction_keeps_the_designation_of_the_sale(self) -> None:
+        """What a correction changes is the amount, never whether Polish VAT arises."""
+        rows = etree.fromstring(self.xml).findall("fa:Fa/fa:FaWiersz", NS)
+
+        assert [row.findtext("fa:P_12", namespaces=NS) for row in rows] == ["np I", "np I"]
+
+    def test_the_period_and_the_parties_are_the_corrected_invoice_s(self) -> None:
+        assert _text(self.xml, "fa:Fa/fa:OkresFa/fa:P_6_Od") == "2026-07-01"
+        assert _text(self.xml, "fa:Podmiot2/fa:DaneIdentyfikacyjne/fa:NrID") == "CHE-123.456.789"
 
 
 class RenderStabilityTests(TestCase):
@@ -450,3 +575,9 @@ class PublishedSchemaTests(TestCase):
         assert self.publisher is None, "Nothing was fetched from the publisher, so this proves nothing."
 
         validate(fa3.render(_invoice(), CREATED_AT))
+
+    def test_the_published_schema_still_accepts_our_corrections(self) -> None:
+        """Both documents, because a correction uses elements an invoice never touches."""
+        assert self.publisher is None, "Nothing was fetched from the publisher, so this proves nothing."
+
+        validate(fa3.render(_correction(), CREATED_AT))

@@ -7,6 +7,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from wad.models import (
+    RYCZALT_RATE,
     AccountToken,
     Contract,
     Guest,
@@ -1180,3 +1181,67 @@ class ExternalCalendarNonStaffTests(TestCase):
         response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/4/")
         assert response.status_code == 200
         self.assertNotContains(response, "External calendar matches")
+
+
+class RyczaltFieldTests(TestCase):
+    """Whether a Polish contract is on ryczalt, which each invoice keeps a copy of the rate of."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test")
+        self.client.force_login(self.user)
+        self.valid_data = {
+            "name": "ZYTLYN",
+            "home_country": "PL",
+            "client_country": "CH",
+            "max_working_days": "228",
+            "working_hours_per_day": "8",
+            "start_date": "2026-09-01",
+            "end_date": "2027-04-01",
+        }
+
+    def _create(self, **overrides: str) -> None:
+        self.client.post("/contracts/new/", {**self.valid_data, **overrides})
+
+    def test_turning_it_on_stores_the_rate_as_a_number(self) -> None:
+        """A number rather than a flag, so an issued invoice keeps the rate of its own year."""
+        self._create(ryczalt="1")
+
+        assert Contract.objects.get().ryczalt_rate == RYCZALT_RATE
+
+    def test_leaving_it_off_stores_nothing(self) -> None:
+        """Not every Polish sole trader is on ryczalt, and none of this applies to the rest."""
+        self._create()
+
+        assert Contract.objects.get().ryczalt_rate is None
+
+    def test_work_billed_from_outside_poland_is_never_on_it(self) -> None:
+        """Ryczalt is a Polish form of taxation, whatever the form was submitted with."""
+        self._create(home_country="NL", ryczalt="1")
+
+        assert Contract.objects.get().ryczalt_rate is None
+
+    def test_it_can_be_turned_on_and_off_again(self) -> None:
+        self._create()
+        contract = Contract.objects.get()
+
+        self.client.post(f"/contracts/{contract.pk}/edit/", {**self.valid_data, "ryczalt": "1"})
+        contract.refresh_from_db()
+        assert contract.ryczalt_rate == RYCZALT_RATE
+
+        self.client.post(f"/contracts/{contract.pk}/edit/", self.valid_data)
+        contract.refresh_from_db()
+        assert contract.ryczalt_rate is None
+
+    def test_the_edit_form_shows_it_already_on(self) -> None:
+        """Reopening the form and saving it must not silently turn it off again."""
+        self._create(ryczalt="1")
+        contract = Contract.objects.get()
+
+        body = self.client.get(f"/contracts/{contract.pk}/edit/").content.decode()
+        field = body[body.index('id="ryczalt"') : body.index(">", body.index('id="ryczalt"'))]
+
+        assert "checked" in field
+
+    def test_the_form_names_the_rate_it_asserts(self) -> None:
+        """The checkbox states a rate, so the reader can tell whether it is theirs."""
+        self.assertContains(self.client.get("/contracts/new/"), "Taxed under ryczalt at 12%")

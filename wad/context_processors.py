@@ -31,10 +31,26 @@ NAV_SECTIONS = (
                 "invoice",
                 "invoice_list",
                 "invoice_detail",
+                "invoice_correct",
+                "correction_edit",
             }
         ),
     ),
-    ("Sellers", "seller_list", frozenset({"seller_list", "seller_create", "seller_edit"})),
+    (
+        "Sellers",
+        "seller_list",
+        frozenset(
+            {
+                "seller_list",
+                "seller_create",
+                "seller_edit",
+                "ewidencja",
+                "obligations",
+                "filing_list",
+                "filing_detail",
+            }
+        ),
+    ),
     ("Buyers", "buyer_list", frozenset({"buyer_list", "buyer_create", "buyer_edit"})),
     ("Calendar sync", "calendar_sync", frozenset({"calendar_sync"})),
 )

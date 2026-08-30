@@ -4,7 +4,7 @@ import hashlib
 
 from django.utils import timezone
 
-from wad.invoicing import to_domain
+from wad.invoicing import restate_payment, to_domain
 from wad.ksef import fa3
 from wad.ksef.validation import validate
 from wad.models import Invoice
@@ -90,8 +90,15 @@ def record_session(
 
 
 def record_acceptance(record: Invoice, *, ksef_number: str, upo: str) -> None:
-    """Record that KSeF accepted the invoice and assigned it a number."""
+    """Record that KSeF accepted the invoice and assigned it a number.
+
+    Acceptance is what issues a correction, so it is also the moment the invoice it corrects
+    is owed a different amount than before. Restating the payment afterwards rather than as
+    part of settling, because the outcome has to be recorded whatever comes of the arithmetic
+    that follows it.
+    """
     _settle(record, Invoice.State.ACCEPTED, ksef_number=ksef_number, upo=upo, error="")
+    restate_payment(record)
 
 
 def record_rejection(record: Invoice, *, error: str) -> None:

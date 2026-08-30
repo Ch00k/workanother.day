@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import datetime
 import json
 import pathlib
 import socket
@@ -9,16 +10,24 @@ from unittest import mock
 
 import httpx
 
+from wad.tests import gateway
+
 if TYPE_CHECKING:
-    import datetime
     from collections.abc import Iterator
 
-# The four documents the Ministry of Finance publishes FA(3) as, saved under the names it
-# serves them under so they can be handed back by path.
+# Every schema document the Ministry of Finance publishes that this application checks
+# against: the four FA(3) is made of, JPK_EWP(4), and the tax office codes it imports. Saved
+# under the names they are served under, so most can be handed back by path.
 SCHEMAS = pathlib.Path(__file__).parent / "schemas"
 
 PUBLISHER = "crd.gov.pl"
 HOLIDAY_API = "date.nager.at"
+NBP_API = "api.nbp.pl"
+
+# JPK_EWP is published on gov.pl rather than crd.gov.pl, and under an opaque attachment id
+# rather than a filename, so the one document served from there is named here.
+GOV = "www.gov.pl"
+NAMED_SCHEMAS = {"/attachment/67b55c59-e05c-42f0-be4c-28afcca460b6": "Schemat_JPK_EWP(4)_v1-0.xsd"}
 
 # A routable address, so the guard on external calendar URLs sees what it sees in
 # production: a host that is somewhere else rather than somewhere inside. Tests about the
@@ -46,8 +55,13 @@ class Publisher:
         self._holidays: dict[tuple[str, int], list[dict[str, str]]] = {}
         self._malformed: dict[tuple[str, int], object] = {}
         self._calendars: dict[str, bytes] = {}
+        self._rates: dict[tuple[str, datetime.date], object] = {}
         self._unreachable: set[str] = set()
         self.requests: list[httpx.Request] = []
+
+        # The document gateway, which holds a conversation rather than answering questions:
+        # what it says depends on what it was sent earlier in the same test.
+        self.gateway = gateway.Gateway()
 
     def add_holiday(self, country: str, date: datetime.date, name: str = "Public holiday") -> None:
         """Register a holiday for the holiday API to report."""
@@ -71,6 +85,22 @@ class Publisher:
         """Register the body an external iCal feed serves."""
         self._calendars[url] = body
 
+    def add_rate(self, currency: str, date: datetime.date, mid: str, table: str = "1/A/NBP/2026") -> None:
+        """Register the table A rate NBP reports for a currency on one date.
+
+        A date with no rate registered answers 404, which is what NBP itself answers for a
+        weekend or a public holiday, so a test describes the working days by registering
+        them.
+
+        The rate is written as text and served as text, so what the application parses is
+        the digits the test wrote rather than whatever a float made of them on the way
+        through.
+        """
+        self._rates[(currency.upper(), date)] = (
+            f'{{"table":"A","currency":"{currency.lower()}","code":"{currency.upper()}",'
+            f'"rates":[{{"no":"{table}","effectiveDate":"{date.isoformat()}","mid":{mid}}}]}}'
+        )
+
     def unreachable(self, host: str) -> None:
         """Take a host off the air, which is the one thing a live server cannot be asked for."""
         self._unreachable.add(host)
@@ -82,11 +112,17 @@ class Publisher:
             message = f"No route to {request.url.host}."
             raise httpx.ConnectError(message)
 
-        if request.url.host == PUBLISHER:
+        if request.url.host in (PUBLISHER, GOV):
             return self._schema(request)
 
         if request.url.host == HOLIDAY_API:
             return self._holiday(request)
+
+        if request.url.host == NBP_API:
+            return self._rate(request)
+
+        if request.url.host == gateway.HOST or gateway.STORAGE.fullmatch(request.url.host):
+            return self.gateway.handle(request)
 
         if str(request.url) in self._calendars:
             return httpx.Response(200, content=self._calendars[str(request.url)], request=request)
@@ -95,11 +131,25 @@ class Publisher:
         raise httpx.ConnectError(message)
 
     def _schema(self, request: httpx.Request) -> httpx.Response:
-        document = SCHEMAS / pathlib.PurePosixPath(request.url.path).name
+        name = NAMED_SCHEMAS.get(request.url.path, pathlib.PurePosixPath(request.url.path).name)
+        document = SCHEMAS / name
         if not document.is_file():
             return httpx.Response(404, request=request)
 
         return httpx.Response(200, content=document.read_bytes(), request=request)
+
+    def _rate(self, request: httpx.Request) -> httpx.Response:
+        currency, date = request.url.path.rstrip("/").split("/")[-2:]
+        body = self._rates.get((currency.upper(), datetime.date.fromisoformat(date)))
+        if body is None:
+            return httpx.Response(404, request=request)
+
+        return httpx.Response(
+            200,
+            content=str(body).encode(),
+            headers={"content-type": "application/json"},
+            request=request,
+        )
 
     def _holiday(self, request: httpx.Request) -> httpx.Response:
         year, country = request.url.path.rstrip("/").split("/")[-2:]

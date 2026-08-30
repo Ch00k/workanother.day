@@ -7,15 +7,22 @@ from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from wad.calendar_utils import today_in_poland
 from wad.ksef.submission import claim_for_sending, freeze, record_acceptance, record_rejection
 from wad.models import Buyer, Contract, Guest, Invoice, Seller
+from wad.templatetags.money import money
 from wad.tests.factories import store_invoice
 from wad.tests.http import PUBLISHER, Publisher
+from wad.tests.ksef_session import ACCEPTED, Session, status, talking_to
 
 CONFIGURED: dict[str, str] = {}
 
 
-TODAY = datetime.datetime.now(tz=datetime.UTC).date()
+TODAY = today_in_poland()
+
+# A Polish seller is refused without the day its business started, so every form posted here
+# carries one. What it is does not matter to these tests: none of them reads a schedule.
+STARTED = "2020-01-01"
 LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
 NEXT_MONTH = (TODAY.replace(day=1) + datetime.timedelta(days=31)).replace(day=1)
 
@@ -456,7 +463,13 @@ class SellerFormTests(TestCase):
         self.client.force_login(self.user)
 
     def _post(self, url: str, **overrides: str):  # noqa: ANN202
-        data = {"name": "AY Software Services", "address": "ul. X 1", "country": "PL", **overrides}
+        data = {
+            "name": "AY Software Services",
+            "address": "ul. X 1",
+            "country": "PL",
+            "business_started_on": STARTED,
+            **overrides,
+        }
         return self.client.post(url, data=data)
 
     def test_a_seller_can_be_created_with_a_credential(self) -> None:
@@ -542,6 +555,28 @@ class SellerFormTests(TestCase):
             month=LAST_MONTH,
             currency="EUR",
             lines=[("Dev", decimal.Decimal(1), decimal.Decimal("1.00"))],
+        )
+
+        response = self.client.post(reverse("seller_delete", kwargs={"pk": seller.pk}))
+
+        assert response.status_code == 409
+        assert Seller.objects.filter(pk=seller.pk).exists()
+
+    def test_a_seller_named_on_a_contract_cannot_be_deleted(self) -> None:
+        """The contract holds it under protection, and the answer is a sentence saying so
+        rather than the error that reaching the database with it would raise."""
+        self._post(reverse("seller_create"), nip="5213870274", ksef_token="tok")
+        seller = Seller.objects.get()
+        Contract.objects.create(
+            user=self.user,
+            name="C",
+            home_country="PL",
+            client_country="CH",
+            max_working_days=220,
+            start_date=datetime.date(2020, 1, 1),
+            end_date=datetime.date(2030, 12, 31),
+            seller=seller,
+            buyer=Buyer.objects.create(user=self.user, name="B", address="A", country="CH"),
         )
 
         response = self.client.post(reverse("seller_delete", kwargs={"pk": seller.pk}))
@@ -659,7 +694,12 @@ class AddressLayoutTests(TestCase):
     def _create_seller(self, address: str) -> Seller:
         self.client.post(
             reverse("seller_create"),
-            data={"name": "AY Software Services", "address": address, "country": "PL"},
+            data={
+                "name": "AY Software Services",
+                "address": address,
+                "country": "PL",
+                "business_started_on": STARTED,
+            },
         )
         return Seller.objects.get()
 
@@ -708,6 +748,7 @@ class AddressLayoutTests(TestCase):
                 "address": "ul. Przykladowa 1\r\n00-001 Warszawa",
                 "country": "PL",
                 "nip": "5213870274",
+                "business_started_on": STARTED,
             },
         )
 
@@ -917,7 +958,13 @@ class PolishOnlySellerFieldTests(TestCase):
         assert Seller.objects.get().nip == ""
 
     def test_a_polish_seller_still_keeps_both(self) -> None:
-        self._post(country="PL", address="ul. Przykladowa 1", nip="5213870274", ksef_token="tok")
+        self._post(
+            country="PL",
+            address="ul. Przykladowa 1",
+            nip="5213870274",
+            ksef_token="tok",
+            business_started_on=STARTED,
+        )
 
         seller = Seller.objects.get()
         assert seller.nip == "5213870274"
@@ -1039,7 +1086,7 @@ class InvoiceListStatusTests(KsefViewTestCase):
 
         page = self._page()
 
-        assert "CHF 14400.00" in page
+        assert f"CHF {money(decimal.Decimal('14400.00'))}" in page
         assert "July 2026" in page
 
 
@@ -1205,3 +1252,74 @@ class SendingSpinnerTests(KsefViewTestCase):
             assert "const setWaiting" in body
             assert "setWaiting(state.state === 'sending')" in body
             assert "setWaiting(false)" in body
+
+
+class SendingACorrectionTests(KsefViewTestCase):
+    """A correction goes to KSeF the same way an invoice does, and says what it corrects.
+
+    End to end through the application's own path: drawn up on the corrected invoice's page,
+    frozen, checked against the schema and handed to a session, so what is asserted is the
+    bytes that would have left the machine.
+    """
+
+    KSEF_NUMBER = "5213870274-20260812-0100AA-BBCCDD-EF"
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.client.force_login(self.owner)
+        self.invoice = store_invoice(self.contract, month=LAST_MONTH)
+        freeze(self.invoice)
+        claim_for_sending(self.invoice)
+        record_acceptance(self.invoice, ksef_number=self.KSEF_NUMBER, upo="<UPO/>")
+
+        self.client.post(
+            reverse("invoice_correct", kwargs={"pk": self.invoice.pk}),
+            {
+                "reason": "Day count corrected to the days approved",
+                "cause": Invoice.CorrectionCause.MISTAKE,
+                "position": ["1"],
+                "description": ["Software development services"],
+                "days": ["16"],
+                "rate": ["800.00"],
+            },
+        )
+        self.correction = Invoice.objects.get(corrects=self.invoice)
+
+    @override_settings(**CONFIGURED)
+    def test_the_correction_sent_names_the_invoice_it_corrects(self) -> None:
+        with talking_to() as session:
+            response = self.client.post(reverse("invoice_send_stored", kwargs={"pk": self.correction.pk}))
+
+        assert response.status_code == 200
+        assert session.sent_xml is not None
+
+        sent = session.sent_xml.decode()
+        assert "<RodzajFaktury>KOR</RodzajFaktury>" in sent
+        assert f"<NrFaKorygowanej>{self.invoice.number}</NrFaKorygowanej>" in sent
+        assert f"<NrKSeFFaKorygowanej>{self.KSEF_NUMBER}</NrKSeFFaKorygowanej>" in sent
+        assert "<PrzyczynaKorekty>Day count corrected to the days approved</PrzyczynaKorekty>" in sent
+
+    @override_settings(**CONFIGURED)
+    def test_the_difference_is_what_the_correction_carries(self) -> None:
+        """Both states go in as rows, and FA(3) takes P_15 as the difference between them."""
+        with talking_to() as session:
+            self.client.post(reverse("invoice_send_stored", kwargs={"pk": self.correction.pk}))
+
+        assert session.sent_xml is not None
+
+        sent = session.sent_xml.decode()
+        assert "<StanPrzed>1</StanPrzed>" in sent
+        assert "<P_15>-1600.00</P_15>" in sent
+
+    @override_settings(**CONFIGURED)
+    def test_acceptance_issues_the_correction(self) -> None:
+        with talking_to(Session(reported=status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD"))):
+            self.client.post(reverse("invoice_send_stored", kwargs={"pk": self.correction.pk}))
+            body = self.client.get(reverse("invoice_status", kwargs={"pk": self.correction.pk})).json()
+
+        self.correction.refresh_from_db()
+
+        assert body["state"] == "accepted"
+        assert self.correction.is_issued
+        assert self.correction.ksef_number == "5213870274-20260813-AABBCC-DD"

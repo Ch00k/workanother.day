@@ -124,9 +124,15 @@
                 class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
             Book
         </button>
+        {% comment %}
+        htmx asks rather than the submit listener in ui.js, this being a request off a button
+        and not a form submission. The range is the one the selector beside it names, so the
+        question cannot state it without repeating the selector's own wording.
+        {% endcomment %}
         <button hx-post="{% url 'clear_time_off' pk=contract.pk %}"
                 hx-swap="none"
                 hx-include="#bulk-book-mode"
+                hx-confirm="Clear the booked days in the selected range? Days already past are left alone."
                 class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50">
             Clear
         </button>
@@ -166,13 +172,13 @@
     </div>
 
     {% if import_error %}
-    <div class="mt-4 rounded-[10px] bg-red-50 border border-red-300 px-4 py-2 text-sm text-red-800">
+    <div class="notice notice-error mt-4">
         Import failed: {{ import_error }}
     </div>
     {% endif %}
 
     {% if holidays_stale %}
-    <div class="mt-4 rounded-[10px] bg-[#f5f5f5] border border-[#ddd] px-4 py-2 text-sm text-[#666]">
+    <div class="notice mt-4">
         Holiday data may be outdated. Could not refresh from the holiday API.
     </div>
     {% endif %}

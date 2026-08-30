@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import datetime
+import zoneinfo
 from typing import TYPE_CHECKING, Protocol, TypedDict
 
 if TYPE_CHECKING:
@@ -47,6 +48,19 @@ class MonthlySummary(TypedDict):
 
 def is_weekend(date: datetime.date) -> bool:
     return date.weekday() >= 5
+
+
+POLAND_TZ = zoneinfo.ZoneInfo("Europe/Warsaw")
+
+
+def today_in_poland() -> datetime.date:
+    """The current date in Poland, which is where every date here has its legal meaning.
+
+    Issue dates, revenue dates, payment dates and deadlines are all Polish civil days. The
+    server keeps UTC, which runs one or two hours behind Polish time, so the date read off
+    the UTC clock spends the first hours of every Polish day claiming to be the day before.
+    """
+    return datetime.datetime.now(tz=POLAND_TZ).date()
 
 
 def _hours_per_day(contract: ContractInfo) -> int:

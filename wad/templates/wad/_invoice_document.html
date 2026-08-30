@@ -1,3 +1,4 @@
+{% load money %}
 {% comment %}
 The printable invoice. Filled in by the browser on the stateless month page, and by the
 server on a stored invoice's page. Both write into the same data-field elements, so the
@@ -16,7 +17,7 @@ document itself is defined once.
         {% if unissued %}
         <div id="unissued-mark" class="mb-8 border-2 border-[#a33] px-4 py-2 text-center text-[#a33]">
             <div class="text-[18px] font-bold uppercase tracking-[0.2em]">Not issued</div>
-            <div class="text-[11px]">This is not an invoice.</div>
+            <div class="text-[11px]">This is not {% if invoice.is_correction %}a correction invoice{% else %}an invoice{% endif %}.</div>
         </div>
         {% endif %}
         <div class="flex items-start justify-between pb-5 border-b border-[#eee] gap-6">
@@ -24,7 +25,12 @@ document itself is defined once.
                 <h2 class="text-[24px] font-bold tracking-tight leading-tight" data-field="from_name">{{ invoice.seller_name }}</h2>
             </div>
             <div class="text-right">
-                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1">Invoice</div>
+                {% comment %}
+                What the document is. A correction says so in both languages, because it is the
+                Polish name that identifies the document to a Polish authority and the English
+                one that a Swiss buyer reads.
+                {% endcomment %}
+                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1">{% if invoice.is_correction %}Correction invoice / Faktura koryguj&#261;ca{% else %}Invoice{% endif %}</div>
                 <div class="text-[20px] font-bold leading-none mb-3">#<span data-field="number">{{ invoice.number }}</span></div>
                 <div class="inline-block text-left text-sm space-y-0.5">
                     <div><span class="inline-block w-[110px] text-[#888]">Issue date</span><span data-field="issue_date">{{ invoice.issue_date|date:'j F Y' }}</span></div>
@@ -39,15 +45,51 @@ document itself is defined once.
                 <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">From</div>
                 <div class="font-semibold text-[15px] mb-1" data-field="from_name_body">{{ invoice.seller_name }}</div>
                 <div class="text-sm leading-relaxed" data-field="from_address">{{ invoice.seller_address|linebreaksbr }}</div>
+                {% comment %}
+                The country closes the address. It is held apart from it as a code, because
+                that is what decides whether the sale is reverse-charged and what goes to
+                KSeF, so without this line the document would leave out the one part of the
+                address the invoice actually asserts. Rendered by the server on both pages:
+                the address is the seller's to write, the country the contract's to say.
+                {% endcomment %}
+                {% if seller_country_name %}
+                <div class="text-sm leading-relaxed">{{ seller_country_name }}</div>
+                {% endif %}
                 <div class="mt-2 text-sm text-[#888] leading-relaxed" data-show="from_tax_ids" data-field="from_tax_ids" style="{% if not invoice.seller_tax_ids %}display:none{% endif %}">{{ invoice.seller_tax_ids|linebreaksbr }}</div>
             </div>
             <div>
                 <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">Billed to</div>
                 <div class="font-semibold text-[15px] mb-1" data-field="to_name">{{ invoice.buyer_name }}</div>
                 <div class="text-sm leading-relaxed" data-field="to_address">{{ invoice.buyer_address|linebreaksbr }}</div>
+                {% if buyer_country_name %}
+                <div class="text-sm leading-relaxed">{{ buyer_country_name }}</div>
+                {% endif %}
                 <div class="mt-2 text-sm text-[#888] leading-relaxed" data-show="to_tax_ids" data-field="to_tax_ids" style="{% if not invoice.buyer_tax_ids %}display:none{% endif %}">{{ invoice.buyer_tax_ids|linebreaksbr }}</div>
             </div>
         </div>
+
+        {% comment %}
+        What the correction corrects, and why. Art. 106j ust. 2 pkt 2 requires the corrected
+        invoice to be identified on the document, and the reason is here because it is what
+        makes the document readable years later - the KSeF number so the invoice named can be
+        found in the system that holds it.
+        {% endcomment %}
+        {% if invoice.is_correction %}
+        <div class="mb-8 border border-[#ddd] rounded-[10px] px-5 py-3 text-sm">
+            <div class="flex flex-wrap gap-x-2">
+                <span class="text-[#888]">Corrects invoice</span>
+                <span class="font-semibold">{{ invoice.original.number }}</span>
+                <span class="text-[#888]">of {{ invoice.original.issue_date|date:"j F Y" }}</span>
+            </div>
+            {% if invoice.original.ksef_number %}
+            <div class="mt-1 text-[11px] text-[#888] money break-all">{{ invoice.original.ksef_number }}</div>
+            {% endif %}
+            {% if invoice.corrects.is_correction %}
+            <div class="mt-1 text-[11px] text-[#888]">as last corrected by {{ invoice.corrects.number }}</div>
+            {% endif %}
+            <div class="mt-2"><span class="text-[#888]">Reason</span> {{ invoice.correction_reason }}</div>
+        </div>
+        {% endif %}
 
         <table class="w-full border-collapse mb-5">
             <thead>
@@ -59,12 +101,42 @@ document itself is defined once.
                 </tr>
             </thead>
             <tbody class="text-[15px]" id="preview-line-rows">
+                {% comment %}
+                A correction shows both states as separate rows, which is how FA(3) has it and
+                how the difference under the table is arrived at. The rows before the
+                correction come first, marked, because they are the ones being withdrawn.
+                {% endcomment %}
+                {% if invoice.is_correction %}
+                <tr>
+                    <td colspan="4" class="pt-2 pb-1 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium">Before correction</td>
+                </tr>
+                {% for line in before_lines %}
+                <tr class="border-b border-[#eee] text-[#888]">
+                    <td class="py-3 px-3 align-top"><div class="line-through">{{ line.description }}</div></td>
+                    <td class="py-3 px-3 text-right align-top money line-through">{{ line.quantity|floatformat:"-2" }}</td>
+                    <td class="py-3 px-3 text-right align-top money line-through">{{ invoice.currency }} {{ line.unit_net_price|money }}</td>
+                    <td class="py-3 px-3 text-right align-top money line-through">{{ invoice.currency }} {{ line.net_value|money }}</td>
+                </tr>
+                {% endfor %}
+                <tr>
+                    <td colspan="4" class="pt-4 pb-1 px-3 text-[11px] uppercase tracking-wider text-[#888] font-medium">After correction</td>
+                </tr>
+                {% if not lines %}
+                {% comment %}
+                A correction that withdrew every line: the invoice stands unwound, and saying
+                so is what stops the section above reading as the whole document.
+                {% endcomment %}
+                <tr class="border-b border-[#eee]">
+                    <td colspan="4" class="py-3 px-3 text-sm">Nothing remains billed.</td>
+                </tr>
+                {% endif %}
+                {% endif %}
                 {% for line in lines %}
                 <tr class="border-b border-[#eee]">
                     <td class="py-3 px-3 align-top"><div class="font-semibold">{{ line.description }}</div></td>
                     <td class="py-3 px-3 text-right align-top money">{{ line.quantity|floatformat:"-2" }}</td>
-                    <td class="py-3 px-3 text-right align-top money">{{ invoice.currency }} {{ line.unit_net_price|floatformat:2 }}</td>
-                    <td class="py-3 px-3 text-right align-top money">{{ invoice.currency }} {{ line.net_value|floatformat:2 }}</td>
+                    <td class="py-3 px-3 text-right align-top money">{{ invoice.currency }} {{ line.unit_net_price|money }}</td>
+                    <td class="py-3 px-3 text-right align-top money">{{ invoice.currency }} {{ line.net_value|money }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -81,11 +153,37 @@ document itself is defined once.
             </tr>
         </template>
 
+        {% comment %}
+        A correction's totals are three figures rather than one, and the difference is the
+        figure that matters: it is what FA(3) carries as the amount of the document, and what
+        one party owes the other on account of it. Stated as its own block, because "Total
+        due" over a negative number would be saying the buyer owes a refund.
+        {% endcomment %}
+        {% if invoice.is_correction %}
+        <div class="flex justify-end mb-5">
+            <table class="min-w-[320px]">
+                <tr>
+                    <td class="py-1.5 px-3 text-right text-[#888] text-sm">Before correction</td>
+                    <td class="py-1.5 px-3 text-right text-sm money min-w-[140px]">{{ invoice.currency }} {{ invoice.corrects.net_total|money }}</td>
+                </tr>
+                <tr>
+                    <td class="py-1.5 px-3 text-right text-[#888] text-sm">After correction</td>
+                    <td class="py-1.5 px-3 text-right text-sm money">{{ invoice.currency }} {{ net_total|money }}</td>
+                </tr>
+                <tr>
+                    <td class="pt-3 px-3 text-right font-semibold text-[15px] border-t-2 border-[#333]">Difference</td>
+                    <td class="pt-3 px-3 text-right font-semibold text-[15px] money border-t-2 border-[#333]">
+                        {% if invoice.difference > 0 %}+{% endif %}{{ invoice.currency }} {{ invoice.difference|money }}
+                    </td>
+                </tr>
+            </table>
+        </div>
+        {% else %}
         <div class="flex justify-end mb-5">
             <table class="min-w-[320px]">
                 <tr>
                     <td class="py-1.5 px-3 text-right text-[#888] text-sm">Subtotal</td>
-                    <td class="py-1.5 px-3 text-right text-sm money min-w-[140px]" data-field="subtotal">{% if invoice %}{{ invoice.currency }} {{ net_total|floatformat:2 }}{% endif %}</td>
+                    <td class="py-1.5 px-3 text-right text-sm money min-w-[140px]" data-field="subtotal">{% if invoice %}{{ invoice.currency }} {{ net_total|money }}{% endif %}</td>
                 </tr>
                 <tr>
                     <td class="py-1.5 px-3 text-right text-[#888] text-sm">VAT</td>
@@ -93,10 +191,11 @@ document itself is defined once.
                 </tr>
                 <tr>
                     <td class="pt-3 px-3 text-right font-semibold text-[15px] border-t-2 border-[#333]">Total due</td>
-                    <td class="pt-3 px-3 text-right font-semibold text-[15px] money border-t-2 border-[#333]" data-field="total">{% if invoice %}{{ invoice.currency }} {{ net_total|floatformat:2 }}{% endif %}</td>
+                    <td class="pt-3 px-3 text-right font-semibold text-[15px] money border-t-2 border-[#333]" data-field="total">{% if invoice %}{{ invoice.currency }} {{ net_total|money }}{% endif %}</td>
                 </tr>
             </table>
         </div>
+        {% endif %}
 
         {% comment %}
         One notes block. The reverse-charge statement is a required element of the invoice,

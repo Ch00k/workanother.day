@@ -1,4 +1,5 @@
 {% extends "wad/base.html" %}
+{% load money %}
 {% block title %}Invoices - {{ contract.name }} - Work Another Day{% endblock %}
 
 {% block body %}
@@ -34,14 +35,28 @@
                 <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa]">
                     <td class="py-3 px-5">
                         <a href="{% url 'invoice_detail' pk=invoice.pk %}" class="font-semibold underline hover:no-underline">{{ invoice.number }}</a>
+                        {% comment %}
+                        A correction says what it corrects rather than only carrying KOR in its
+                        number, because which invoice it belongs to is the thing being looked for.
+                        {% endcomment %}
+                        {% if invoice.is_correction %}
+                        <div class="text-xs text-[#888] mt-0.5">corrects {{ invoice.corrects.number }}</div>
+                        {% endif %}
                     </td>
                     <td class="py-3 px-5 text-[#666]">{{ invoice.issue_date|date:"j M Y" }}</td>
                     <td class="py-3 px-5 text-[#666]">{{ invoice.period_start|date:"F Y" }}</td>
                     {% comment %}
-                    stringformat rather than floatformat: the total is a decimal, and
-                    floatformat would round-trip money through a float to print it.
+                    A correction's own amount is the difference it makes, which is what FA(3)
+                    carries as its total. Its lines add up to the corrected invoice's new total,
+                    and printing that here would read as a second invoice for the same month.
                     {% endcomment %}
-                    <td class="py-3 px-5 text-right money">{{ invoice.currency }} {{ invoice.net_total|stringformat:".2f" }}</td>
+                    <td class="py-3 px-5 text-right money {% if invoice.difference < 0 %}text-[#a33]{% endif %}">
+                        {% if invoice.is_correction %}
+                        {% if invoice.difference > 0 %}+{% endif %}{{ invoice.currency }} {{ invoice.difference|money }}
+                        {% else %}
+                        {{ invoice.currency }} {{ invoice.net_total|money }}
+                        {% endif %}
+                    </td>
                     <td class="py-3 px-5">
                         {% if invoice.state == "accepted" %}
                         <span class="rounded-[6px] bg-green-100 text-green-800 px-2 py-0.5 text-xs font-semibold">Accepted</span>

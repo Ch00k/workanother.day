@@ -23,6 +23,11 @@ jobs:
     env:
       DJANGO_SECRET_KEY: ci-only-key-4Xn7QpZm2LwVtR9sHgKdBjF6yCeA3uNiPoTr8ZxWqMvSbE5D
       DJANGO_KSEF_TOKEN_KEY: rXevUkBPASjAGdFZDd0mIj-SukHMTv-SxRKx1uGmbCY=
+      # The tests that print an invoice need a browser to print it with, and skip
+      # themselves where there is none. The image ships Chromium; the runner ships
+      # Chrome, which takes the same flags, so pointing at it is what makes those
+      # tests run here rather than quietly pass by being skipped.
+      DJANGO_CHROMIUM_PATH: /usr/bin/google-chrome
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
