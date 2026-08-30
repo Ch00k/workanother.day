@@ -17,6 +17,7 @@ CONFIGURED: dict[str, str] = {}
 
 TODAY = datetime.datetime.now(tz=datetime.UTC).date()
 LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
+NEXT_MONTH = (TODAY.replace(day=1) + datetime.timedelta(days=31)).replace(day=1)
 
 
 def _payload(buyer_id: str = "", **overrides: object) -> dict[str, object]:
@@ -192,10 +193,9 @@ class SendValidationTests(KsefViewTestCase):
 
     def test_a_month_that_is_not_over_cannot_be_sent(self) -> None:
         """The month page refuses to open, so the send endpoint cannot be the way in."""
-        this_month = TODAY.replace(day=1)
         url = reverse(
             "invoice_send",
-            kwargs={"pk": self.contract.pk, "year": this_month.year, "month": this_month.month},
+            kwargs={"pk": self.contract.pk, "year": NEXT_MONTH.year, "month": NEXT_MONTH.month},
         )
 
         response = self.client.post(url, data=json.dumps(_payload(str(self.buyer.pk))), content_type="application/json")
