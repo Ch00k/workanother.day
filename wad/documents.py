@@ -16,9 +16,13 @@ from wad.models import POLAND, Invoice
 # so that a document renders whether or not collectstatic has run.
 STYLESHEET = "css/output.css"
 
-# One page of static HTML with nothing to fetch and no script to run. Anything approaching
-# this is a browser that failed to start rather than one still working.
-RENDER_TIMEOUT_SECONDS = 30
+# The page is one file of static HTML with nothing to fetch, and a browser already resident
+# prints it in a few seconds. What the cap has to cover is the browser itself: a couple of
+# hundred megabytes read off a network-attached root filesystem, which takes around
+# thirty-five seconds to fault in when nothing of it is left in the page cache - the usual
+# case here, where months pass between invoices. Anything approaching this is a browser that
+# failed to start.
+RENDER_TIMEOUT_SECONDS = 120
 
 
 class RenderError(Exception):
@@ -128,11 +132,10 @@ def invoice_pdf(record: Invoice) -> bytes:
             # Kept inside the workspace so nothing of the render survives it, and so the
             # browser never looks for a profile in a home directory it may not own.
             f"--user-data-dir={directory / 'profile'}",
-            # The page is a local file with nothing to fetch, so the only traffic a render
-            # can make is the browser's own: registering for push messages, asking after
-            # component updates, and the rest of what a fresh profile sets up. Each of those
-            # is a request the print waits behind, and a slow one is a render that outlasts
-            # the timeout below.
+            # The page is a local file with nothing to fetch, so the only traffic a render can
+            # make is the browser's own: registering for push messages, asking after component
+            # updates, and the rest of what a fresh profile arranges. None of it bears on
+            # printing a document drawn entirely from bytes this application wrote.
             "--disable-background-networking",
             "--no-first-run",
             "--no-pdf-header-footer",
