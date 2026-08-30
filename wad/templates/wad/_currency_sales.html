@@ -1,0 +1,142 @@
+{% load explainer money %}
+{% comment %}
+The second exchange difference, and the sales that realise it. Art. 24c ust. 2 pkt 3 and ust. 3
+pkt 3 PIT measure the currency itself between the day it came in and the day it goes out, which
+is a different comparison from the one the invoice carries above and a different day.
+
+Offered only once a payment has been recorded and converted, because the day the money landed is
+what the sale is measured against. Not for a correction, which is not settled on its own.
+{% endcomment %}
+<div id="currency-sales" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+    {% explainer "currency-sales-help" %}
+    <p>
+        Art. 6 ust. 1c of the ryczalt act applies art. 24c PIT, which measures two differences and
+        not one. The invoice above carries the first: what the revenue was booked at against what it
+        was worth when the money landed. This is the second, on the money itself: what the currency
+        was worth coming in against what it was worth going out.
+    </p>
+    <p>
+        The two meet at the day of the inflow and do not overlap. The inflow side uses the NBP rate
+        of the working day before the money landed, which art. 24c ust. 4 supplies because nothing
+        is converted on receipt. The outflow side uses the rate the kantor actually dealt at, which
+        no table publishes, so it is entered from the confirmation along with what that confirmation
+        is called.
+    </p>
+    <p>
+        A difference arises even where the currency is sold the day it arrives, because an NBP
+        average is being compared against a dealt rate and the spread between them survives. It is
+        small, and it is usually negative.
+    </p>
+    <p>
+        Each sale is a register entry of its own, dated the day of the sale and carrying this
+        invoice's ryczalt rate. Selling a payment in parts is several sales here; a sale can never
+        exceed what this invoice brought in, which is what keeps art. 24c ust. 8 and its lot
+        matching out of the arithmetic.
+    </p>
+    {% endexplainer %}
+    <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-3">Currency sold</div>
+
+    {% if invoice.currency_sales.all %}
+    <table class="w-full border-collapse text-sm mb-4">
+        <thead>
+            <tr class="text-[11px] uppercase tracking-wider text-[#999]">
+                <th class="pb-2 text-left font-semibold">Sold</th>
+                <th class="pb-2 text-left font-semibold">Confirmation</th>
+                <th class="pb-2 text-right font-semibold">Proceeds</th>
+                <th class="pb-2 text-right font-semibold">Difference</th>
+                <th class="pb-2"></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sale in invoice.currency_sales.all %}
+            <tr class="border-t border-[#eee]">
+                <td class="py-2 align-top text-[#666]">
+                    {{ sale.sold_on|date:"j M Y" }}
+                    <div class="text-xs text-[#999] money mt-0.5">
+                        {{ invoice.currency }} {{ sale.amount|money }} at {{ sale.rate|floatformat:"-6" }}
+                    </div>
+                </td>
+                <td class="py-2 align-top text-[#666] break-all">{{ sale.reference }}</td>
+                <td class="py-2 align-top text-right">
+                    <span class="money">PLN {{ sale.proceeds|money }}</span>
+                    {% if sale.cost != None %}
+                    <div class="text-xs text-[#999] money mt-0.5">worth {{ sale.cost|money }} on receipt</div>
+                    {% endif %}
+                </td>
+                <td class="py-2 align-top text-right">
+                    {% if sale.difference == None %}
+                    <span class="text-[#a33]">Not established</span>
+                    {% else %}
+                    <span class="money font-semibold {% if sale.difference < 0 %}text-[#a33]{% endif %}">
+                        {% if sale.difference > 0 %}+{% endif %}{{ sale.difference|money }}
+                    </span>
+                    <div class="text-xs text-[#999] mt-0.5">
+                        {% if sale.difference > 0 %}increases revenue
+                        {% elif sale.difference < 0 %}reduces revenue
+                        {% else %}both days valued alike{% endif %}
+                    </div>
+                    {% endif %}
+                </td>
+                <td class="py-2 align-top text-right">
+                    {% comment %}
+                    The sale is named in the question by its confirmation and its day rather
+                    than by its amount, a dialog being plain text with nothing to hold an
+                    amount's groups together.
+                    {% endcomment %}
+                    <form method="post" action="{% url 'currency_sale_delete' pk=sale.pk %}"
+                          data-confirm="Remove the sale recorded as {{ sale.reference }} on {{ sale.sold_on|date:'j M Y' }}? The exchange difference it carries comes out of the register with it.">
+                        {% csrf_token %}
+                        <button type="submit" class="text-xs text-red-600 hover:underline">Remove</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if unsaleable_reason %}
+    <div class="text-xs text-[#999]">{{ unsaleable_reason }}</div>
+    {% else %}
+    <form method="post" action="{% url 'currency_sale_add' pk=invoice.pk %}"
+          class="{% if invoice.currency_sales.all %}border-t border-[#eee] pt-4{% endif %} flex flex-wrap gap-3 items-end">
+        {% csrf_token %}
+        <div>
+            <label for="sold_on" class="block text-sm font-medium text-[#666] mb-1">Sold on</label>
+            {% comment %}
+            Bounded at both ends, like the payment date. Currency cannot be sold before it arrives,
+            and it cannot be sold on a day that has not come. The view refuses both as well.
+            {% endcomment %}
+            <input type="date" id="sold_on" name="sold_on" required
+                   min="{{ invoice.paid_on|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"
+                   class="rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+        </div>
+        <div>
+            <label for="amount" class="block text-sm font-medium text-[#666] mb-1">{{ invoice.currency }} sold</label>
+            <input type="number" id="amount" name="amount" required step="0.01" min="0.01"
+                   max="{{ invoice.currency_unsold|stringformat:'s' }}"
+                   value="{{ invoice.currency_unsold|stringformat:'s' }}"
+                   class="w-36 rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+        </div>
+        <div>
+            <label for="rate" class="block text-sm font-medium text-[#666] mb-1">Rate dealt</label>
+            <input type="number" id="rate" name="rate" required step="0.000001" min="0.000001"
+                   class="w-36 rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+        </div>
+        <div class="grow">
+            <label for="reference" class="block text-sm font-medium text-[#666] mb-1">Confirmation</label>
+            <input type="text" id="reference" name="reference" required maxlength="200"
+                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+        </div>
+        <button type="submit"
+                class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+            Record
+        </button>
+        <div class="text-xs text-[#999] basis-full">
+            <span class="money">{{ invoice.currency }} {{ invoice.currency_unsold|money }}</span> of this invoice is still held.
+            The confirmation names the document this entry is made on, and goes into the register as
+            it is written here.
+        </div>
+    </form>
+    {% endif %}
+</div>

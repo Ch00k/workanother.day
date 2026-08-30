@@ -1,4 +1,5 @@
 {% extends "wad/base.html" %}
+{% load explainer %}
 {% block title %}Invoice - {{ month_name }} {{ year }} - Work Another Day{% endblock %}
 
 {% block body %}
@@ -286,12 +287,32 @@
     </div>
 
     {% if ksef_enabled %}
-    <div id="ksef-panel" class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
-        <div class="flex items-center justify-between flex-wrap gap-3">
+    <div id="ksef-panel" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        {% explainer "ksef-month-help" %}
+        <p>
+            KSeF is Poland's national e-invoicing system. An invoice sent there is issued by KSeF
+            accepting it: the number it gives back and the link that verifies it are what make the
+            document an invoice, and until then this is a draft nobody holds.
+        </p>
+        <p>
+            It is authorised with the seller's KSeF token, and both parties are identified by tax
+            identifier rather than by name - which is why a buyer without one falls outside it.
+        </p>
+        <p>
+            The date on the invoice has to be the day it is sent. KSeF treats an earlier one as
+            issued offline, which needs a certificate and a second QR code this does not produce.
+        </p>
+        <p>
+            Sending ends with the invoice in flight rather than accepted: KSeF processes it
+            afterwards, so this page waits and says what came back. A rejected invoice keeps the
+            reason in KSeF's own words and can be sent again once the cause is fixed.
+        </p>
+        {% endexplainer %}
+        <div class="flex items-center justify-between flex-wrap gap-3 pr-7">
             <div>
                 <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
                 <div class="flex items-center gap-2 mt-0.5">
-                    {% include "wad/_ksef_spinner.html" %}
+                    {% include "wad/_spinner.html" with id="ksef-spinner" spinning=False %}
                     <div class="text-sm text-[#666]" id="ksef-status">Not sent yet</div>
                 </div>
                 <div class="mt-1.5 flex items-center gap-2 flex-wrap">
@@ -300,7 +321,7 @@
                     <span class="text-xs text-red-800">Invoices sent here have legal effect.</span>
                     {% else %}
                     <span class="rounded-[6px] bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-bold tracking-wide">{{ ksef_environment }}</span>
-                    <span class="text-xs text-amber-700">Sandbox. Use fictional data only.</span>
+                    <span class="text-xs text-amber-700">Sandbox</span>
                     {% endif %}
                 </div>
             </div>
@@ -309,13 +330,10 @@
                 Send to KSeF
             </button>
         </div>
-        <div id="ksef-error" class="mt-3 text-sm text-[#a33] leading-relaxed" style="display:none"></div>
+        <div id="ksef-error" class="notice notice-error mt-3" style="display:none"></div>
     </div>
     {% elif ksef_unavailable_reason %}
-    <div id="ksef-note" class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
-        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
-        <div class="text-sm text-[#666] mt-1">{{ ksef_unavailable_reason }}</div>
-    </div>
+    <div id="ksef-note" class="notice mb-4 print:hidden">{{ ksef_unavailable_reason }}</div>
     {% endif %}
 
     {% include "wad/_invoice_document.html" %}
@@ -332,8 +350,11 @@
     const isoDate = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
     const dateFmt = new Intl.DateTimeFormat('en', { day: 'numeric', month: 'long', year: 'numeric' });
+    // A pinned locale for the grouping and the dot, then the grouping mark exchanged for the
+    // narrow no-break space the server writes, so an invoice reads the same before and after it
+    // is saved. `money.py` holds the convention itself.
     const moneyFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const fmtMoney = (currency, n) => `${currency} ${moneyFmt.format(n)}`;
+    const fmtMoney = (currency, n) => `${currency} ${moneyFmt.format(n).replaceAll(',', '\u2009')}`;
     const fmtDays = n => n.toFixed(2).replace(/\.?0+$/, '');
     const fmtDate = iso => {
         const [y, m, d] = iso.split('-').map(Number);

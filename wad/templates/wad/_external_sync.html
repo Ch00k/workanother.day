@@ -1,9 +1,9 @@
 {% if fetch_error %}
-<div class="rounded-[10px] bg-red-50 border border-red-300 px-4 py-2 text-sm text-red-800">
+<div class="notice notice-error">
     {{ fetch_error }}
 </div>
 {% elif in_sync %}
-<div class="rounded-[10px] bg-[#f5f5f5] border border-[#ddd] px-4 py-2 text-sm text-[#666]">
+<div class="notice notice-neutral">
     External calendar matches your bookings.
 </div>
 {% else %}

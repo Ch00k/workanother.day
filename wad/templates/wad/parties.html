@@ -14,16 +14,28 @@
     {% if parties %}
     <div class="mt-5 grid gap-3 sm:grid-cols-2">
         {% for party in parties %}
-        <a href="{{ party.edit_url }}"
-           class="rounded-[14px] bg-white p-5 shadow-sm border border-black/5 hover:border-[#bbb] hover:bg-gray-100 transition">
-            <div class="font-semibold text-[#222]">{{ party.name }}</div>
-            <div class="text-xs text-[#888] mt-1">{{ party.address|linebreaksbr }}</div>
-            {% if party.nip %}<div class="text-xs text-[#888] mt-0.5">NIP {{ party.nip }}</div>{% endif %}
-            {% if party.tax_id %}<div class="text-xs text-[#888] mt-0.5">{{ party.country }} {{ party.tax_id }}</div>{% endif %}
-            {% if party.ksef_token %}
-            <div class="text-xs text-[#0f3b2e] mt-1">KSeF token stored</div>
+        <div class="rounded-[14px] bg-white p-5 shadow-sm border border-black/5">
+            <a class="block hover:opacity-70 transition" href="{{ party.edit_url }}">
+                <div class="font-semibold text-[#222]">{{ party.name }}</div>
+                <div class="text-xs text-[#888] mt-1">{{ party.address|linebreaksbr }}</div>
+                {% if party.nip %}<div class="text-xs text-[#888] mt-0.5">NIP {{ party.nip }}</div>{% endif %}
+                {% if party.tax_id %}<div class="text-xs text-[#888] mt-0.5">{{ party.country }} {{ party.tax_id }}</div>{% endif %}
+                {% if party.ksef_token %}
+                <div class="text-xs text-[#0f3b2e] mt-1">KSeF token stored</div>
+                {% endif %}
+            </a>
+            {% comment %}
+            Outside the link above rather than inside it: a link cannot hold another one, and
+            the annual side of this taxpayer is a second destination the card offers. It lands
+            on the year now, which is the one being paid for.
+            {% endcomment %}
+            {% if party.taxes_url %}
+            <a class="inline-block rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition mt-3"
+               href="{{ party.taxes_url }}">
+                Taxes
+            </a>
             {% endif %}
-        </a>
+        </div>
         {% endfor %}
     </div>
     {% else %}

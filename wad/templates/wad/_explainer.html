@@ -1,0 +1,24 @@
+{% comment %}
+The mark in a card's corner, and the prose behind it. Written on the page rather than in a
+title attribute, so it can be styled, wrapped, and selected to copy out of - a figure that
+has to match a return exactly is one somebody will want to paste somewhere.
+
+Rendered by the {% templatetag openblock %} explainer "some-id" {% templatetag closeblock %}
+tag, which is where the prose is written. Positions itself in the corner of the card it is in,
+so that card has to be `relative` - or, written `beside`, sits where it is put, for a section
+heading above a card that clips what is inside it.
+{% endcomment %}
+<div class="explainer{% if beside %} explainer-beside{% endif %}">
+    {% comment %} lucide's circle-question-mark. {% endcomment %}
+    <button type="button" class="explainer-button" data-explains="{{ id }}"
+            aria-expanded="false" aria-controls="{{ id }}" aria-label="What this means">
+        <svg aria-hidden="true" class="size-4" xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+            <path d="M12 17h.01" />
+        </svg>
+    </button>
+    <div id="{{ id }}" class="explainer-panel" hidden>{{ explanation }}</div>
+</div>
