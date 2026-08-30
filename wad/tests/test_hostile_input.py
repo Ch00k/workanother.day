@@ -4,8 +4,11 @@ Every case here was reachable from an ordinary request and produced a 500, a sil
 corrupted record, or output that could be read as something other than data.
 """
 
+import contextlib
 import datetime
 import json
+from typing import TYPE_CHECKING
+from unittest import mock
 
 import pytest
 from django.contrib.auth.models import User
@@ -17,9 +20,30 @@ from wad.ical import MAX_LINE_OCTETS, _fold, escape, export_time_off, import_tim
 from wad.ical import ImportError as ICalImportError
 from wad.models import AccountToken, Buyer, Contract, Invoice, Seller, TimeOff, hash_token
 from wad.tests.factories import store_invoice, today
+from wad.views import _can_invoice_month, _month_end
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 CONTRACT_START = datetime.date(2026, 1, 1)
 CONTRACT_END = datetime.date(2026, 12, 31)
+
+
+@contextlib.contextmanager
+def _frozen(day: datetime.date) -> Iterator[None]:
+    """Run the block with the views seeing `day` as today.
+
+    The views read the date from datetime.datetime.now, so the class they read it from is
+    what a test replaces to put them on a chosen day.
+    """
+
+    class _Datetime(datetime.datetime):
+        @classmethod
+        def now(cls, tz: datetime.tzinfo | None = None) -> datetime.datetime:
+            return datetime.datetime.combine(day, datetime.time(12), tzinfo=tz)
+
+    with mock.patch("wad.views.datetime.datetime", _Datetime):
+        yield
 
 
 class HostileInputTestCase(TestCase):
@@ -243,9 +267,10 @@ class InvoiceMonthTests(HostileInputTestCase):
         self.this_month = today().replace(day=1)
         self.last_month = (self.this_month - datetime.timedelta(days=1)).replace(day=1)
         self.before_the_contract = (self.last_month - datetime.timedelta(days=1)).replace(day=1)
+        self.next_month = (self.this_month + datetime.timedelta(days=31)).replace(day=1)
 
         # Starts the month before this one, so the month before that is over and outside it
-        # while this month is inside it and not over. The two reasons a month can be refused
+        # while next month is inside it and not over. The two reasons a month can be refused
         # are then tested one at a time.
         self.contract.start_date = self.last_month
         self.contract.end_date = self.this_month + datetime.timedelta(days=400)
@@ -291,11 +316,25 @@ class InvoiceMonthTests(HostileInputTestCase):
 
     def test_a_month_that_is_not_over_is_refused(self) -> None:
         """The days it would bill have not been worked yet, whatever the body claims."""
-        response = self._save(self.this_month.year, self.this_month.month)
+        response = self._save(self.next_month.year, self.next_month.month)
 
         assert response.status_code == 400
         assert "is not over yet" in response.json()["error"]
         assert not Invoice.objects.exists()
+
+    def test_a_month_is_invoiceable_on_its_last_day(self) -> None:
+        """The last day is the last day worked, so the month can be billed without waiting.
+
+        Frozen to a last day rather than run against the real one, which is a last day on
+        one day in thirty.
+        """
+        with _frozen(_month_end(self.this_month.year, self.this_month.month)):
+            assert _can_invoice_month(self.this_month.year, self.this_month.month)
+
+    def test_a_month_is_not_invoiceable_the_day_before_it_ends(self) -> None:
+        """The other side of the boundary, which is still a day of work short."""
+        with _frozen(_month_end(self.this_month.year, self.this_month.month) - datetime.timedelta(days=1)):
+            assert not _can_invoice_month(self.this_month.year, self.this_month.month)
 
     def test_a_month_that_does_not_exist_is_refused(self) -> None:
         """Said in a sentence, rather than as whatever the calendar module raises."""
@@ -309,7 +348,7 @@ class InvoiceMonthTests(HostileInputTestCase):
         """The two answering differently is the whole of the problem: the record would win."""
         refused = [
             (self.before_the_contract.year, self.before_the_contract.month),
-            (self.this_month.year, self.this_month.month),
+            (self.next_month.year, self.next_month.month),
             (self.last_month.year, 13),
         ]
 
