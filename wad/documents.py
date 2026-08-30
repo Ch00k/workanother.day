@@ -128,6 +128,13 @@ def invoice_pdf(record: Invoice) -> bytes:
             # Kept inside the workspace so nothing of the render survives it, and so the
             # browser never looks for a profile in a home directory it may not own.
             f"--user-data-dir={directory / 'profile'}",
+            # The page is a local file with nothing to fetch, so the only traffic a render
+            # can make is the browser's own: registering for push messages, asking after
+            # component updates, and the rest of what a fresh profile sets up. Each of those
+            # is a request the print waits behind, and a slow one is a render that outlasts
+            # the timeout below.
+            "--disable-background-networking",
+            "--no-first-run",
             "--no-pdf-header-footer",
             f"--print-to-pdf={pdf}",
             page.as_uri(),

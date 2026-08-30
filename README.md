@@ -159,6 +159,13 @@ Fly.io, one machine, one volume. SQLite is a single local file, so **do not scal
 one machine**. `run.sh` migrates and collects static files at startup; CI deploys on a
 release tag. `DB_IMPORT.md` covers moving an existing database onto the volume.
 
+The machine needs **768mb of memory**, and the reason is Chromium rather than the
+application: V8 reserves a code range of over half a gigabyte, and the kernel's heuristic
+overcommit refuses any writable mapping larger than the machine's whole memory. Below this,
+the renderer dies at startup and every invoice PDF times out. A container on a large host
+does not reproduce it, because a cgroup limit leaves `/proc/meminfo` reporting the host's
+memory, which is what that check reads.
+
 Set the secrets before the first deploy:
 
 ```bash
