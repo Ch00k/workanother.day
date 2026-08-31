@@ -6,9 +6,10 @@ what the page has to say among an invoice form is that the two differ, and a rea
 wants the dates asks for them. The dialog holds them already rendered rather than fetching
 them, so the list a reader opens is the one the banner counted.
 {% endcomment %}
-{% if fetch_error or in_sync %}
+{% if not differences %}
 {% include "wad/_external_comparison.html" %}
 {% else %}
+{% include "wad/_external_scope_notes.html" %}
 <div class="notice">
     External calendar differs from your bookings.
     <button data-opens="external-sync-dialog"

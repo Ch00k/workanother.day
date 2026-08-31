@@ -1,0 +1,4 @@
+{% comment %}
+A list of date stretches read out as prose, for whatever has something to say about them.
+Written without a trailing newline, so it can sit mid-sentence.
+{% endcomment %}{% for stretch in stretches %}{% if not forloop.first %} and {% endif %}{{ stretch.start|date:"M j, Y" }} to {{ stretch.end|date:"M j, Y" }}{% endfor %}
