@@ -16,6 +16,7 @@ from wad.models import (
     generate_token,
     hash_token,
 )
+from wad.tests.clock import today_is
 from wad.tests.http import HOLIDAY_API
 
 if TYPE_CHECKING:
@@ -772,8 +773,15 @@ class InvoiceViewTests(TestCase):
         self.assertNotContains(response, "NL00 BANK 0000 0000 00", status_code=405)
 
     def test_in_progress_month_returns_404(self) -> None:
-        today = datetime.datetime.now(tz=datetime.UTC).date()
-        response = self.client.get(self._url(year=today.year, month=today.month))
+        """A month with days still to be worked has no page, so nothing can be billed for it.
+
+        Frozen to the middle of the month rather than run against the real date. A month is
+        invoiceable from its last day, so on that one day in thirty the current month is over
+        and the page opens.
+        """
+        with today_is(datetime.date(self.past_year, 6, 15)):
+            response = self.client.get(self._url(year=self.past_year, month=6))
+
         assert response.status_code == 404
 
     def test_future_month_returns_404(self) -> None:
@@ -985,7 +993,7 @@ class SyncExternalCalendarTests(TestCase):
         )
 
     def _url(self) -> str:
-        return f"/contracts/{self.contract.pk}/sync-external/"
+        return f"/contracts/{self.contract.pk}/compare-external/"
 
     def test_in_sync_when_calendars_match(self) -> None:
         TimeOff.objects.create(contract=self.contract, date="2026-04-06", hours=8)
@@ -998,7 +1006,7 @@ class SyncExternalCalendarTests(TestCase):
     def test_reports_external_only(self) -> None:
         self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
         response = self.client.get(self._url())
-        self.assertContains(response, "Missing from Acme")
+        self.assertContains(response, "Not booked here")
         self.assertContains(response, "Apr 6, 2026")
         self.assertContains(response, "Apr 17, 2026")
 
@@ -1007,17 +1015,28 @@ class SyncExternalCalendarTests(TestCase):
         # Sample has 2026-04-06 and 2026-04-17 only.
         self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
         response = self.client.get(self._url())
-        self.assertContains(response, "Missing from external calendar")
+        self.assertContains(response, "Not in external")
         self.assertContains(response, "May 12, 2026")  # Tue, May 12 — matches D, M j, Y format
 
     def test_reports_mismatch(self) -> None:
-        # Sample says 4h on Apr 17; create a full 8h WAD entry to mismatch.
+        """A day both sides know about but disagree on is reported, and an agreeing day is not.
+
+        The sample books Apr 6 for 8h and Apr 17 for 4h. Booking 8h on both leaves Apr 6
+        matching and Apr 17 differing, so the table carries Apr 17 and its two figures alone.
+        """
         TimeOff.objects.create(contract=self.contract, date="2026-04-06", hours=8)
         TimeOff.objects.create(contract=self.contract, date="2026-04-17", hours=8)
         self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
         response = self.client.get(self._url())
-        self.assertContains(response, "Different hours on same day")
-        self.assertContains(response, "8h here vs 4h in external")
+
+        self.assertContains(response, "Hours differ")
+        self.assertContains(response, "Apr 17, 2026")
+        self.assertNotContains(response, "Apr 6, 2026")
+        # Each figure against the side it came from: swapping the two columns is the one way
+        # this feature can be wrong while still looking right.
+        self.assertContains(response, "Acme: 8h")
+        self.assertContains(response, "External: 4h")
 
     def test_fetch_error_renders_message(self) -> None:
         self.publisher.unreachable("example.com")
@@ -1043,15 +1062,15 @@ class SyncExternalCalendarTests(TestCase):
         response = self.client.get(self._url())
         assert response.status_code == 404
 
-    def test_calendar_page_shows_sync_button_when_url_set(self) -> None:
+    def test_calendar_page_shows_comparison_button_when_url_set(self) -> None:
         response = self.client.get(f"/contracts/{self.contract.pk}/")
-        self.assertContains(response, "Sync with external calendar")
+        self.assertContains(response, "External calendar comparison")
 
-    def test_calendar_page_hides_sync_button_when_no_url(self) -> None:
+    def test_calendar_page_hides_comparison_button_when_no_url(self) -> None:
         self.contract.external_calendar_url = ""
         self.contract.save()
         response = self.client.get(f"/contracts/{self.contract.pk}/")
-        self.assertNotContains(response, "Sync with external calendar")
+        self.assertNotContains(response, "External calendar comparison")
 
 
 class InvoiceExternalSyncTests(TestCase):
@@ -1079,12 +1098,33 @@ class InvoiceExternalSyncTests(TestCase):
 
     @override_settings(DEBUG=True)
     def test_invoice_page_renders_sync_warnings(self) -> None:
+        """The banner states the disagreement and counts it; the dates sit in the dialog behind it.
+
+        The dialog's contents are rendered with the page rather than fetched, so the days are
+        in the response even though nothing has been opened.
+        """
         self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
         response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/4/")
+
         assert response.status_code == 200
+        self.assertContains(response, "External calendar differs from your bookings")
         # April invoice: both April events appear, no May events.
-        self.assertContains(response, "Missing from Acme")
+        self.assertContains(response, "Show the 2 days that differ.")
+        self.assertContains(response, 'data-opens="external-sync-dialog"')
+        self.assertContains(response, "Not booked here")
         self.assertContains(response, "Apr 6, 2026")
+
+    @override_settings(DEBUG=True)
+    def test_a_single_difference_is_counted_in_the_singular(self) -> None:
+        """One day off by itself is the ordinary case, a forgotten booking being one day."""
+        # The sample holds Apr 6 and Apr 17; booking Apr 6 leaves Apr 17 as the only difference.
+        TimeOff.objects.create(contract=self.contract, date="2026-04-06", hours=8)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/4/")
+
+        self.assertContains(response, "Show the 1 day that differs.")
 
     @override_settings(DEBUG=True)
     def test_invoice_page_clips_to_invoice_month(self) -> None:
@@ -1117,7 +1157,7 @@ class InvoiceExternalSyncTests(TestCase):
         self.contract.save()
         response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/4/")
         assert response.status_code == 200
-        self.assertNotContains(response, "Missing from Acme")
+        self.assertNotContains(response, "External calendar differs from your bookings")
         self.assertNotContains(response, "External calendar matches")
 
 
@@ -1149,7 +1189,7 @@ class ExternalCalendarNonStaffTests(TestCase):
         }
 
     def test_sync_endpoint_404(self) -> None:
-        response = self.client.get(f"/contracts/{self.contract.pk}/sync-external/")
+        response = self.client.get(f"/contracts/{self.contract.pk}/compare-external/")
         assert response.status_code == 404
 
     def test_create_form_hides_url_field(self) -> None:
@@ -1172,9 +1212,9 @@ class ExternalCalendarNonStaffTests(TestCase):
         self.contract.refresh_from_db()
         assert self.contract.external_calendar_url == "https://example.com/feed.ics"
 
-    def test_calendar_page_hides_sync_button(self) -> None:
+    def test_calendar_page_hides_comparison_button(self) -> None:
         response = self.client.get(f"/contracts/{self.contract.pk}/")
-        self.assertNotContains(response, "Sync with external calendar")
+        self.assertNotContains(response, "External calendar comparison")
 
     @override_settings(DEBUG=True)
     def test_invoice_page_omits_panel(self) -> None:

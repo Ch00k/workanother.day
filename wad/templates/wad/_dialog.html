@@ -1,0 +1,20 @@
+{% comment %}
+The shell every dialog shares: the panel, the header bar carrying its title, and the close
+button. Held in one place because the same dialog is written out by more than one page, and
+two copies of a panel under one id are two panels that can come to disagree.
+
+What goes inside arrives one of two ways. `content_template` is rendered with the page, for a
+dialog whose contents the page already has. `content_id` names the box for a dialog whose
+contents an opener fetches, which arrive when it is opened.
+{% endcomment %}
+<dialog id="{{ dialog_id }}" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
+        data-closes-on-backdrop>
+    <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
+        <h2 class="text-xl font-bold">{{ dialog_title }}</h2>
+        <button data-closes-dialog
+                class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
+    </div>
+    <div{% if content_id %} id="{{ content_id }}"{% endif %} class="{{ content_class|default:'px-5 py-4 overflow-y-auto max-h-[70vh]' }}">
+        {% if content_template %}{% include content_template %}{% endif %}
+    </div>
+</dialog>

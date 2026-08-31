@@ -4,11 +4,8 @@ Every case here was reachable from an ordinary request and produced a 500, a sil
 corrupted record, or output that could be read as something other than data.
 """
 
-import contextlib
 import datetime
 import json
-from typing import TYPE_CHECKING
-from unittest import mock
 
 import pytest
 from django.contrib.auth.models import User
@@ -19,31 +16,12 @@ from django.urls import reverse
 from wad.ical import MAX_LINE_OCTETS, _fold, escape, export_time_off, import_time_off, parse_external_time_off
 from wad.ical import ImportError as ICalImportError
 from wad.models import AccountToken, Buyer, Contract, Invoice, Seller, TimeOff, hash_token
+from wad.tests.clock import today_is
 from wad.tests.factories import store_invoice, today
 from wad.views import _can_invoice_month, _month_end
 
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
 CONTRACT_START = datetime.date(2026, 1, 1)
 CONTRACT_END = datetime.date(2026, 12, 31)
-
-
-@contextlib.contextmanager
-def _frozen(day: datetime.date) -> Iterator[None]:
-    """Run the block with the views seeing `day` as today.
-
-    The views read the date from datetime.datetime.now, so the class they read it from is
-    what a test replaces to put them on a chosen day.
-    """
-
-    class _Datetime(datetime.datetime):
-        @classmethod
-        def now(cls, tz: datetime.tzinfo | None = None) -> datetime.datetime:
-            return datetime.datetime.combine(day, datetime.time(12), tzinfo=tz)
-
-    with mock.patch("wad.views.datetime.datetime", _Datetime):
-        yield
 
 
 class HostileInputTestCase(TestCase):
@@ -328,12 +306,12 @@ class InvoiceMonthTests(HostileInputTestCase):
         Frozen to a last day rather than run against the real one, which is a last day on
         one day in thirty.
         """
-        with _frozen(_month_end(self.this_month.year, self.this_month.month)):
+        with today_is(_month_end(self.this_month.year, self.this_month.month)):
             assert _can_invoice_month(self.this_month.year, self.this_month.month)
 
     def test_a_month_is_not_invoiceable_the_day_before_it_ends(self) -> None:
         """The other side of the boundary, which is still a day of work short."""
-        with _frozen(_month_end(self.this_month.year, self.this_month.month) - datetime.timedelta(days=1)):
+        with today_is(_month_end(self.this_month.year, self.this_month.month) - datetime.timedelta(days=1)):
             assert not _can_invoice_month(self.this_month.year, self.this_month.month)
 
     def test_a_month_that_does_not_exist_is_refused(self) -> None:
