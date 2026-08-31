@@ -1,7 +1,10 @@
 import datetime
+import os
+import time
 
 import pytest
-from django.test import TestCase
+from django.conf import settings
+from django.test import TestCase, override_settings
 from ksef2 import KSeFException
 from ksef2.domain.models.session import InvoiceStatusInfo, SessionInvoiceStatusResponse
 
@@ -241,3 +244,125 @@ class ResolveTests(TestCase):
         assert settled
         assert self.record.state == Invoice.State.ACCEPTED
         assert self.record.upo == ""
+
+
+# The sandbox pair, which is a token issued for one NIP in one KSeF and so cannot live in the
+# repository. `make seed` takes the same two, so a machine set up to seed is set up to run this.
+KSEF_DEV_TOKEN = os.environ.get("KSEF_DEV_TOKEN", "")
+KSEF_DEV_NIP = os.environ.get("KSEF_DEV_NIP", "")
+
+# Absent credentials skip this locally and fail it in CI. A skip is a green build, so a run that
+# has lost the secrets - rotated, revoked, or never given them - would keep passing with nothing
+# exercising KSeF at all, which is the one outcome this test exists to prevent.
+RUNNING_IN_CI = bool(os.environ.get("CI"))
+
+
+@pytest.mark.live
+@pytest.mark.skipif(
+    not (KSEF_DEV_TOKEN and KSEF_DEV_NIP) and not RUNNING_IN_CI,
+    reason="KSEF_DEV_TOKEN and KSEF_DEV_NIP name the sandbox taxpayer this sends as.",
+)
+@override_settings(KSEF_ENVIRONMENT="TEST")
+class PublishedKSeFTests(TestCase):
+    """The one test that issues an invoice in a KSeF rather than against the stand-in.
+
+    Everything else in this file answers from `ksef_session.py`, which is this application's
+    own account of what KSeF does. That account cannot notice that the API moved, that a field
+    it fills in is no longer accepted, or that what comes back is shaped differently - and the
+    cost of finding out at the counter is an invoice that cannot be issued on the day it is
+    dated, which is the day it has to be sent.
+
+    It runs against the test environment, where an accepted invoice is a test invoice and has
+    no legal effect. It issues a real one there each time it runs, which is what the
+    environment is for.
+
+    The invoice is dated today because KSeF reads an earlier date as an invoice issued offline,
+    and demands a second QR code and a certificate for one. `store_invoice` dates it that way
+    already.
+    """
+
+    # None here, because the autouse fixture stands aside for a test marked live.
+    publisher: object | None
+
+    # Acceptance takes a moment. Fifteen tries at two seconds outlasts that and still fails the
+    # build rather than hanging it when KSeF stops answering.
+    ATTEMPTS = 15
+    INTERVAL = 2
+
+    def test_an_invoice_is_issued_and_comes_back_with_a_number(self) -> None:
+        assert self.publisher is None, "Nothing reached KSeF, so this proves nothing."
+        # Checked as well as pinned. An invoice KSeF accepts in production is issued the moment
+        # it is accepted, and cannot be withdrawn, only corrected - so the one test that really
+        # sends says out loud which KSeF it is sending to.
+        assert settings.KSEF_ENVIRONMENT == "TEST", "This issues an invoice, so it runs in the sandbox or not at all."
+        assert KSEF_DEV_TOKEN, "CI was given no KSeF token, so nothing here watches KSeF."
+        assert KSEF_DEV_NIP, "CI was given no KSeF NIP, so nothing here watches KSeF."
+
+        record = store_invoice(_sandbox_contract(), month=LAST_MONTH)
+
+        send(record)
+
+        assert record.invoice_reference, "KSeF took no invoice, so there is nothing to resolve."
+        assert record.state == Invoice.State.SENDING
+        assert record.xml, "The invoice was sent without its bytes being kept."
+
+        assert self._settled(record), f"KSeF had not settled after {self.ATTEMPTS * self.INTERVAL}s."
+
+        assert record.state == Invoice.State.ACCEPTED, record.error
+        assert record.ksef_number.startswith(KSEF_DEV_NIP)
+
+    def _settled(self, record: Invoice) -> bool:
+        """Ask until KSeF has made up its mind, or until we stop waiting.
+
+        The wait goes between attempts rather than after the last one, so the whole allowance is
+        spent asking rather than a final interval being slept through and then given up on.
+        """
+        for attempt in range(self.ATTEMPTS):
+            if resolve(record):
+                return True
+
+            if attempt < self.ATTEMPTS - 1:
+                time.sleep(self.INTERVAL)
+
+        return False
+
+
+def _sandbox_contract() -> Contract:
+    """A contract that issues as the sandbox taxpayer, billing a buyer outside the EU.
+
+    The seller's NIP is the one the token was issued for, because a token opens a session for
+    one taxpayer and the invoice has to be submitted as the taxpayer it names.
+    """
+    from django.contrib.auth.models import User
+
+    user = User.objects.create_user(username="live-ksef")
+    seller = Seller.objects.create(
+        user=user,
+        name="AY Software Services",
+        address="ul. Przykladowa 1, 00-001 Warszawa",
+        country="PL",
+        nip=KSEF_DEV_NIP,
+        ksef_token=KSEF_DEV_TOKEN,
+    )
+    buyer = Buyer.objects.create(
+        user=user,
+        name="Example AG",
+        address="Bahnhofstrasse 1, 8001 Zurich",
+        country="CH",
+        tax_id="CHE-123.456.789",
+    )
+
+    return Contract.objects.create(
+        user=user,
+        name="Sandbox",
+        home_country="PL",
+        client_country="CH",
+        max_working_days=220,
+        # Relative to the month being billed. A permanent test with a hardcoded end date stops
+        # working on the day it passes, and stops by failing to bill rather than by saying so.
+        start_date=LAST_MONTH - datetime.timedelta(days=365),
+        end_date=LAST_MONTH + datetime.timedelta(days=365),
+        seller=seller,
+        buyer=buyer,
+        send_to_ksef=True,
+    )

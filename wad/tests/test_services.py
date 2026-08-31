@@ -6,6 +6,7 @@ import pytest
 from django.test import TestCase
 from django.utils import timezone
 
+from wad.calendar_utils import today_in_poland
 from wad.models import Holiday
 from wad.services import (
     ExternalCalendarURLError,
@@ -235,3 +236,38 @@ class ValidateExternalCalendarUrlTests(TestCase):
             pytest.raises(ExternalCalendarURLError, match="Could not resolve"),
         ):
             validate_external_calendar_url("https://nonexistent.invalid/feed.ics")
+
+
+@pytest.mark.live
+class PublishedHolidaysTests(TestCase):
+    """The one test here that asks the holiday API itself.
+
+    Every other test answers from the stand-in, which cannot notice that the feed changed
+    shape, moved, or stopped carrying a day. A missing day is the failure that hides: the
+    calendar still renders, the day cap still adds up, and a day nobody may bill silently
+    becomes a working day.
+
+    Christmas Eve is what it asserts, because it is the day most recently made a public
+    holiday - Dz.U. 2024 poz. 1965, in force from 2025 - and so the one a stale feed is
+    likeliest to be missing.
+    """
+
+    # None here, because the autouse fixture stands aside for a test marked live.
+    publisher: Publisher | None
+
+    # The year being looked at, not a settled one. A past year is served from history and is the
+    # least likely thing to change; the day that goes missing goes missing in the year the
+    # calendar is rendering. Every assertion below holds for any year from 2025 on, which is when
+    # Dz.U. 2024 poz. 1965 made Christmas Eve a public holiday.
+    YEAR = today_in_poland().year
+
+    def test_the_published_feed_still_carries_the_polish_holidays(self) -> None:
+        assert self.publisher is None, "Nothing was fetched, so this proves nothing."
+
+        holidays, stale = get_holidays("PL", self.YEAR)
+        dates = {holiday.date for holiday in holidays}
+
+        assert not stale, "The feed could not be read, so what came back is the cache."
+        assert datetime.date(self.YEAR, 1, 1) in dates
+        assert datetime.date(self.YEAR, 12, 24) in dates, "Christmas Eve has been a holiday since 2025."
+        assert datetime.date(self.YEAR, 12, 25) in dates
