@@ -558,12 +558,16 @@ class SchemaRetrievalTests(TestCase):
 
 @pytest.mark.live
 class PublishedSchemaTests(TestCase):
-    """The one test in the suite that reaches the Ministry of Finance.
+    """The published FA(3) schema, fetched rather than read off the shelf.
 
-    Every other test validates against the copy under `wad/tests/schemas/`, which is quick
-    and does not change meaning on the day something new is published. That is also its
-    weakness: a pinned copy cannot notice that it has gone out of date. This one can, so a
+    Every other test in this file validates against the copy under `wad/tests/schemas/`, which
+    is quick and does not change meaning on the day something new is published. That is also
+    its weakness: a pinned copy cannot notice that it has gone out of date. This one can, so a
     republished FA(3) arrives as a failing build rather than as a rejected invoice.
+
+    One of several tests that reach the Ministry; `pytest -m live` collects them all. What it
+    checks is the schema alone - nothing is sent, and issuing an invoice in a KSeF is
+    `PublishedKSeFTests` in `test_ksef_sending.py`.
     """
 
     # None here, because the autouse fixture stands aside for a test marked live.

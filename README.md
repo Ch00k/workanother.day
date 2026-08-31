@@ -17,7 +17,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Python 3.14.
 ```bash
 make run          # migrate, seed a dev user, serve on 127.0.0.1:8080
 make test         # collect static files, then run the suite
-make test-offline # the same, minus the six tests that reach the internet
+make test-offline # the same, minus the nine tests that reach the internet
 make lint         # ruff format, ruff check --fix, ty check
 ```
 
