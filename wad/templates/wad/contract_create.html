@@ -75,7 +75,7 @@
             </div>
             {% if external_calendar_sync_enabled %}
             <div class="sm:col-span-2">
-                <label for="external_calendar_url" class="block text-sm font-medium text-[#666] mb-1">External Calendar URL <span class="text-[#999]">(iCal feed)</span></label>
+                <label for="external_calendar_url" class="block text-sm font-medium text-[#666] mb-1">External Calendar URL</label>
                 <input type="url" id="external_calendar_url" name="external_calendar_url"
                        value="{{ form_data.external_calendar_url|default:'' }}"
                        placeholder="https://example.com/calendar.ics"

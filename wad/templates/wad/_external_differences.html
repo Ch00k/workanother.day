@@ -1,0 +1,49 @@
+<!-- Mobile: card layout -->
+<div class="sm:hidden flex flex-col gap-2 text-[13px]">
+    {% for row in differences %}
+    <div class="border-b border-[#f0f0f0] pb-2">
+        <div class="flex items-center justify-between gap-2">
+            <span class="font-medium">{{ row.date|date:"D, M j, Y" }}</span>
+            <span class="text-[11px] text-[#888]">
+                {% if row.wad_hours is None %}Not booked here
+                {% elif row.external_hours is None %}Not in external
+                {% else %}Hours differ{% endif %}
+            </span>
+        </div>
+        <div class="mt-1 flex gap-4 text-[12px] text-[#555]">
+            <span>{{ contract.name }}: {% if row.wad_hours is None %}-{% else %}{{ row.wad_hours }}h{% endif %}</span>
+            <span>External: {% if row.external_hours is None %}-{% else %}{{ row.external_hours }}h{% endif %}</span>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Desktop: table layout -->
+<table class="hidden sm:table w-full text-[13px]">
+    <thead>
+        <tr>
+            <th class="text-left px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Date</th>
+            <th class="text-right px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">{{ contract.name }}</th>
+            <th class="text-right px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">External</th>
+            <th class="text-left px-3 py-2 border-b-2 border-[#eee] text-[11px] uppercase tracking-wider text-[#999]">Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in differences %}
+        <tr class="border-b border-[#f0f0f0]">
+            <td class="px-3 py-2 font-medium">{{ row.date|date:"D, M j, Y" }}</td>
+            <td class="px-3 py-2 text-right {% if row.wad_hours is None %}text-[#ddd]{% endif %}">
+                {% if row.wad_hours is None %}-{% else %}{{ row.wad_hours }}h{% endif %}
+            </td>
+            <td class="px-3 py-2 text-right {% if row.external_hours is None %}text-[#ddd]{% endif %}">
+                {% if row.external_hours is None %}-{% else %}{{ row.external_hours }}h{% endif %}
+            </td>
+            <td class="px-3 py-2 text-[12px] text-[#888]">
+                {% if row.wad_hours is None %}Not booked here
+                {% elif row.external_hours is None %}Not in external
+                {% else %}Hours differ{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>

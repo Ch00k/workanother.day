@@ -19,16 +19,11 @@
                 &middot; {{ contract.start_date|date:"M j, Y" }} - {{ contract.end_date|date:"M j, Y" }}
             </div>
         </div>
-        <div class="flex flex-wrap gap-2">
-            {% if external_calendar_sync_enabled and contract.external_calendar_url %}
-            <button hx-get="{% url 'sync_external_calendar' pk=contract.pk %}"
-                    hx-target="#external-sync-panel"
-                    hx-swap="innerHTML"
-                    hx-indicator="#external-sync-indicator"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
-                Sync with external calendar
-            </button>
-            {% endif %}
+        {% comment %}
+        ml-auto keeps the row against the right edge on a line of its own, which is where it
+        lands once it is too wide to sit beside the title.
+        {% endcomment %}
+        <div class="flex flex-wrap gap-2 ml-auto">
             <a href="{% url 'export_calendar' pk=contract.pk %}"
                class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
                 Export .ics
@@ -136,11 +131,26 @@
                 class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50">
             Clear
         </button>
-        <button data-opens="holiday-dialog"
-                data-loads="{% url 'holiday_comparison' pk=contract.pk %}" data-into="#holiday-comparison-content"
-                class="sm:ml-auto rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
-            Holiday comparison
-        </button>
+        {% comment %}
+        The comparisons travel together against the right edge, so that whether the external
+        one is there decides only how many buttons the group holds, not where the group sits.
+        {% endcomment %}
+        <div class="flex flex-wrap gap-2.5 sm:ml-auto">
+            {% if external_calendar_sync_enabled and contract.external_calendar_url %}
+            <button data-opens="external-sync-dialog"
+                    data-loads="{% url 'compare_external_calendar' pk=contract.pk %}" data-into="#external-sync-content"
+                    data-pending="Fetching external calendar..."
+                    data-failed="Could not fetch the external calendar."
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
+                External calendar comparison
+            </button>
+            {% endif %}
+            <button data-opens="holiday-dialog"
+                    data-loads="{% url 'holiday_comparison' pk=contract.pk %}" data-into="#holiday-comparison-content"
+                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
+                Holiday comparison
+            </button>
+        </div>
     </div>
 
     <!-- Legend -->
@@ -181,11 +191,6 @@
     <div class="notice mt-4">
         Holiday data may be outdated. Could not refresh from the holiday API.
     </div>
-    {% endif %}
-
-    {% if external_calendar_sync_enabled and contract.external_calendar_url %}
-    <div id="external-sync-indicator" class="htmx-indicator mt-4 text-sm text-[#888]">Fetching external calendar...</div>
-    <div id="external-sync-panel" class="mt-4"></div>
     {% endif %}
 
     <!-- Calendar grid -->
@@ -328,17 +333,11 @@
     </div>
     {% endpartialdef %}
 
-    <!-- Holiday comparison dialog -->
-    <dialog id="holiday-dialog" class="rounded-[14px] bg-white shadow-lg border border-black/5 p-0 max-w-[960px] w-[calc(100%-2rem)] mx-auto backdrop:bg-black/30 open:fixed open:inset-0 open:m-auto max-h-[calc(100vh-2rem)] overflow-y-auto"
-            data-closes-on-backdrop>
-        <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
-            <h2 class="text-xl font-bold">Holiday Comparison</h2>
-            <button data-closes-dialog
-                    class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
-        </div>
-        <div id="holiday-comparison-content" class="px-5 py-4 overflow-y-auto max-h-[70vh]">
-        </div>
-    </dialog>
+    {% include "wad/_dialog.html" with dialog_id="holiday-dialog" dialog_title="Holiday Comparison" content_id="holiday-comparison-content" %}
+
+    {% if external_calendar_sync_enabled and contract.external_calendar_url %}
+    {% include "wad/_dialog.html" with dialog_id="external-sync-dialog" dialog_title="External Calendar Comparison" content_id="external-sync-content" %}
+    {% endif %}
 
 </div>
 {% endblock %}
