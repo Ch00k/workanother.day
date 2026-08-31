@@ -1,0 +1,19 @@
+{% comment %}
+What was left out of the comparison, and why. Shown wherever a comparison is, since one that
+checked less than it was asked to and did not say so reads as a clean bill of health over
+months nobody looked at.
+
+Renders nothing when the whole period asked about was compared, which is the ordinary case.
+{% endcomment %}
+{% if uncompared %}
+<div class="notice">
+    Days off for {% include "wad/_external_stretches.html" with stretches=uncompared %}
+    could not be compared: the external calendar does not publish that far.
+</div>
+{% endif %}
+{% if settled %}
+<div class="notice notice-neutral">
+    Days off for {% include "wad/_external_stretches.html" with stretches=settled %}
+    were not compared: those days are already invoiced.
+</div>
+{% endif %}
