@@ -8,22 +8,30 @@ with the app.
 
 from __future__ import annotations
 
-import datetime
 import decimal
 from typing import TYPE_CHECKING
 
+from wad.calendar_utils import today_in_poland
 from wad.invoicing import next_number
 from wad.views import _store_invoice
 
 if TYPE_CHECKING:
+    import datetime
+
     from wad.models import Contract, Invoice
 
 LINES = [("Software development services", decimal.Decimal(18), decimal.Decimal("800.00"))]
 
 
 def today() -> datetime.date:
-    """The date an invoice has to carry, which KSeF requires to be the day it is sent."""
-    return datetime.datetime.now(tz=datetime.UTC).date()
+    """The date an invoice has to carry, which KSeF requires to be the day it is sent.
+
+    The day in Poland, because that is the day KSeF is keeping. For the hour or two between
+    midnight in Warsaw and midnight in UTC the two are different dates, and a UTC date in that
+    window is yesterday as far as KSeF is concerned - which makes the invoice one issued
+    offline, needing a second QR code and a certificate to produce it.
+    """
+    return today_in_poland()
 
 
 def store_invoice(

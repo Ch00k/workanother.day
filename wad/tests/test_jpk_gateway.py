@@ -14,10 +14,13 @@ import base64
 import datetime
 import decimal
 import hashlib
+import time
 import zoneinfo
 
 import httpx
 import pytest
+from django.conf import settings
+from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from lxml import etree
@@ -37,6 +40,10 @@ D = decimal.Decimal
 AUTHORISING_REVENUE = "480000.00"
 
 SIGNATURE = "{http://e-deklaracje.mf.gov.pl/Repozytorium/Definicje/Podpis/}"
+
+# Where a document may be filed from a test. Named so the assertion that guards the filing test
+# reads as the address it is, rather than as a string nobody can place.
+TEST_GATEWAY = "https://test-e-dokumenty.mf.gov.pl"
 
 
 @override_settings(JPK_GATEWAY_CERTIFICATE=str(gateway.identity().certificate))
@@ -458,16 +465,137 @@ class RefusalTests(GatewayTestCase):
 
 
 @pytest.mark.live
-class PublishedGatewayTests(TestCase):
-    """The one test in this file that reaches the Ministry of Finance.
+class PublishedGatewayFilingTests(TestCase):
+    """Carrying a document the whole way, against the Ministry rather than the stand-in.
 
-    Everything else answers against the stand-in, which cannot notice that the endpoint moved,
-    that the metadata schema gained a required element, or that the certificate payloads are
-    sealed to has been reissued. This can, so any of those arrives as a failing build rather
-    than as a file that will not go on the day it is due.
+    The test below this one opens a session and stops, which leaves the half that decides
+    whether anything was filed - the upload, the close, and the verdict - checked only against
+    `wad/tests/gateway.py`. A stand-in is this application's own reading of the specification,
+    so anything misread in it is agreed with rather than caught. This goes through `send` and
+    `resolve`, which is what a taxpayer runs, and settles on whatever the gateway says.
+
+    The verdict it settles on is a refusal, and deliberately so. The gateway checks dane
+    autoryzujące against the Ministry's own records, so a taxpayer invented for a test is
+    refused as `419 Dane niezgodne z prawdą` however well formed the document is. That refusal
+    is reached only after the package has been stored, decrypted and read, so everything up to
+    it is what this proves: the metadata, the seal, the part naming, the upload, the close, the
+    poll, and the reading of a real terminal status. What it cannot prove is the receipt, which
+    would need a real taxpayer's own figures and is left to the stand-in.
+    """
+
+    # None here, because the autouse fixture stands aside for a test marked live.
+    publisher: object | None
+
+    # 419 is the refusal for authorising data the Ministry cannot match. Named because the
+    # test asserts on the code rather than on the sentence, which is Polish prose and may be
+    # reworded without anything having changed.
+    AUTHORISATION_REFUSED = "419"
+
+    # The year filed for, which cannot be the one the rest of this module uses. JPK_EWP(4)
+    # covers tax years from 2026, and the gateway checks that before it checks anything about
+    # the taxpayer: a 2025 period comes back as `425 Nieprawidłowy okres raportowania`, which
+    # is a refusal reached too early to prove the document was read at all.
+    #
+    # Fixed rather than tracking the calendar. 2026 is the earliest year the structure covers
+    # and it stays filable for good, whereas the year in progress is a period that has not
+    # ended - which risks the same early refusal for a reason that has nothing to do with what
+    # is being tested.
+    FILED_YEAR = 2026
+
+    # Verification takes a few seconds. Ten tries at two seconds is generous against that and
+    # short enough that a gateway which has stopped answering fails the build rather than
+    # holding it.
+    ATTEMPTS = 10
+    INTERVAL = 2
+
+    def test_a_document_is_carried_to_a_verdict(self) -> None:
+        assert self.publisher is None, "Nothing reached the gateway, so this proves nothing."
+        # Checked rather than assumed, because this one uploads and closes the session, which is
+        # what decides whether anything was filed. Asserted rather than overridden: the URL and
+        # the certificate are chosen together when settings load, so pinning the environment
+        # afterwards would move neither.
+        assert settings.JPK_GATEWAY_URL == TEST_GATEWAY, (
+            "This files a document, so it files to the test gateway or not at all."
+        )
+
+        filing = _invented_filing(self.FILED_YEAR)
+
+        gateway_sending.send(filing, revenue=D(AUTHORISING_REVENUE))
+
+        assert filing.reference_number, "The gateway opened no session, so nothing was uploaded."
+        assert filing.is_in_flight
+
+        settled = self._settled(filing)
+
+        assert settled, f"The gateway had not finished after {self.ATTEMPTS * self.INTERVAL}s."
+        assert filing.state == Filing.State.REJECTED
+        assert filing.error.startswith(self.AUTHORISATION_REFUSED)
+        assert not filing.upo
+
+    def _settled(self, filing: Filing) -> bool:
+        """Ask until the gateway has made up its mind, or until we stop waiting.
+
+        The wait goes between attempts rather than after the last one, so the whole allowance is
+        spent asking rather than a final interval being slept through and then given up on.
+        """
+        for attempt in range(self.ATTEMPTS):
+            if gateway_sending.resolve(filing):
+                return True
+
+            if attempt < self.ATTEMPTS - 1:
+                time.sleep(self.INTERVAL)
+
+        return False
+
+
+def _invented_filing(year: int) -> Filing:
+    """A year's file for a taxpayer who does not exist, ready to be handed over.
+
+    Invented rather than real because filing is not free of consequence: this runs on every
+    build, and what it puts through the Ministry's test system should not be somebody's actual
+    identity over and over. The NIP is well formed and matches nothing, which is exactly what
+    produces the refusal this test settles on.
+    """
+    user = User.objects.create_user(username="live-gateway")
+    seller = Seller.objects.create(
+        user=user,
+        name="Jan Kowalski",
+        address="ul. Testowa 1, 00-001 Warszawa",
+        country="PL",
+        nip="3333333333",
+        first_name="Jan",
+        last_name="Kowalski",
+        date_of_birth=datetime.date(1980, 1, 1),
+        kod_urzedu="1211",
+        business_started_on=datetime.date(year, 1, 1),
+    )
+    produced_at = datetime.datetime.now(tz=datetime.UTC)
+    document = jpk.render(_year(seller=seller, year=year), produced_at=produced_at)
+
+    return Filing.objects.create(
+        seller=seller,
+        year=year,
+        xml=document,
+        xml_sha256=hashlib.sha256(document).hexdigest(),
+        produced_at=produced_at,
+        revenue=D("40000.00"),
+        entry_count=1,
+    )
+
+
+@pytest.mark.live
+class PublishedGatewayTests(TestCase):
+    """The metadata and the session, against the Ministry rather than the stand-in.
+
+    The lighter of the two live tests here. Everything outside them answers against the
+    stand-in, which cannot notice that the endpoint moved, that the metadata schema gained a
+    required element, or that the certificate payloads are sealed to has been reissued. This
+    can, so any of those arrives as a failing build rather than as a file that will not go on
+    the day it is due.
 
     It opens a session and stops there: nothing is uploaded, and a session nothing is uploaded
-    into is abandoned by the gateway rather than being anything filed.
+    into is abandoned by the gateway rather than being anything filed. Carrying a document the
+    whole way to a verdict is `PublishedGatewayFilingTests` above.
     """
 
     # None here, because the autouse fixture stands aside for a test marked live.
@@ -507,17 +635,17 @@ _SELLER = Seller(
 )
 
 
-def _year() -> Year:
+def _year(seller: Seller = _SELLER, year: int = YEAR) -> Year:
     """One entry, which is the least a JPK_EWP can carry and all this needs to be one."""
     return Year(
-        seller=_SELLER,
-        year=YEAR,
+        seller=seller,
+        year=year,
         entries=(
             Entry(
                 position=1,
-                entered_on=datetime.date(YEAR, 3, 31),
-                revenue_date=datetime.date(YEAR, 3, 31),
-                document="1/03/2026",
+                entered_on=datetime.date(year, 3, 31),
+                revenue_date=datetime.date(year, 3, 31),
+                document=f"1/03/{year}",
                 amount=D("40000.00"),
                 rate=D("12.00"),
             ),

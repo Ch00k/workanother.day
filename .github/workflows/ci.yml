@@ -28,6 +28,13 @@ jobs:
       # Chrome, which takes the same flags, so pointing at it is what makes those
       # tests run here rather than quietly pass by being skipped.
       DJANGO_CHROMIUM_PATH: /usr/bin/google-chrome
+      # The KSeF sandbox pair. A token is issued for one NIP in one KSeF, so it cannot live in
+      # the repository. The test that issues an invoice there fails rather than skipping when
+      # they are missing here, because a skip is a green build: rotated, revoked or simply
+      # never passed, and nothing would be exercising the real KSeF with nothing to say so.
+      # A pull request from a fork gets no secrets at all and so cannot pass this job.
+      KSEF_DEV_TOKEN: ${{ secrets.KSEF_DEV_TOKEN }}
+      KSEF_DEV_NIP: ${{ secrets.KSEF_DEV_NIP }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
