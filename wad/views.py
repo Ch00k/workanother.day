@@ -161,25 +161,170 @@ class ExternalSyncDifference(TypedDict):
     external_hours: int | None
 
 
+class Stretch(NamedTuple):
+    """A run of days named as one, from start through end inclusive."""
+
+    start: datetime.date
+    end: datetime.date
+
+
 class ExternalSyncContext(TypedDict):
     contract: Contract
     differences: list[ExternalSyncDifference]
     in_sync: bool
+    # The three ways the requested period is divided up, each in date order. Together they
+    # cover it: what the two calendars were held against each other over, what the feed
+    # publishes nothing for, and what an issued invoice has already settled.
+    compared: list[Stretch]
+    uncompared: list[Stretch]
+    settled: list[Stretch]
     fetch_error: NotRequired[str]
+
+
+def _settled_stretches(contract: Contract, start: datetime.date, end: datetime.date) -> list[Stretch]:
+    """The parts of this period an issued invoice already covers, run together where adjacent.
+
+    A disagreement inside a month already invoiced is not something anyone can act on. The
+    invoice is issued, the buyer holds a copy, and putting it right takes a correction
+    invoice rather than a booking changed on the calendar. Only ACCEPTED and ISSUED settle a
+    month that way: a draft or a rejected invoice leaves it open, and open is exactly when a
+    disagreement is still worth hearing about.
+
+    Each invoiced period is read on its own, because the register has gaps: any month whose
+    last day has passed can be invoiced, in any order, so a June invoice says nothing about
+    May.
+    """
+    day = datetime.timedelta(days=1)
+    periods = (
+        contract.invoices.filter(  # ty: ignore[unresolved-attribute]
+            state__in=Invoice.ISSUED_STATES, period_start__lte=end, period_end__gte=start
+        )
+        .order_by("period_start")
+        .values_list("period_start", "period_end")
+    )
+
+    settled: list[Stretch] = []
+    for period_start, period_end in periods:
+        clipped = Stretch(max(period_start, start), min(period_end, end))
+
+        if settled and clipped.start <= settled[-1].end + day:
+            settled[-1] = Stretch(settled[-1].start, max(settled[-1].end, clipped.end))
+        else:
+            settled.append(clipped)
+
+    return settled
+
+
+def _open_stretches(start: datetime.date, end: datetime.date, settled: list[Stretch]) -> list[Stretch]:
+    """What is left of this period once the invoiced stretches are taken out of it."""
+    day = datetime.timedelta(days=1)
+    cursor = start
+
+    open_stretches: list[Stretch] = []
+    for stretch in settled:
+        if cursor < stretch.start:
+            open_stretches.append(Stretch(cursor, stretch.start - day))
+        cursor = stretch.end + day
+
+    if cursor <= end:
+        open_stretches.append(Stretch(cursor, end))
+
+    return open_stretches
+
+
+def _feed_window() -> tuple[datetime.date, datetime.date]:
+    """The stretch a Calamari feed publishes: a few recent months, out to the end of the year.
+
+    Undocumented and taken no date parameters, so measured. A company-wide feed read on
+    2026-08-31 ran from 2026-06-01 to 2026-12-31, with 20 of June's 22 business days, 22 of
+    July's 23 and all 21 of August's carrying at least one absence, and none of May's 21
+    carrying any. Across a whole company that is a boundary rather than a quiet month. The
+    Swiss public holidays the feed generates itself confirm both ends: Ascension and Whit
+    Monday, in May, are absent, as is Neujahr on 2027-01-01, while every Geneva holiday
+    between the two is present.
+
+    Read as a rule rather than off the feed each time, because the feed cannot show either
+    edge. Its earliest event marks the oldest absence somebody booked, not the oldest day it
+    covers, so a month inside the window with nobody away looks identical to a month outside
+    it - and treating the two alike is either a booking wrongly called missing or a real one
+    passed over. Its latest event says even less, absences thinning into the future as people
+    have not asked for leave yet.
+
+    The back edge is the first day of the month two months back, which is where that one
+    observation puts it: June carried absences and May carried none, so the edge falls on the
+    May/June boundary. A ninety-day rolling edge fits the same reading almost as well, landing
+    on 2026-06-02, but a boundary is what the evidence is shaped like, and the two part company
+    mid-month, where a second reading would tell them apart.
+    """
+    today = today_in_poland()
+
+    year, month = today.year, today.month - 2
+    if month < 1:
+        year, month = year - 1, month + 12
+
+    return datetime.date(year, month, 1), datetime.date(today.year, 12, 31)
 
 
 def _build_external_sync_context(
     contract: Contract,
     date_range: tuple[datetime.date, datetime.date] | None = None,
 ) -> ExternalSyncContext:
-    """Fetch external calendar and compare against WAD's TimeOff. Errors are captured, not raised."""
+    """Fetch external calendar and compare against WAD's TimeOff. Errors are captured, not raised.
+
+    The comparison covers only the stretches both sides can speak to, which is less than the
+    period asked about in two ways. Stretches already invoiced are settled and left alone.
+    What is left is held to the window the feed publishes, because reading the feed's silence
+    about a month it never covered as a missing day turns every booking there into a
+    disagreement that is not one.
+
+    Whatever that cuts away is reported rather than dropped, since a comparison that quietly
+    checked less than it was asked to reads as a clean bill of health.
+    """
+    day = datetime.timedelta(days=1)
+    start, end = date_range or (contract.start_date, contract.end_date)
+    published_from, published_to = _feed_window()
+
+    settled = _settled_stretches(contract, start, end)
+
+    compared: list[Stretch] = []
+    uncompared: list[Stretch] = []
+    for stretch in _open_stretches(start, end, settled):
+        within_window = Stretch(max(stretch.start, published_from), min(stretch.end, published_to))
+
+        if within_window.start > within_window.end:
+            uncompared.append(stretch)
+            continue
+
+        if stretch.start < within_window.start:
+            uncompared.append(Stretch(stretch.start, within_window.start - day))
+        compared.append(within_window)
+        if within_window.end < stretch.end:
+            uncompared.append(Stretch(within_window.end + day, stretch.end))
+
+    if not compared:
+        return {
+            "contract": contract,
+            "differences": [],
+            "in_sync": False,
+            "compared": [],
+            "uncompared": uncompared,
+            "settled": settled,
+        }
+
+    # One request spanning everything compared. Where a settled stretch sits between two
+    # compared ones, its days come back inside that span and are dropped below.
+    asked = (compared[0].start, compared[-1].end)
+
     try:
-        external = fetch_external_time_off(contract, date_range)
+        external = fetch_external_time_off(contract, asked)
     except (httpx.HTTPError, ExternalCalendarURLError) as e:
         return {
             "contract": contract,
             "differences": [],
             "in_sync": False,
+            "compared": [],
+            "uncompared": [],
+            "settled": [],
             "fetch_error": f"Could not fetch external calendar: {e}",
         }
     except ICalImportError as e:
@@ -187,13 +332,13 @@ def _build_external_sync_context(
             "contract": contract,
             "differences": [],
             "in_sync": False,
+            "compared": [],
+            "uncompared": [],
+            "settled": [],
             "fetch_error": f"External calendar is not valid iCalendar: {e}",
         }
 
-    time_off_qs = contract.time_off.all()  # ty: ignore[unresolved-attribute]
-    if date_range is not None:
-        start, end = date_range
-        time_off_qs = time_off_qs.filter(date__gte=start, date__lte=end)
+    time_off_qs = contract.time_off.filter(date__gte=asked[0], date__lte=asked[1])  # ty: ignore[unresolved-attribute]
     wad: dict[datetime.date, int] = {t.date: t.hours for t in time_off_qs}
 
     # One row per date the two sides do not agree on, in date order. A date only one side
@@ -202,6 +347,7 @@ def _build_external_sync_context(
     differences: list[ExternalSyncDifference] = [
         {"date": date, "wad_hours": wad.get(date), "external_hours": external.get(date)}
         for date in sorted(external.keys() | wad.keys())
+        if any(stretch.start <= date <= stretch.end for stretch in compared)
         if wad.get(date) != external.get(date)
     ]
 
@@ -209,6 +355,9 @@ def _build_external_sync_context(
         "contract": contract,
         "differences": differences,
         "in_sync": not differences,
+        "compared": compared,
+        "uncompared": uncompared,
+        "settled": settled,
     }
 
 

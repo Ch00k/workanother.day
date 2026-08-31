@@ -1,3 +1,4 @@
+import calendar
 import datetime
 import uuid
 from typing import TYPE_CHECKING
@@ -12,6 +13,7 @@ from wad.models import (
     Contract,
     Guest,
     Holiday,
+    Invoice,
     TimeOff,
     generate_token,
     hash_token,
@@ -978,6 +980,12 @@ class SyncExternalCalendarTests(TestCase):
     def setUp(self) -> None:
         super().setUp()
 
+        # How far the feed publishes is measured from today, and the sample's days are in
+        # 2026. Naming a day that leaves the whole contract inside that window keeps these
+        # tests about what the comparison makes of the two calendars. The window itself is
+        # tested below, on days chosen to put it where each test needs it.
+        self.enterContext(today_is(datetime.date(2026, 2, 15)))
+
         self.user = User.objects.create_user(username="test", is_staff=True)
         self.client.force_login(self.user)
         self.contract = Contract.objects.create(
@@ -1023,6 +1031,9 @@ class SyncExternalCalendarTests(TestCase):
 
         The sample books Apr 6 for 8h and Apr 17 for 4h. Booking 8h on both leaves Apr 6
         matching and Apr 17 differing, so the table carries Apr 17 and its two figures alone.
+
+        The agreeing day is looked for in the weekday-prefixed form the table writes dates
+        in, because the plain form also appears in the note naming the compared window.
         """
         TimeOff.objects.create(contract=self.contract, date="2026-04-06", hours=8)
         TimeOff.objects.create(contract=self.contract, date="2026-04-17", hours=8)
@@ -1031,8 +1042,8 @@ class SyncExternalCalendarTests(TestCase):
         response = self.client.get(self._url())
 
         self.assertContains(response, "Hours differ")
-        self.assertContains(response, "Apr 17, 2026")
-        self.assertNotContains(response, "Apr 6, 2026")
+        self.assertContains(response, "Fri, Apr 17, 2026")
+        self.assertNotContains(response, "Mon, Apr 6, 2026")
         # Each figure against the side it came from: swapping the two columns is the one way
         # this feature can be wrong while still looking right.
         self.assertContains(response, "Acme: 8h")
@@ -1062,6 +1073,145 @@ class SyncExternalCalendarTests(TestCase):
         response = self.client.get(self._url())
         assert response.status_code == 404
 
+    def _invoice(self, month: int, state: str) -> Invoice:
+        """An invoice covering the whole of one 2026 month, in the given state."""
+        return Invoice.objects.create(
+            contract=self.contract,
+            user=self.user,
+            number=f"2026{month:02d}-1",
+            issue_date=datetime.date(2026, month, 28),
+            currency="CHF",
+            period_start=datetime.date(2026, month, 1),
+            period_end=datetime.date(2026, month, calendar.monthrange(2026, month)[1]),
+            state=state,
+        )
+
+    def test_months_already_invoiced_are_not_compared(self) -> None:
+        """A day off inside an invoiced month is not a disagreement anyone can act on.
+
+        The sample feed carries Apr 6 and Apr 17 and nothing else, so booking neither would
+        ordinarily report both as missing here. An issued April invoice settles the month,
+        which is left out of the comparison and said to have been - agreement claimed over
+        the whole contract when a month of it was never looked at is the failure that guards
+        against.
+        """
+        self._invoice(4, Invoice.State.ISSUED)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(self._url())
+
+        self.assertNotContains(response, "Not booked here")
+        self.assertContains(response, "Apr 1, 2026 to Apr 30, 2026")
+        self.assertContains(response, "already invoiced")
+        self.assertContains(
+            response,
+            "External calendar matches your bookings for Jan 1, 2026 to Mar 31, 2026 and May 1, 2026 to Dec 31, 2026.",
+        )
+
+    def test_a_month_left_uninvoiced_between_two_invoiced_ones_is_still_compared(self) -> None:
+        """Invoicing has gaps, and a later invoice settles nothing about a month it skipped.
+
+        Any month whose last day has passed can be invoiced, in any order. April and June
+        issued with May skipped leaves May as open as it ever was, so a May booking the feed
+        does not carry is still a disagreement worth reporting - and reading the invoices as
+        one contiguous run would take the comparison past it.
+        """
+        self._invoice(4, Invoice.State.ISSUED)
+        self._invoice(6, Invoice.State.ISSUED)
+        TimeOff.objects.create(contract=self.contract, date="2026-05-12", hours=8)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(self._url())
+
+        self.assertContains(response, "Not in external")
+        self.assertContains(response, "Tue, May 12, 2026")
+        self.assertContains(response, "Apr 1, 2026 to Apr 30, 2026 and Jun 1, 2026 to Jun 30, 2026")
+
+    def test_consecutive_invoiced_months_are_named_as_one_stretch(self) -> None:
+        """Two months settled back to back are one stretch of settled days, and read as one."""
+        self._invoice(4, Invoice.State.ISSUED)
+        self._invoice(5, Invoice.State.ISSUED)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(self._url())
+
+        self.assertContains(response, "Apr 1, 2026 to May 31, 2026")
+
+    def test_a_draft_invoice_leaves_its_month_compared(self) -> None:
+        """A draft has gone nowhere, so its month can still be put right on the calendar."""
+        self._invoice(4, Invoice.State.DRAFT)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(self._url())
+
+        self.assertContains(response, "Not booked here")
+        self.assertContains(response, "Fri, Apr 17, 2026")
+
+    def test_months_before_the_feeds_window_are_named_rather_than_reported(self) -> None:
+        """The feed publishes a few recent months, and silence outside them is not disagreement.
+
+        Read on Aug 31 the window opens on Jun 1, so a booking in May sits where the feed
+        says nothing either way. Calling it missing is the bug this guards; the stretch is
+        named instead.
+        """
+        self.enterContext(today_is(datetime.date(2026, 8, 31)))
+        TimeOff.objects.create(contract=self.contract, date="2026-05-12", hours=8)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(self._url())
+
+        self.assertNotContains(response, "Tue, May 12, 2026")
+        self.assertContains(response, "could not be compared")
+        self.assertContains(response, "Jan 1, 2026 to May 31, 2026")
+
+    def test_a_month_inside_the_window_with_no_events_is_a_real_disagreement(self) -> None:
+        """The distinction the window exists to draw, and the reason it is a rule not a guess.
+
+        A month the feed covers and carries nothing for means nobody was away, so a booking
+        there was never requested in Calamari and is worth reporting. A month outside the
+        window carrying nothing means only that it was never published. Reading the feed's
+        earliest event as its lower edge would confuse the two, because the sample's first
+        event is in April and June is covered but empty.
+        """
+        self.enterContext(today_is(datetime.date(2026, 8, 31)))
+        TimeOff.objects.create(contract=self.contract, date="2026-06-10", hours=8)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(self._url())
+
+        self.assertContains(response, "Not in external")
+        self.assertContains(response, "Wed, Jun 10, 2026")
+
+    def test_months_past_the_year_the_feed_stops_at_are_named_rather_than_reported(self) -> None:
+        """The feed publishes to the end of the current year, so a contract running past it
+        has months it will not mention until the year turns.
+        """
+        self.enterContext(today_is(datetime.date(2026, 8, 31)))
+        self.contract.end_date = datetime.date(2027, 3, 31)
+        self.contract.save()
+        TimeOff.objects.create(contract=self.contract, date="2027-01-14", hours=8)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(self._url())
+
+        self.assertNotContains(response, "Thu, Jan 14, 2027")
+        self.assertContains(response, "Jan 1, 2027 to Mar 31, 2027")
+
+    def test_a_period_wholly_outside_the_window_compares_nothing(self) -> None:
+        """Neither agreement nor disagreement can be claimed where the feed does not reach."""
+        self.enterContext(today_is(datetime.date(2026, 8, 31)))
+        self.contract.start_date = datetime.date(2027, 1, 1)
+        self.contract.end_date = datetime.date(2027, 12, 31)
+        self.contract.save()
+        TimeOff.objects.create(contract=self.contract, date="2027-01-14", hours=8)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(self._url())
+
+        self.assertNotContains(response, "External calendar matches your bookings")
+        self.assertNotContains(response, "Not in external")
+        self.assertContains(response, "Jan 1, 2027 to Dec 31, 2027")
+
     def test_calendar_page_shows_comparison_button_when_url_set(self) -> None:
         response = self.client.get(f"/contracts/{self.contract.pk}/")
         self.assertContains(response, "External calendar comparison")
@@ -1081,6 +1231,10 @@ class InvoiceExternalSyncTests(TestCase):
 
     def setUp(self) -> None:
         super().setUp()
+
+        # As in SyncExternalCalendarTests: a named day that leaves 2026 inside the window the
+        # feed publishes, so these tests are about the month the page scopes the comparison to.
+        self.enterContext(today_is(datetime.date(2026, 2, 15)))
 
         self.user = User.objects.create_user(username="test", is_staff=True)
         self.client.force_login(self.user)
@@ -1150,6 +1304,65 @@ class InvoiceExternalSyncTests(TestCase):
         assert response.status_code == 200
         self.assertNotContains(response, "Apr 6, 2026")
         self.assertContains(response, "External calendar matches your bookings")
+
+    @override_settings(DEBUG=True)
+    def test_an_invoiced_month_says_so_rather_than_reporting_agreement(self) -> None:
+        """Reopening a settled month must not read as a clean comparison of it.
+
+        The sample's two April days are booked nowhere here, so without the guard the page
+        would list both as missing. April is issued, so nothing is compared at all - and
+        saying "matches your bookings" over a comparison that never ran is the failure this
+        is here to prevent. The month is named in saying so, because the same note carries
+        the partly-invoiced case.
+        """
+        Invoice.objects.create(
+            contract=self.contract,
+            user=self.user,
+            number="202604-1",
+            issue_date=datetime.date(2026, 4, 30),
+            currency="CHF",
+            period_start=datetime.date(2026, 4, 1),
+            period_end=datetime.date(2026, 4, 30),
+            state=Invoice.State.ISSUED,
+        )
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/4/")
+
+        assert response.status_code == 200
+        self.assertNotContains(response, "External calendar matches your bookings")
+        self.assertNotContains(response, "Not booked here")
+        self.assertContains(response, "Apr 1, 2026 to Apr 30, 2026")
+        self.assertContains(response, "already invoiced")
+
+    @override_settings(DEBUG=True)
+    def test_the_month_being_invoiced_after_a_later_one_is_compared_not_called_settled(self) -> None:
+        """The month the page is invoicing is not invoiced, whatever later months are.
+
+        June issued and May skipped is an ordinary state of the register. Opening May's
+        invoice to finally issue it must compare May: telling the user it is already invoiced
+        is a false statement about the month in front of them, and leaves the comparison the
+        page exists for unrun.
+        """
+        Invoice.objects.create(
+            contract=self.contract,
+            user=self.user,
+            number="202606-1",
+            issue_date=datetime.date(2026, 6, 30),
+            currency="CHF",
+            period_start=datetime.date(2026, 6, 1),
+            period_end=datetime.date(2026, 6, 30),
+            state=Invoice.State.ISSUED,
+        )
+        TimeOff.objects.create(contract=self.contract, date="2026-05-12", hours=8)
+        self.publisher.add_calendar(FEED_URL, CALAMARI_SAMPLE.encode())
+
+        response = self.client.get(f"/contracts/{self.contract.pk}/invoice/2026/5/")
+
+        assert response.status_code == 200
+        self.assertNotContains(response, "already invoiced")
+        self.assertContains(response, "External calendar differs from your bookings")
+        self.assertContains(response, "Tue, May 12, 2026")
 
     @override_settings(DEBUG=True)
     def test_invoice_page_omits_panel_when_no_url(self) -> None:

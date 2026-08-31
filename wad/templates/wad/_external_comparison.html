@@ -1,16 +1,21 @@
 {% comment %}
-How the comparison turned out, however it turned out: what went wrong reaching the feed, or
-that the two agree, or the days they disagree on. Whatever frames this supplies the title,
-so nothing here repeats one.
+How the comparison turned out, however it turned out: what went wrong reaching the feed,
+what was left out of it and why, and then that the two agree, or the days they disagree on.
+Whatever frames this supplies the title, so nothing here repeats one.
 {% endcomment %}
 {% if fetch_error %}
 <div class="notice notice-error">
     {{ fetch_error }}
 </div>
-{% elif in_sync %}
+{% else %}
+{% include "wad/_external_scope_notes.html" %}
+{% if compared %}
+{% if in_sync %}
 <div class="notice notice-neutral">
-    External calendar matches your bookings.
+    External calendar matches your bookings{% if uncompared or settled %} for {% include "wad/_external_stretches.html" with stretches=compared %}{% endif %}.
 </div>
 {% else %}
 {% include "wad/_external_differences.html" %}
+{% endif %}
+{% endif %}
 {% endif %}
