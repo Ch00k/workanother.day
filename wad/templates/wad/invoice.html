@@ -38,7 +38,7 @@
 
     {% if external_sync %}
     <div class="mt-5">
-        {% include "wad/_external_sync.html" with contract=external_sync.contract external_only=external_sync.external_only wad_only=external_sync.wad_only mismatched=external_sync.mismatched in_sync=external_sync.in_sync fetch_error=external_sync.fetch_error %}
+        {% include "wad/_external_banner.html" with contract=external_sync.contract differences=external_sync.differences in_sync=external_sync.in_sync fetch_error=external_sync.fetch_error %}
     </div>
     {% endif %}
 
@@ -47,14 +47,14 @@
             {% csrf_token %}
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-2">From</div>
             {% if can_store_invoices %}
-            <div class="sm:col-span-2 rounded-[10px] border border-[#eee] bg-[#fafafa] px-4 py-3">
+            <div class="sm:col-span-2 rounded-[10px] border border-[#eee] bg-[#fafafa] px-4 py-2">
                 {% if contract.seller %}
                 <div class="font-semibold text-sm">{{ contract.seller.name }}</div>
                 <div class="text-xs text-[#888] mt-0.5">{{ contract.seller.address|linebreaksbr }}</div>
                 {% if contract.seller.nip %}<div class="text-xs text-[#888] mt-0.5">NIP {{ contract.seller.nip }}</div>{% endif %}
                 {% if contract.seller.tax_ids %}<div class="text-xs text-[#888] mt-0.5">{{ contract.seller.tax_ids|linebreaksbr }}</div>{% endif %}
                 {% else %}
-                <div class="text-sm text-[#666]">This contract has no seller yet, so the invoice would name nobody.</div>
+                <div class="text-[13px] text-[#666]">This contract has no seller yet, so the invoice would name nobody.</div>
                 {% endif %}
             </div>
             {% else %}
@@ -77,14 +77,14 @@
 
             <div class="sm:col-span-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold border-b border-[#eee] pb-1 mt-4">Billed to</div>
             {% if can_store_invoices %}
-            <div class="sm:col-span-2 rounded-[10px] border border-[#eee] bg-[#fafafa] px-4 py-3">
+            <div class="sm:col-span-2 rounded-[10px] border border-[#eee] bg-[#fafafa] px-4 py-2">
                 {% if contract.buyer %}
                 <div class="font-semibold text-sm">{{ contract.buyer.name }}</div>
                 <div class="text-xs text-[#888] mt-0.5">{{ contract.buyer.address|linebreaksbr }}</div>
                 {% if contract.buyer.tax_id %}<div class="text-xs text-[#888] mt-0.5">{{ contract.buyer.country }} {{ contract.buyer.tax_id }}</div>{% endif %}
                 {% if contract.buyer.tax_ids %}<div class="text-xs text-[#888] mt-0.5">{{ contract.buyer.tax_ids|linebreaksbr }}</div>{% endif %}
                 {% else %}
-                <div class="text-sm text-[#666]">This contract has no buyer yet, so the invoice would name nobody.</div>
+                <div class="text-[13px] text-[#666]">This contract has no buyer yet, so the invoice would name nobody.</div>
                 {% endif %}
             </div>
             {% else %}

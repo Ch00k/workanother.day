@@ -7,6 +7,16 @@
 (() => {
     const byId = id => document.getElementById(id);
 
+    const escaped = text => {
+        const node = document.createElement('div');
+        node.textContent = text;
+        return node.innerHTML;
+    };
+
+    // Marked, so that the reply arriving is told apart from it never having arrived.
+    const pending = text => `<div data-pending class="text-sm text-[#888]">${escaped(text)}</div>`;
+    const failed = text => `<div class="notice notice-error">${escaped(text)}</div>`;
+
     const closeExplainers = () => {
         document.querySelectorAll('[data-explains][aria-expanded="true"]').forEach(button => {
             button.setAttribute('aria-expanded', 'false');
@@ -73,7 +83,20 @@
 
         // Filled before it is shown, for the dialogs whose contents are fetched.
         if (opener.dataset.loads) {
-            htmx.ajax('GET', opener.dataset.loads, opener.dataset.into);
+            const target = document.querySelector(opener.dataset.into);
+
+            // The dialog opens straight away rather than waiting on the answer, so what it
+            // opens on has to say that one is coming. Written over whatever the last open
+            // left there, which is a comparison that has since been overtaken.
+            target.innerHTML = pending(opener.dataset.pending || 'Loading...');
+
+            // htmx swaps nothing when the request fails, so the line above is still there,
+            // and still promising an answer that is not coming. Settled either way.
+            htmx.ajax('GET', opener.dataset.loads, opener.dataset.into).then(() => {
+                if (target.querySelector('[data-pending]')) {
+                    target.innerHTML = failed(opener.dataset.failed || 'Could not load this.');
+                }
+            });
         }
         byId(opener.dataset.opens).showModal();
     });
