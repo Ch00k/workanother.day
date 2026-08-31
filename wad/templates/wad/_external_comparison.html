@@ -1,0 +1,16 @@
+{% comment %}
+How the comparison turned out, however it turned out: what went wrong reaching the feed, or
+that the two agree, or the days they disagree on. Whatever frames this supplies the title,
+so nothing here repeats one.
+{% endcomment %}
+{% if fetch_error %}
+<div class="notice notice-error">
+    {{ fetch_error }}
+</div>
+{% elif in_sync %}
+<div class="notice notice-neutral">
+    External calendar matches your bookings.
+</div>
+{% else %}
+{% include "wad/_external_differences.html" %}
+{% endif %}

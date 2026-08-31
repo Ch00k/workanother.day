@@ -1,0 +1,21 @@
+{% comment %}
+The invoice page's view of the comparison, scoped to the month being invoiced.
+
+Nothing to act on is said in a line and left there. Days that disagree go behind a dialog:
+what the page has to say among an invoice form is that the two differ, and a reader who
+wants the dates asks for them. The dialog holds them already rendered rather than fetching
+them, so the list a reader opens is the one the banner counted.
+{% endcomment %}
+{% if fetch_error or in_sync %}
+{% include "wad/_external_comparison.html" %}
+{% else %}
+<div class="notice">
+    External calendar differs from your bookings.
+    <button data-opens="external-sync-dialog"
+            class="bg-transparent border-none p-0 text-inherit cursor-pointer underline underline-offset-2 hover:no-underline">
+        Show the {{ differences|length }} day{{ differences|length|pluralize }} that differ{{ differences|length|pluralize:"s," }}.
+    </button>
+</div>
+
+{% include "wad/_dialog.html" with dialog_id="external-sync-dialog" dialog_title="External Calendar Comparison" content_template="wad/_external_comparison.html" %}
+{% endif %}

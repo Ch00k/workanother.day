@@ -153,17 +153,17 @@ class HolidayComparisonContext(TypedDict):
     holiday_comparison: list[HolidayComparisonEntry]
 
 
-class ExternalSyncMismatch(TypedDict):
+class ExternalSyncDifference(TypedDict):
+    """A date the two calendars disagree about. A None is that side saying nothing at all."""
+
     date: datetime.date
-    wad_hours: int
-    external_hours: int
+    wad_hours: int | None
+    external_hours: int | None
 
 
 class ExternalSyncContext(TypedDict):
     contract: Contract
-    external_only: list[tuple[datetime.date, int]]
-    wad_only: list[tuple[datetime.date, int]]
-    mismatched: list[ExternalSyncMismatch]
+    differences: list[ExternalSyncDifference]
     in_sync: bool
     fetch_error: NotRequired[str]
 
@@ -178,18 +178,14 @@ def _build_external_sync_context(
     except (httpx.HTTPError, ExternalCalendarURLError) as e:
         return {
             "contract": contract,
-            "external_only": [],
-            "wad_only": [],
-            "mismatched": [],
+            "differences": [],
             "in_sync": False,
             "fetch_error": f"Could not fetch external calendar: {e}",
         }
     except ICalImportError as e:
         return {
             "contract": contract,
-            "external_only": [],
-            "wad_only": [],
-            "mismatched": [],
+            "differences": [],
             "in_sync": False,
             "fetch_error": f"External calendar is not valid iCalendar: {e}",
         }
@@ -200,20 +196,19 @@ def _build_external_sync_context(
         time_off_qs = time_off_qs.filter(date__gte=start, date__lte=end)
     wad: dict[datetime.date, int] = {t.date: t.hours for t in time_off_qs}
 
-    external_only = sorted((d, h) for d, h in external.items() if d not in wad)
-    wad_only = sorted((d, h) for d, h in wad.items() if d not in external)
-    mismatched: list[ExternalSyncMismatch] = [
-        {"date": d, "wad_hours": wad[d], "external_hours": external[d]}
-        for d in sorted(external)
-        if d in wad and wad[d] != external[d]
+    # One row per date the two sides do not agree on, in date order. A date only one side
+    # knows about differs from a None, so the day missing entirely and the day booked for
+    # different hours arrive by the same test.
+    differences: list[ExternalSyncDifference] = [
+        {"date": date, "wad_hours": wad.get(date), "external_hours": external.get(date)}
+        for date in sorted(external.keys() | wad.keys())
+        if wad.get(date) != external.get(date)
     ]
 
     return {
         "contract": contract,
-        "external_only": external_only,
-        "wad_only": wad_only,
-        "mismatched": mismatched,
-        "in_sync": not (external_only or wad_only or mismatched),
+        "differences": differences,
+        "in_sync": not differences,
     }
 
 
@@ -2939,7 +2934,7 @@ def holiday_comparison(request: HttpRequest, pk: str) -> HttpResponse:
     return render(request, "wad/_holiday_comparison.html", context)
 
 
-def sync_external_calendar(request: HttpRequest, pk: str) -> HttpResponse:
+def compare_external_calendar(request: HttpRequest, pk: str) -> HttpResponse:
     if not request.user.is_staff:  # ty: ignore[unresolved-attribute]
         raise Http404
 
@@ -2950,7 +2945,7 @@ def sync_external_calendar(request: HttpRequest, pk: str) -> HttpResponse:
         raise Http404
 
     context = _build_external_sync_context(contract)
-    return render(request, "wad/_external_sync.html", context)
+    return render(request, "wad/_external_comparison.html", context)
 
 
 class ContractHolidays(NamedTuple):
