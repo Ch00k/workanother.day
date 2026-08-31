@@ -604,3 +604,29 @@ disagree KAS is right.
 - **The FA(3) schema is fetched while an invoice is being sent.** Four documents come from
   crd.gov.pl on every send. A publisher that is down means no invoice can be issued until
   it is back.
+- **An external calendar can only be compared over the stretch it publishes.** Calamari's iCal
+  feed carries a window of recent months out to the end of the current year, and takes no date
+  parameters, so nothing outside that can be asked about at all. The comparison is held to the
+  window, and within it to the stretches no issued invoice covers - invoicing has gaps, so each
+  invoiced period is taken out on its own and a June invoice settles nothing about May. Every
+  stretch left out is named, with which of the two reasons left it out. Days off outside the
+  window are not reported as missing, because a feed that never published a month is not the
+  two calendars disagreeing. Reaching further would mean
+  Calamari's REST API (`/api/leave/request/v1/find`, which does take a date range).
+
+  The window is undocumented, so `_feed_window` encodes what a company-wide feed read on
+  2026-08-31 measured: events from 2026-06-01 to 2026-12-31, with 20 of June's 22 business
+  days, 22 of July's 23 and all 21 of August's carrying at least one absence, and none of
+  May's 21 carrying any. Across a whole company that is a boundary, not a quiet month. The
+  Swiss public holidays the feed generates itself confirm both edges — Ascension and Whit
+  Monday, in May, are absent, as is Neujahr on 2027-01-01, while every Geneva holiday between
+  the two is present.
+
+  Both edges have to be a rule rather than something read off each feed. The earliest event in
+  a feed is the oldest absence anybody booked, not the oldest day covered, so a covered month
+  with nobody away is indistinguishable from a month never published — and conflating them
+  either calls a booking missing or passes a real omission over. The latest event says even
+  less, absences thinning into the future as people have not asked for leave yet.
+
+  The forward edge is the one to watch: a contract running past December has months the feed
+  will not mention until the year turns.

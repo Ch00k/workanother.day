@@ -38,7 +38,7 @@
 
     {% if external_sync %}
     <div class="mt-5">
-        {% include "wad/_external_banner.html" with contract=external_sync.contract differences=external_sync.differences in_sync=external_sync.in_sync fetch_error=external_sync.fetch_error %}
+        {% include "wad/_external_banner.html" with contract=external_sync.contract differences=external_sync.differences in_sync=external_sync.in_sync fetch_error=external_sync.fetch_error compared=external_sync.compared uncompared=external_sync.uncompared settled=external_sync.settled %}
     </div>
     {% endif %}
 
