@@ -204,7 +204,7 @@ class ListAndDetailTests(InvoiceViewTestCase):
 
         assert response.status_code == 200
         assert b"Example AG" in response.content
-        assert b"Send to KSeF" in response.content
+        assert b'id="ksef-send-button"' in response.content
 
     def test_the_document_is_rendered_by_the_server(self) -> None:
         record = self._draft()
@@ -1319,7 +1319,10 @@ class PaymentDateTests(InvoiceViewTestCase):
         self.contract.send_to_ksef = False
         self.contract.save()
 
-        self.paid_on = TODAY - datetime.timedelta(days=1)
+        # Today rather than yesterday, so that the working day before it is never the working
+        # day before the period ended: on the first of a month the two are the same date, and
+        # one rate would be registered over the other, leaving the difference below at zero.
+        self.paid_on = TODAY
         self.publisher.add_rate("CHF", PERIOD[1] - datetime.timedelta(days=1), "4.3189", "189/A/NBP/2026")
         self.publisher.add_rate("CHF", self.paid_on - datetime.timedelta(days=1), "4.4000", "220/A/NBP/2026")
 

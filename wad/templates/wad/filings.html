@@ -49,7 +49,11 @@
         <table class="w-full border-collapse">
             <thead>
                 <tr class="border-b border-[#eee]">
-                    <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Generated</th>
+                    {% comment %}
+                    The zone is named on the header rather than on every row, as the invoice
+                    list names it: an unlabelled clock reads as the reader's own.
+                    {% endcomment %}
+                    <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Generated (UTC)</th>
                     <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Revenue PLN</th>
                     <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Rows</th>
                     <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Status</th>

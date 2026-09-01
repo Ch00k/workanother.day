@@ -1,0 +1,29 @@
+{% comment %}
+What the covering message says when an invoice for this contract is mailed to the buyer.
+Both are optional: left empty, the application writes the message itself.
+
+The placeholders come from the view, so what the form offers is what the server checks the
+text against.
+{% endcomment %}
+<div class="sm:col-span-2">
+    <label for="invoice_email_subject" class="block text-sm font-medium text-[#666] mb-1">Invoice Email Subject</label>
+    <input type="text" id="invoice_email_subject" name="invoice_email_subject" maxlength="200"
+           value="{% if form_data %}{{ form_data.invoice_email_subject }}{% else %}{{ contract.invoice_email_subject }}{% endif %}"
+           placeholder="Invoice {number} for {period}"
+           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+</div>
+<div class="sm:col-span-2">
+    <label for="invoice_email_body" class="block text-sm font-medium text-[#666] mb-1">Invoice Email Body</label>
+    <textarea id="invoice_email_body" name="invoice_email_body" rows="6"
+              placeholder="Dear {buyer_name},&#10;&#10;Invoice {number} for {period} is attached.&#10;&#10;{seller_name}"
+              class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">{% if form_data %}{{ form_data.invoice_email_body }}{% else %}{{ contract.invoice_email_body }}{% endif %}</textarea>
+    <div class="text-xs text-[#999] mt-1">
+        Both are optional; left empty, the message is written for you. The invoice travels as
+        the attachment either way and states its own terms, so nothing here has to repeat them.
+        Fill in an invoice's own details with
+        {% for placeholder in message_placeholders %}<code>{{ "{" }}{{ placeholder }}{{ "}" }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}.
+        A correction invoice goes out under this wording too, so
+        <code>{{ "{" }}corrected_number{{ "}" }}</code> is what names the document it corrects.
+        {# Empty on anything the invoice does not have: no payment terms, nothing corrected. #}
+    </div>
+</div>
