@@ -28,6 +28,14 @@ def pytest_configure() -> None:
     # shell running it exports. Fixed here so it does not.
     settings.SECURE_SSL_REDIRECT = False
 
+    # And the same for whether there is a mail server to submit through, which settings decide
+    # from DJANGO_EMAIL_HOST and its two companions. The suite has one: Django points every
+    # configured mailer at its in-memory backend, so what the tests send is captured rather
+    # than submitted. Said here rather than left to the environment, which is a machine with
+    # the three exported passing where a machine without them fails. The classes that want the
+    # other answer override it themselves.
+    settings.MAIL_CONFIGURED = True
+
 
 @pytest.fixture(autouse=True)
 def publisher(request: pytest.FixtureRequest) -> Iterator[Publisher | None]:

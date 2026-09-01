@@ -325,9 +325,16 @@
                     {% endif %}
                 </div>
             </div>
+            {% comment %}
+            Confirmed because this stores the invoice and sends it in one act: an invoice KSeF
+            accepts is issued, spending a number on a document that can no longer be edited or
+            discarded. The environment is in the question because the same button in the
+            sandbox costs nothing and in production issues a document with legal effect.
+            {% endcomment %}
             <button type="button" id="ksef-send-button"
+                    data-confirm="Send this invoice to KSeF ({{ ksef_environment }})? It is stored as it stands, and an invoice KSeF accepts is issued and cannot be changed or deleted afterwards.{% if ksef_environment == 'PRODUCTION' %} This one has legal effect.{% endif %}"
                     class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
-                Send to KSeF
+                Send
             </button>
         </div>
         <div id="ksef-error" class="notice notice-error mt-3" style="display:none"></div>
@@ -746,6 +753,9 @@
         }
 
         async function send() {
+            const question = sendButton.getAttribute('data-confirm');
+            if (question !== null && !window.confirm(question)) return;
+
             sendButton.disabled = true;
             statusText.textContent = 'Sending...';
             showError('');

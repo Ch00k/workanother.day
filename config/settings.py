@@ -212,31 +212,48 @@ JPK_GATEWAY_CERTIFICATE = os.environ.get(
 # allowed to send as it. Submitting through the seller's own provider is what makes the
 # message pass DMARC at the buyer's end.
 #
-# Port 587 with STARTTLS because Fly blocks outbound port 25 outright, so delivery goes
-# through a provider's submission port rather than straight to the buyer's MX.
+# Delivery goes through a provider's submission port rather than straight to the buyer's MX,
+# Fly blocking outbound port 25 outright. The port decides how TLS starts: 465 is encrypted
+# from the first byte, and everything else is plaintext upgraded by STARTTLS. A client that
+# offers the wrong one of the two waits for a greeting the server is not going to send until
+# the timeout below runs out.
 #
-# Development prints the message instead of sending it, so a mistyped covering note costs
-# nothing and no address has to exist. The two configurations are written out separately
-# because MAILERS passes OPTIONS straight to the backend, and a backend given a setting it
-# has no use for refuses to start rather than ignoring it.
-if DEBUG:
-    MAILERS = {"default": {"BACKEND": "django.core.mail.backends.console.EmailBackend"}}
-else:
+# An instance that has not been given a server to submit through prints the message instead,
+# which is what a development machine does: a mistyped covering note costs nothing and no
+# address has to exist. All three of the host, the username and the password are needed for
+# there to be a submission to make, so any of them missing is the same answer as none of them.
+# The two configurations are written out separately because MAILERS passes OPTIONS straight to
+# the backend, and a backend given a setting it has no use for refuses to start rather than
+# ignoring it.
+mail_host = os.environ.get("DJANGO_EMAIL_HOST", "")
+mail_port = int(os.environ.get("DJANGO_EMAIL_PORT", "587"))
+mail_user = os.environ.get("DJANGO_EMAIL_USER", "")
+mail_password = os.environ.get("DJANGO_EMAIL_PASSWORD", "")
+
+# Carried as a setting of its own because the answer is wanted on the invoice page, and the
+# alternative there is to read it back off the backend's dotted path - which any other
+# non-sending backend would defeat while looking like a configured one.
+MAIL_CONFIGURED = bool(mail_host and mail_user and mail_password)
+
+if MAIL_CONFIGURED:
     MAILERS = {
         "default": {
             "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
             "OPTIONS": {
-                "host": os.environ.get("DJANGO_EMAIL_HOST", ""),
-                "port": int(os.environ.get("DJANGO_EMAIL_PORT", "587")),
-                "username": os.environ.get("DJANGO_EMAIL_USER", ""),
-                "password": os.environ.get("DJANGO_EMAIL_PASSWORD", ""),
-                "use_tls": True,
+                "host": mail_host,
+                "port": mail_port,
+                "username": mail_user,
+                "password": mail_password,
+                "use_ssl": mail_port == 465,
+                "use_tls": mail_port != 465,
                 # A send happens inside a request, so a provider that stops answering must
                 # not hold the single worker open indefinitely.
                 "timeout": 30,
             },
         }
     }
+else:
+    MAILERS = {"default": {"BACKEND": "django.core.mail.backends.console.EmailBackend"}}
 
 # Documents
 # The browser that prints an invoice to PDF, which is the same engine the Download PDF
