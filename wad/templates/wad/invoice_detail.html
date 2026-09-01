@@ -54,7 +54,9 @@
             {% comment %}
             Correcting is offered only where it is the remedy: for something already issued,
             which is the only thing that cannot simply be edited. Where it cannot be offered the
-            reason is stated below rather than the button being left out silently.
+            reason is stated below, except on an invoice issued from outside Poland, which is
+            not a document a correction invoice puts right at all: nothing is said there because
+            there is nothing its owner could go and settle.
             {% endcomment %}
             {% if invoice.is_issued and not uncorrectable_reason %}
             <a href="{% url 'invoice_correct' pk=invoice.pk %}"
@@ -63,16 +65,9 @@
             </a>
             {% endif %}
             {% comment %}
-            Offered for something issued and deliverable. Sending again is allowed and
-            deliberately so: a buyer saying nothing arrived is answered by sending it, and
-            each attempt is recorded below rather than replacing the last one.
+            Sending to the client is offered from its own card below, beside the record of
+            what has been sent already, as sending to KSeF is.
             {% endcomment %}
-            {% if invoice.is_issued and not undeliverable_reason %}
-            <button type="submit" form="deliver-invoice-form"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
-                {% if deliveries %}Send again{% else %}Send to client{% endif %}
-            </button>
-            {% endif %}
             {% comment %}
             The server prints it, so what is downloaded here is the same file the buyer is
             sent - not whatever this browser's print dialogue would have made of the page.
@@ -140,10 +135,17 @@
                 The script disables it as a send progresses; without this the page would
                 start out offering to send an invoice KSeF already holds.
                 {% endcomment %}
+                {% comment %}
+                Confirmed because an invoice KSeF accepts is issued: the number it hands back
+                is what makes the document an invoice, and nothing after that can edit or
+                discard it. The environment is in the question because the same button in the
+                sandbox costs nothing and in production issues a document with legal effect.
+                {% endcomment %}
                 <button type="button" id="ksef-send-button"
                         {% if invoice.state != "draft" %}disabled{% endif %}
+                        data-confirm="Send invoice {{ invoice.number }} to KSeF ({{ ksef_environment }})? An invoice KSeF accepts is issued and cannot be changed or deleted afterwards.{% if ksef_environment == 'PRODUCTION' %} This one has legal effect.{% endif %}"
                         class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
-                    Send to KSeF
+                    Send
                 </button>
             </div>
         </div>
@@ -175,22 +177,104 @@
     </div>
     {% endif %}
 
-    {% if uncorrectable_reason %}
+    {% if corrections_apply and uncorrectable_reason %}
     <div class="notice mb-4 print:hidden">{{ uncorrectable_reason }}</div>
     {% endif %}
 
     {% comment %}
     Whether the buyer has been given the invoice, which art. 106gb ust. 4 requires of an
-    invoice to a buyer with no Polish NIP and KSeF does not answer for. Every attempt, so a
-    failure is visible as the reason the invoice is still undelivered rather than vanishing.
+    invoice to a buyer with no Polish NIP and KSeF does not answer for. Laid out as the KSeF
+    card is, and for the same reason: both are this page waiting on somebody else's system,
+    so both say where they stand on one line, turn while they wait, and keep what came back.
+
+    Only for something issued. For anything else the answer is that it has not been issued,
+    which the invoice's own state already says.
     {% endcomment %}
-    {% if deliveries %}
-    <div class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
-        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-2">Sent to client</div>
-        <div class="grid gap-1 text-sm">
+    {% if invoice.is_issued %}
+    <div id="delivery-panel" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        {% explainer "delivery-help" %}
+        <p>
+            Art. 106gb ust. 4 requires an invoice to reach a buyer with no Polish NIP outside
+            KSeF as well, in a manner agreed with them, because they cannot go and read it
+            there. Sending it to KSeF is not sending it to the buyer.
+        </p>
+        <p>
+            The message comes from the seller's own address, under the name the invoice was
+            issued in, and carries the document as a PDF. What it says is the contract's to
+            settle: a contract with wording of its own is written in those words, and one
+            without gets a short note naming the invoice and its dates.
+        </p>
+        <p>
+            Every attempt is kept, including the failures - a failed send is the reason an
+            invoice is still undelivered. Sending again is allowed and is another attempt
+            rather than a correction of the last one, which is what answers a buyer who says
+            nothing arrived.
+        </p>
+        <p>
+            Nothing here says the buyer read it, or even that any server past the first one
+            accepted it. What is recorded is that this application handed the message over
+            and nothing objected, which is as much as SMTP can be asked.
+        </p>
+        {% endexplainer %}
+        <div class="flex items-center justify-between flex-wrap gap-3 pr-7">
+            <div>
+                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">Delivery</div>
+                <div class="flex items-center gap-2 mt-0.5">
+                    {% comment %}
+                    Never turning on arrival: a send is begun by the reader rather than found
+                    in flight, so there is no wait for the page to be opened in the middle of.
+                    {% endcomment %}
+                    {% include "wad/_spinner.html" with id="delivery-spinner" spinning=False %}
+                    <div class="text-sm text-[#666]" id="delivery-status">
+                        {% if not deliveries %}Not sent yet
+                        {% elif deliveries.0.delivered %}Sent to {{ deliveries.0.recipient }}.
+                        {% else %}Last attempt failed.{% endif %}
+                    </div>
+                </div>
+                {% if invoice.buyer.email %}
+                <div class="mt-1.5 text-xs text-[#999]" id="delivery-recipient">Goes to {{ invoice.buyer.email }}</div>
+                {% endif %}
+            </div>
+            <div class="flex gap-2">
+                {% comment %}
+                Disabled rather than absent where something stops it, as the KSeF button is:
+                what stops it is named on the button and again below, each being something its
+                owner can go and put right. A disabled button swallows pointer events, so the
+                title sits on a wrapper to keep the tooltip reachable.
+
+                Confirmed because it puts the document in somebody else's hands, and because
+                the address it goes to is not on the button. Sending twice is untidy rather
+                than harmful, which is why this asks rather than refuses.
+                {% endcomment %}
+                <span title="{{ send_blocked_reason }}">
+                    <button type="button" id="delivery-send-button"
+                            {% if send_blocked_reason %}disabled{% endif %}
+                            data-confirm="Send invoice {{ invoice.number }} to {{ invoice.buyer.email }}?"
+                            class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                        {% if deliveries %}Send again{% else %}Send{% endif %}
+                    </button>
+                </span>
+            </div>
+        </div>
+        {% if send_blocked_reason %}
+        <div class="notice mt-3">{{ send_blocked_reason }}</div>
+        {% endif %}
+        <div id="delivery-error" class="notice notice-error mt-3" style="display:none"></div>
+        {% comment %}
+        The gap above the list belongs to the list: empty, it is nothing to separate from the
+        line above, and the space would read as the card being padded unevenly. The script
+        adds it with the first row it puts here.
+        {% endcomment %}
+        <div id="delivery-attempts" class="grid gap-1 text-sm{% if deliveries %} mt-3{% endif %}">
+            {% comment %}
+            One row, drawn here and drawn again by the endpoint for the attempt a send has just
+            made: the same partial both times, so a row that appears without the page being
+            reloaded reads exactly like the rows around it, which are the same attempts.
+            {% endcomment %}
             {% for delivery in deliveries %}
+            {% partialdef delivery-row inline %}
             <div class="sm:flex sm:gap-3">
-                <span class="sm:w-[180px] shrink-0 text-[#888]">{{ delivery.attempted_at|date:"j F Y, H:i" }}</span>
+                <span class="sm:w-[210px] shrink-0 text-[#888]">{{ delivery.attempted_at|date:"j F Y, H:i" }} UTC</span>
                 <span class="sm:w-[220px] shrink-0">{{ delivery.recipient }}</span>
                 {% if delivery.delivered %}
                 <span class="text-[#888]">sent</span>
@@ -198,13 +282,9 @@
                 <span class="text-[#a33]">failed &middot; {{ delivery.error }}</span>
                 {% endif %}
             </div>
+            {% endpartialdef %}
             {% endfor %}
         </div>
-    </div>
-    {% elif invoice.is_issued %}
-    <div class="notice mb-4 print:hidden">
-        {% if undeliverable_reason %}{{ undeliverable_reason }}
-        {% else %}This invoice has not been sent to the client yet.{% endif %}
     </div>
     {% endif %}
 
@@ -244,18 +324,10 @@ here spends an invoice number on a record that has to stay.
 </form>
 {% endif %}
 
-{% if invoice.is_issued and not undeliverable_reason %}
 {% comment %}
-Confirmed because it puts the document in somebody else's hands, and because the address it
-goes to is not on the button. Sending twice is untidy rather than harmful, which is why this
-asks rather than refuses.
+The token every card on this page sends with, both of them posting rather than submitting a
+form of their own.
 {% endcomment %}
-<form id="deliver-invoice-form" method="post" action="{% url 'invoice_deliver' pk=invoice.pk %}" class="hidden"
-      data-confirm="Send invoice {{ invoice.number }} to {{ invoice.buyer.email }}?">
-    {% csrf_token %}
-</form>
-{% endif %}
-
 <form id="send-invoice-form" class="hidden">{% csrf_token %}</form>
 
 <script {% csp_nonce_attr %}>
@@ -338,6 +410,9 @@ asks rather than refuses.
     }
 
     async function send() {
+        const question = sendButton.getAttribute('data-confirm');
+        if (question !== null && !window.confirm(question)) return;
+
         sendButton.disabled = true;
         statusText.textContent = 'Sending...';
         showError('');
@@ -368,6 +443,87 @@ asks rather than refuses.
 
     sendButton.addEventListener('click', send);
     {% if invoice.state == 'sending' %}poll();{% endif %}
+})();
+</script>
+
+<script {% csp_nonce_attr %}>
+(() => {
+    const panel = document.getElementById('delivery-panel');
+    if (!panel) return;
+
+    // Present whether or not the invoice can be sent: what stops it arrives as a disabled
+    // button, which cannot be clicked, so nothing below has to ask again.
+    const sendButton = document.getElementById('delivery-send-button');
+    if (!sendButton) return;
+
+    const statusText = document.getElementById('delivery-status');
+    const errorBox = document.getElementById('delivery-error');
+    const attempts = document.getElementById('delivery-attempts');
+    const spinner = document.getElementById('delivery-spinner');
+    // Turning stands for the wait itself: a message is handed to a mail server while the
+    // reader waits, and printing the document before it can take the longer part of a minute.
+    const setWaiting = waiting => { spinner.style.display = waiting ? '' : 'none'; };
+    const token = document.getElementById('send-invoice-form').elements.csrfmiddlewaretoken.value;
+
+    const DELIVER_URL = "{% url 'invoice_deliver' pk=invoice.pk %}";
+
+    const showError = message => {
+        errorBox.textContent = message ?? '';
+        errorBox.style.display = message ? '' : 'none';
+    };
+
+    // Newest first, which is the order the server draws them in and the order the model
+    // stores them in. The row arrives drawn by the same partial the rows below it came from,
+    // so there is nothing to build here.
+    function recordAttempt(state) {
+        attempts.insertAdjacentHTML('afterbegin', state.html);
+        // Now there is something here to hold apart from the line above it.
+        attempts.classList.add('mt-3');
+    }
+
+    function applyState(state) {
+        recordAttempt(state);
+        statusText.textContent = state.delivered ? `Sent to ${state.recipient}.` : 'Last attempt failed.';
+        // The reason is on the attempt itself, where it stays after the next send; the box
+        // above is for what never became an attempt at all.
+        showError('');
+        // Sending again is what answers a buyer who says nothing arrived, and a failure is
+        // worth retrying, so neither outcome is the end of it.
+        sendButton.textContent = 'Send again';
+    }
+
+    async function send() {
+        const question = sendButton.getAttribute('data-confirm');
+        if (question !== null && !window.confirm(question)) return;
+
+        sendButton.disabled = true;
+        statusText.textContent = 'Sending...';
+        showError('');
+        setWaiting(true);
+
+        try {
+            const response = await fetch(DELIVER_URL, { method: 'POST', headers: { 'X-CSRFToken': token } });
+            const state = await response.json();
+
+            if (!response.ok) {
+                statusText.textContent = 'Not sent.';
+                showError(state.error ?? `Request failed (${response.status}).`);
+                return;
+            }
+
+            applyState(state);
+        } catch (err) {
+            // The message may well have gone: what failed is this page hearing about it, and
+            // the attempt was recorded before the answer was lost.
+            statusText.textContent = 'Lost contact while sending.';
+            showError(`${err}. Reload this page to find out whether it went.`);
+        } finally {
+            sendButton.disabled = false;
+            setWaiting(false);
+        }
+    }
+
+    sendButton.addEventListener('click', send);
 })();
 </script>
 {% endblock %}

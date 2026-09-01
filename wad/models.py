@@ -423,6 +423,13 @@ class Contract(models.Model):
     # settles once; each invoice keeps its own copy of it.
     ryczalt_rate = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
 
+    # What the covering message says when an invoice for this contract is mailed to the buyer.
+    # Per contract because the wording is addressed to one client and often agreed with them,
+    # down to a reference they need it to quote. Empty leaves the message the application
+    # writes itself; either way the document is the attachment and states its own terms.
+    invoice_email_subject = models.CharField(max_length=200, blank=True, default="")
+    invoice_email_body = models.TextField(blank=True, default="")
+
     # Who the work is billed to. A contract is with one client, so naming them here is
     # what lets each month's invoice start out addressed correctly.
     buyer = models.ForeignKey(
@@ -804,6 +811,23 @@ class Invoice(models.Model):
             return None
 
         return self.payment_pln - booked
+
+    @property
+    def delivered_at(self) -> datetime.datetime | None:
+        """When the buyer was handed this, or nothing where they have not been.
+
+        The earliest attempt that went rather than the most recent: art. 106gb ust. 4 is met
+        when the invoice reaches them, and sending it again afterwards does not move the day
+        it did. By the same token a failed retry does not unsend what went, so the failures
+        around it are passed over here - they are read from the attempts themselves, which
+        the invoice's own page lists.
+
+        Read off the rows already loaded, so a list showing this for every invoice on it does
+        not ask the database once per row.
+        """
+        sent = [attempt.attempted_at for attempt in self.deliveries.all() if attempt.delivered]  # ty: ignore[unresolved-attribute]
+
+        return min(sent) if sent else None
 
     @property
     def currency_sold(self) -> decimal.Decimal:

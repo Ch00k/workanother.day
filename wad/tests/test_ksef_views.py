@@ -14,6 +14,7 @@ from wad.templatetags.money import money
 from wad.tests.factories import store_invoice
 from wad.tests.http import PUBLISHER, Publisher
 from wad.tests.ksef_session import ACCEPTED, Session, status, talking_to
+from wad.tests.pages import button_labelled
 
 CONFIGURED: dict[str, str] = {}
 
@@ -303,7 +304,8 @@ class InvoicePageTests(KsefViewTestCase):
             reverse("invoice", kwargs={"pk": self.contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month})
         )
 
-        assert b"Send to KSeF" in response.content
+        assert button_labelled(response.content.decode(), "Send")
+        assert b'id="ksef-send-button"' in response.content
 
     def test_an_unconfigured_contract_says_why(self) -> None:
         """Hiding the feature silently would leave the operator guessing why it is absent."""
@@ -315,7 +317,7 @@ class InvoicePageTests(KsefViewTestCase):
             reverse("invoice", kwargs={"pk": self.contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month})
         )
 
-        assert b"Send to KSeF" not in response.content
+        assert b'id="ksef-send-button"' not in response.content
         assert b"switched off for this contract" in response.content
 
     def test_any_owner_is_told_why_sending_is_unavailable(self) -> None:
@@ -334,7 +336,7 @@ class InvoicePageTests(KsefViewTestCase):
             reverse("invoice", kwargs={"pk": contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month})
         )
 
-        assert b"Send to KSeF" not in response.content
+        assert b'id="ksef-send-button"' not in response.content
         assert b"switched off for this contract" in response.content
 
 
@@ -1087,7 +1089,7 @@ class InvoiceListStatusTests(KsefViewTestCase):
         page = self._page()
 
         assert f"CHF {money(decimal.Decimal('14400.00'))}" in page
-        assert "July 2026" in page
+        assert f"{LAST_MONTH:%B %Y}" in page
 
 
 class SendLandsOnTheStoredInvoiceTests(KsefViewTestCase):

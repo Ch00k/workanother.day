@@ -140,9 +140,15 @@ dragged out of it survives; `static/js/ui.js` handles that, one panel open at a 
 | `DJANGO_JPK_GATEWAY_CERTIFICATE` | no | the one shipped for the environment | The Ministry's public key certificate, in PEM. Point this at a reissued one without waiting for a release. |
 | `DJANGO_CHROMIUM_PATH` | no | `/usr/bin/chromium` | The browser that prints an invoice to PDF. The image installs one there; point this at a local Chromium or Chrome to render outside it. |
 | `DJANGO_EMAIL_HOST` | to send invoices | — | The submission host of the mail provider invoices go out through. It has to be allowed to send as the seller's own address. |
-| `DJANGO_EMAIL_PORT` | no | `587` | STARTTLS submission. Fly blocks outbound port 25, so delivery goes through a provider rather than straight to the buyer's MX. |
+| `DJANGO_EMAIL_PORT` | no | `587` | `465` is submitted to over TLS from the first byte; anything else is plaintext upgraded by STARTTLS. Fly blocks outbound port 25, so delivery goes through a provider rather than straight to the buyer's MX. |
 | `DJANGO_EMAIL_USER` | to send invoices | — | Submission username. |
 | `DJANGO_EMAIL_PASSWORD` | to send invoices | — | Submission password. Set it as a Fly secret. |
+
+The three marked *to send invoices* are what decides how mail leaves: given all of them, a
+message is submitted to that server; missing any of them, it is printed to the log instead
+and nothing goes anywhere. `DEBUG` does not enter into it, so a development machine given a
+provider sends for real and a deployment given none says so on the invoice rather than
+recording a delivery that never happened.
 
 The app will not start in production without its keys. That is deliberate: a guessable
 signing key forges any session, and sessions are the whole of the authentication here.
@@ -207,17 +213,85 @@ Sending an invoice to KSeF is not sending it to the buyer. Art. 106gb ust. 4 req
 reach a buyer with no Polish NIP out of band as well, because they cannot go and read it in
 KSeF, and clause 4.3 of the contract this was built for fixes that channel as email.
 
-`Send to client` on an issued invoice mails the PDF to `Buyer.email` and records a
-`Delivery` — the address, the time, the message id, and the digest of the document that
-went. Every attempt is a row, including the failures: a failed send is the reason an invoice
+`Send`, on the **Delivery** card of an issued invoice, mails the PDF to `Buyer.email` and
+records a `Delivery` — the address, the time, the message id, and the digest of the document
+that went. Every attempt is a row, including the failures: a failed send is the reason an invoice
 is still undelivered, and the page has to be able to say so. Sending again is allowed, since
 a buyer reporting that nothing arrived is answered by sending it.
 
+The card that does this is laid out as the KSeF card is, for the same reason: both are the
+page waiting on somebody else's system. It says where the invoice stands on one line, turns
+a spinner while the message is being printed and handed over, and adds what came back to the
+list of attempts without the page being reloaded. Where something stops a send the button is
+disabled rather than removed, with the reason on it and under it — each reason being
+something its owner can go and put right.
+
 A draft cannot be sent. Its document says NOT ISSUED across the top and is not an invoice.
+
+An instance given no mail server prints the message instead of submitting it. On a
+development machine that is the point of it — the covering note and the attachment can be
+read off the console without any address existing — and the button sends as usual. Anywhere
+else it means nothing reaches the buyer, so the button is shown disabled and says so on
+hover rather than recording a delivery on the strength of a message that only reached a log.
+
+The invoice list carries a **Delivered** column beside the status, because the two answer
+different questions about the same invoice: the status says what the document is, and this
+says when the buyer was given it. It holds the day and time of the earliest attempt that
+went — art. 106gb ust. 4 is answered when the invoice reaches them, and sending it again
+afterwards does not move that day, nor does a failed retry unsend what went. Empty where
+nothing has arrived, which covers a draft, an invoice nobody has sent and one whose attempts
+all failed alike; what went wrong is on the invoice's own page, where every attempt is listed
+with its reason. It comes off `Invoice.delivered_at`, which reads the rows the list already
+loaded rather than asking once per invoice.
+
+Datetimes are stored and shown in UTC, and every screen that shows one names the zone — the
+`Delivered (UTC)` and `Generated (UTC)` column headers, and the delivery rows on an invoice.
+The zone is said out loud because an unlabelled clock reads as the reader's own, and this is
+one account holding sellers established in several countries: there is no one local time for
+it to mean. Note the consequence — a send made late in a Warsaw evening is listed under the
+previous UTC day, so this column is not by itself the Polish civil day art. 106gb ust. 4 is
+measured in. Bare `DateField`s — issue dates, revenue dates, payment dates, deadlines — carry
+no zone at all and are Polish civil days by construction, via `today_in_poland`.
+
+Where a stored datetime has to be compared against one of those dates it is converted
+explicitly rather than read off the UTC clock. `_produced_on` is the one such place: it reads
+`Filing.produced_at` in Polish civil time to get the earliest day a filing can be recorded as
+filed on, and both the bound the form offers and the bound the endpoint enforces come from
+it, so the browser cannot offer a day the server refuses.
 
 The message comes from `Seller.email`, under the name the invoice was issued in, so a reply
 goes straight back to the seller and there is no `Reply-To` to add. What the deployment
 configures is only the mail server the message is submitted *through*.
+
+### What the message says
+
+`Contract.invoice_email_subject` and `Contract.invoice_email_body` are the wording invoices
+for that contract go out under, edited on the contract's own form. Per contract because the
+covering note is addressed to one client and is often agreed with them, down to a reference
+they need it to quote. Left empty, the message is written for you: a subject naming the
+invoice and the seller, and a short note giving the number and the dates.
+
+An invoice's own details go in as named placeholders — `{number}`, `{period}`,
+`{issue_date}`, `{due_date}`, `{seller_name}`, `{buyer_name}`, `{corrected_number}` — filled
+in from the invoice's frozen copies, so a message sent today for an invoice issued last year
+names what that invoice named. `{period}` is the month billed, as `April 2026`. An invoice
+with no payment terms leaves `{due_date}` empty. Braces meant to be read as braces are
+written `{{` and `}}`.
+
+A correction invoice reaches the buyer through the same panel and goes out under the same
+wording, so `{corrected_number}` is what lets that wording say which of the two it is: it
+names the invoice being corrected, and is empty on an invoice that corrects nothing. A
+contract that says nothing gets the distinction written for it — a subject reading
+`Correction invoice N to invoice M` and a note naming the correction — but a contract that
+carries its own words keeps them, and this is how they name the corrected document.
+
+A placeholder nothing fills in is refused when the contract is saved rather than when a send
+fails, the invoice being the wrong place to find out and its owner the wrong person to be
+waiting on. So is anything written after a placeholder's name — a format, a conversion, a
+placeholder nested inside one — that the value cannot be asked for: every value goes in as
+text already written out, so `{due_date:%-d %B}` is refused on the form rather than at the
+send. The wording is not editable per send: it is the contract's, and what varies between one
+month and the next is on the document rather than in the note.
 
 **That server has to be allowed to send as the seller's address.** Submitting through the
 seller's own provider is what makes the message pass DMARC at the buyer's end: it is signed
@@ -284,6 +358,14 @@ same table — `Invoice.corrects` is the whole of what makes it one — so it is
 frozen, sent, printed and entered in the register exactly like the invoice it corrects. Its
 number carries `KOR` and comes from the corrected invoice's month, sharing that month's counter
 so the two cannot collide.
+
+A korekta is a document of Polish invoicing, so it is offered only where the invoice's own
+`seller_country` is `PL`. Elsewhere the button is absent and nothing is said about it: an
+invoice issued from another country is put right by whatever that country asks for, which is
+not something this knows or its owner can configure. Read off the invoice rather than off the
+contract, the same way `converts_to_pln` is: a document both parties hold is put right under
+the regime it was issued under, and re-pointing the contract at another seller afterwards
+cannot change how an issued invoice is corrected.
 
 The form is the corrected invoice's lines, opened for editing, and what it stores is the state
 after the correction. **The difference is never entered**: FA(3) takes a correction's own amount
