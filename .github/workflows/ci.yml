@@ -43,9 +43,17 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ty check
       - run: uv run manage.py collectstatic --noinput
+      # The deploy checks read the settings a real deployment would run under, so this step
+      # supplies the ones a deployment gets and the rest of the job has no use for. A mail
+      # server is among them: without one the settings fall back to printing messages, which
+      # the deploy checks reject as a backend that delivers nothing. Nothing connects here,
+      # so the address only has to be one.
       - run: uv run manage.py check --deploy --fail-level WARNING
         env:
           DJANGO_ALLOWED_HOSTS: workanother.day
+          DJANGO_EMAIL_HOST: smtp.example.com
+          DJANGO_EMAIL_USER: ci@example.com
+          DJANGO_EMAIL_PASSWORD: ci-only-password
       - run: uv run pytest
 
   deploy:

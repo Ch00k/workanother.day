@@ -53,7 +53,13 @@ from wad.jpk_gateway.submission import FilingStateError
 from wad.ksef import sending, submission
 from wad.ksef.fa3 import MAX_DESCRIPTION_LENGTH, MAX_REASON_LENGTH
 from wad.ksef.invoice import UnsupportedSaleError
-from wad.mail import send_invoice, undeliverable_reason
+from wad.mail import (
+    PLACEHOLDERS,
+    message_template_error,
+    send_invoice,
+    unconfigured_mail_reason,
+    undeliverable_reason,
+)
 from wad.middleware import create_guest_user
 from wad.models import (
     POLAND,
@@ -64,6 +70,7 @@ from wad.models import (
     Contract,
     ContributionPayment,
     CurrencySale,
+    Delivery,
     Filing,
     Guest,
     Holiday,
@@ -545,6 +552,7 @@ def contract_create(request: HttpRequest) -> HttpResponse:
         ),
         **_contract_party_fields(request),
         **_contract_tax_fields(request),
+        **_contract_message_fields(request),
     )
 
     # Pre-fetch holidays so the calendar view doesn't block on API calls
@@ -588,7 +596,8 @@ def contract_edit(request: HttpRequest, pk: str) -> HttpResponse:
         contract.end_date = datetime.date.fromisoformat(request.POST["end_date"])
         if request.user.is_staff:  # ty: ignore[unresolved-attribute]
             contract.external_calendar_url = request.POST.get("external_calendar_url", "").strip()
-        for field, value in (_contract_party_fields(request) | _contract_tax_fields(request)).items():
+        fields = _contract_party_fields(request) | _contract_tax_fields(request) | _contract_message_fields(request)
+        for field, value in fields.items():
             setattr(contract, field, value)
         contract.save()
         return redirect("calendar", pk=contract.pk)
@@ -1482,12 +1491,29 @@ class CorrectedLine(NamedTuple):
     unit_net_price: decimal.Decimal
 
 
+def _corrections_apply(record: Invoice) -> bool:
+    """Whether a correction is the document this invoice is put right by.
+
+    A faktura korygujaca is a creature of Polish invoicing: it restates a document both
+    parties hold and that the register has already taken. An invoice issued from anywhere
+    else is put right by whatever that country asks for, which this does not know - and
+    unlike the reasons below, that is nothing its owner can go and settle.
+
+    Read from the invoice's own frozen copy of the seller's country, as `converts_to_pln` is,
+    so how an issued document is put right is settled by where it was issued from rather than
+    by where the contract points now.
+    """
+    return record.seller_country == POLAND
+
+
 def _correctable(record: Invoice) -> str:
     """Why this document cannot be corrected. Empty when it can.
 
     Only an issued document can be. A draft is still its author's to rewrite, one in flight
     has an unknown fate, and a rejected one was never issued at all - none of the three is a
-    document anybody else holds, so none of them needs unwinding.
+    document anybody else holds, so none of them needs unwinding. Asked first, because what
+    a document is put right by is a question about one that has been issued: a draft has not
+    frozen where it is issued from yet.
 
     And only the last document in a chain. A correction states the state it found and the state
     it leaves, so two drawn up against the same state would each undo the other's arithmetic
@@ -1495,6 +1521,8 @@ def _correctable(record: Invoice) -> str:
     """
     if not record.is_issued:
         return f"An invoice that is {record.state} has not been issued, so there is nothing to correct."
+    if not _corrections_apply(record):
+        return f"An invoice issued from {record.seller_country} is not corrected by a correction invoice."
 
     existing = record.corrections.first()  # ty: ignore[unresolved-attribute]
     if existing is None:
@@ -2157,6 +2185,19 @@ def _owned_filing(request: HttpRequest, pk: str) -> Filing:
     return filing
 
 
+def _produced_on(filing: Filing) -> datetime.date:
+    """The day the file was produced, which is the earliest day it can have been filed on.
+
+    Read in Polish civil time, which is what the date on the form means. produced_at is stored
+    in UTC, and a file produced late in a Polish evening still carries the previous UTC date -
+    which as a floor would accept a filing date a day before the file existed.
+
+    The bound the form offers and the bound the endpoint enforces come from here alike, so the
+    browser cannot offer a day the server answers 400 to.
+    """
+    return filing.produced_at.astimezone(POLAND_TZ).date()
+
+
 @require_GET  # ty: ignore[invalid-argument-type]
 def filing_detail(request: HttpRequest, pk: str) -> HttpResponse:
     """One produced file: what it holds, and what became of it."""
@@ -2170,6 +2211,8 @@ def filing_detail(request: HttpRequest, pk: str) -> HttpResponse:
             "filing": filing,
             "seller": filing.seller,
             "today": today,
+            # The earliest day the form may offer, which is the day the file was produced.
+            "produced_on": _produced_on(filing),
             # The year the authorising figure has to come from, which is two before the one
             # the file is being sent in rather than two before the year it covers.
             "authorising_year": today.year - 2,
@@ -2306,10 +2349,7 @@ def filing_record(request: HttpRequest, pk: str) -> HttpResponse:
     if filed_on and filed_on > today_in_poland():
         return HttpResponse("A file cannot have been sent on a day that has not arrived.", status=400)
 
-    # Read in Polish civil time, which is what the date on the form means. produced_at is
-    # stored in UTC, and a file produced late in the Polish evening still carries the
-    # previous UTC date, which would accept a filing date a day before the file existed.
-    if filed_on and filed_on < filing.produced_at.astimezone(POLAND_TZ).date():
+    if filed_on and filed_on < _produced_on(filing):
         return HttpResponse("This file did not exist before it was generated.", status=400)
 
     filing.filed_on = filed_on
@@ -2638,9 +2678,14 @@ def invoice_list(request: HttpRequest, pk: str) -> HttpResponse:
             # Lines come along because the list prints each invoice's total, which is the
             # sum of them: without this the page runs a query per row. A correction's own
             # amount is measured against the document it corrects, whose lines come with it
-            # for the same reason.
+            # for the same reason, and the attempts to deliver each invoice come for the
+            # column that says whether the buyer holds it.
             "invoices": list(
-                contract.invoices.prefetch_related("lines", "corrects__lines").select_related("corrects")  # ty: ignore[unresolved-attribute]
+                contract.invoices.prefetch_related(  # ty: ignore[unresolved-attribute]
+                    "lines",
+                    "corrects__lines",
+                    "deliveries",
+                ).select_related("corrects")
             ),
         },
     )
@@ -2677,13 +2722,22 @@ def invoice_detail(request: HttpRequest, pk: str) -> HttpResponse:
             "today": today_in_poland(),
             # Whether a correction may be drawn up against this document, and what stops one
             # where it may not. Only stated for something that has been issued: for anything
-            # else the reason is that it has not been, which its own state already says.
+            # else the reason is that it has not been, which its own state already says. And
+            # only where corrections are the document at all, there being nothing to say
+            # about them on a contract they are not part of.
+            "corrections_apply": _corrections_apply(record),
             "uncorrectable_reason": _correctable(record) if record.is_issued else "",
             "corrections": list(record.corrections.all()),  # ty: ignore[unresolved-attribute]
             # Whether this can be sent to the buyer, and every attempt so far. Stated only
             # for something issued, for the same reason a correction is: for anything else
             # the answer is that it has not been issued, which its own state already says.
-            "undeliverable_reason": undeliverable_reason(record) if record.is_issued else "",
+            # What stops it being sent to the buyer, which is either something about this
+            # invoice or the instance having no mail server at all. The same expression the
+            # endpoint refuses by, so the button is offered exactly where a post would be
+            # accepted.
+            "send_blocked_reason": (
+                unconfigured_mail_reason() or undeliverable_reason(record) if record.is_issued else ""
+            ),
             "deliveries": list(record.deliveries.all()),  # ty: ignore[unresolved-attribute]
             # And whether a sale of the currency may be recorded against it, which needs the
             # payment recorded and converted first. Stated only once there is a payment for a
@@ -2726,6 +2780,20 @@ def invoice_document(request: HttpRequest, pk: str) -> HttpResponse:
     return response
 
 
+def _delivery_state(delivery: Delivery) -> dict[str, object]:
+    """One attempt, as the page shows it and as the line above the list reads it.
+
+    The row comes back already drawn, from the same partial the page drew the rows below it
+    with: what a row is made of is then spelt once rather than once here and once in the
+    browser, which is the only way the two can be held to reading alike.
+    """
+    return {
+        "html": render_to_string("wad/invoice_detail.html#delivery-row", {"delivery": delivery}),
+        "delivered": delivery.delivered,
+        "recipient": delivery.recipient,
+    }
+
+
 @require_POST  # ty: ignore[invalid-argument-type]
 def invoice_deliver(request: HttpRequest, pk: str) -> HttpResponse:
     """Send the invoice to its buyer, which art. 106gb ust. 4 requires of it.
@@ -2733,18 +2801,17 @@ def invoice_deliver(request: HttpRequest, pk: str) -> HttpResponse:
     Sending it to KSeF is not sending it to the buyer: a buyer with no Polish NIP cannot go
     and read it there, so the document has to reach them by the channel they agreed to.
 
-    An attempt is recorded whichever way it goes, so this comes back to the invoice either
-    way rather than reporting a failure the page would then have no record of.
+    An attempt is recorded whichever way it goes, and what is reported is that attempt: the
+    page shows a failure as the reason the invoice is still undelivered rather than losing it
+    to an error message.
     """
     record = _owned_invoice(request, pk)
 
-    reason = undeliverable_reason(record)
+    reason = unconfigured_mail_reason() or undeliverable_reason(record)
     if reason:
-        return HttpResponse(reason, status=409)
+        return JsonResponse({"error": reason}, status=409)
 
-    send_invoice(record)
-
-    return redirect("invoice_detail", pk=record.pk)
+    return JsonResponse(_delivery_state(send_invoice(record)))
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
@@ -3256,6 +3323,14 @@ def _validate_contract_form(request: HttpRequest, post_data: QueryDict, *, exter
             except ValidationError:
                 errors.append("External calendar URL is not a valid URL.")
 
+        # Both are optional, and both are refused here rather than at sending time: a
+        # placeholder nothing fills in would otherwise be found by an invoice that failed to
+        # go out, in front of the one person who cannot go and correct it.
+        for field, label in (("invoice_email_subject", "subject"), ("invoice_email_body", "body")):
+            template_error = message_template_error(str(post_data.get(field, "")))
+            if template_error:
+                errors.append(f"Invoice email {label}: {template_error}")
+
         if post_data.get("send_to_ksef"):
             errors.extend(_validate_ksef_fields(request, home_country=home))
 
@@ -3282,6 +3357,9 @@ def _contract_form_options(request: HttpRequest, contract: Contract | None) -> d
         "on_ryczalt": (
             bool(request.POST.get("ryczalt")) if request.method == "POST" else bool(contract and contract.ryczalt_rate)
         ),
+        # Named on the form rather than in prose beside it, so the list a message may use is
+        # the list the form was checked against.
+        "message_placeholders": PLACEHOLDERS,
     }
 
 
@@ -3298,6 +3376,25 @@ def _contract_party_fields(request: HttpRequest) -> dict[str, object]:
         "seller": Seller.objects.filter(pk=seller_id, user=request.user).first() if seller_id else None,
         "buyer": Buyer.objects.filter(pk=buyer_id, user=request.user).first() if buyer_id else None,
         "send_to_ksef": bool(request.POST.get("send_to_ksef")),
+    }
+
+
+def _contract_message_fields(request: HttpRequest) -> dict[str, object]:
+    """Read the wording a submitted contract form gives the covering message.
+
+    Either left empty is the application's own wording rather than an empty subject or an
+    empty message, so a contract that says nothing about one of them still sends a message
+    that reads properly.
+
+    A textarea submits its line breaks as CRLF, which is stored as the newlines everything
+    else here writes: what is kept is the text that was typed, not the encoding a form
+    posted it in.
+    """
+    body = request.POST.get("invoice_email_body", "").replace("\r\n", "\n")
+
+    return {
+        "invoice_email_subject": request.POST.get("invoice_email_subject", "").strip(),
+        "invoice_email_body": body.strip(),
     }
 
 

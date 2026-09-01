@@ -182,7 +182,7 @@
             <div>
                 <label for="filed_on" class="block text-sm font-medium text-[#666] mb-1">Filed on</label>
                 <input type="date" id="filed_on" name="filed_on"
-                       min="{{ filing.produced_at|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"
+                       min="{{ produced_on|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"
                        value="{{ filing.filed_on|date:'Y-m-d' }}"
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
                 <div class="text-xs text-[#999] mt-1">Clearing the date takes the filing record off again.</div>

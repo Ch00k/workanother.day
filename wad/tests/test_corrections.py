@@ -736,3 +736,74 @@ class NavigationTests(CorrectionTestCase):
         active = [item["label"] for item in response.context["nav_items"] if item["active"]]
 
         assert active == ["Contracts"]
+
+
+class ForeignInvoiceTests(CorrectionTestCase):
+    """A faktura korygujaca is a document of Polish invoicing, so an invoice issued from
+    somewhere else is not offered one - and, that being nothing its owner can go and settle,
+    is not told about it either.
+
+    Settled by where the invoice says it was issued from rather than by where the contract
+    points now: a document both parties hold is put right by the regime it was issued under,
+    and editing the contract afterwards does not reach back into it.
+    """
+
+    def _page(self, record: Invoice) -> str:
+        return self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk})).content.decode()
+
+    def _abroad(self) -> None:
+        """Move the seller, which is what an invoice copies its country from."""
+        self.seller.country = "NL"
+        self.seller.save()
+        self.contract.home_country = "NL"
+        self.contract.save()
+
+    def test_the_page_neither_offers_a_correction_nor_explains_itself(self) -> None:
+        self._abroad()
+        invoice = self._issued(3)
+
+        page = self._page(invoice)
+
+        assert "Issue a correction" not in page
+        assert "not corrected by a correction invoice" not in page
+
+    def test_an_invoice_issued_from_poland_is_still_offered_one(self) -> None:
+        invoice = self._issued(3)
+
+        assert "Issue a correction" in self._page(invoice)
+
+    def test_drawing_one_up_is_refused(self) -> None:
+        """The button being absent is not what stops it: the endpoint answers for itself."""
+        self._abroad()
+        invoice = self._issued(3)
+
+        response = self._correct(invoice)
+
+        assert response.status_code == 409
+        assert not Invoice.objects.filter(corrects=invoice).exists()
+
+    def test_the_form_cannot_be_opened_either(self) -> None:
+        self._abroad()
+        invoice = self._issued(3)
+
+        assert self.client.get(reverse("invoice_correct", kwargs={"pk": invoice.pk})).status_code == 409
+
+    def test_moving_the_contract_abroad_leaves_an_issued_polish_invoice_correctable(self) -> None:
+        """The document is out, both parties hold it, and the register has taken it. What puts
+        it right was settled when it was issued."""
+        invoice = self._issued(3)
+        self._abroad()
+
+        assert "Issue a correction" in self._page(invoice)
+        assert self._correct(invoice).status_code == 302
+
+    def test_moving_the_contract_to_poland_does_not_reach_back_into_a_foreign_invoice(self) -> None:
+        self._abroad()
+        invoice = self._issued(3)
+        self.seller.country = "PL"
+        self.seller.save()
+        self.contract.home_country = "PL"
+        self.contract.save()
+
+        assert "Issue a correction" not in self._page(invoice)
+        assert self._correct(invoice).status_code == 409
