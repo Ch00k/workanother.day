@@ -15,7 +15,7 @@
             <h1 class="text-[28px] font-bold tracking-tight leading-tight">{{ contract.name }}</h1>
             <div class="text-xs text-[#888]">
                 {{ contract.home_country }} / {{ contract.client_country }}
-                &middot; {{ contract.max_working_days }} days
+                &middot; {{ contract.max_working_days }} days/year
                 &middot; {{ contract.start_date|date:"M j, Y" }} - {{ contract.end_date|date:"M j, Y" }}
             </div>
         </div>
@@ -51,56 +51,73 @@
 
     <!-- Stats cards -->
     {% partialdef stats-bar inline %}
-    <div id="stats-bar" class="mt-5">
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
-            <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
-                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Total weekdays</div>
-                <div class="text-[32px] font-bold leading-none text-[#666]">{{ stats.total_weekdays }}</div>
-            </div>
-            <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
-                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Days off booked</div>
-                <div class="text-[32px] font-bold leading-none text-booked">{{ stats.budget_used|floatformat:"-1" }}</div>
-                <div class="text-xs text-[#999] mt-1">of {{ stats.budget }} budget</div>
-            </div>
-            <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
-                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Working days</div>
-                <div class="text-[32px] font-bold leading-none
-                            {% if stats.days_over_or_under > 0 %}text-[#222]{% else %}text-[#666]{% endif %}">
-                    {{ stats.effective_working_days|floatformat:"-1" }}
-                </div>
-                <div class="text-xs text-[#999] mt-1">
-                    {% if stats.days_over_or_under > 0 %}
-                        {{ stats.days_over_or_under|floatformat:"-1" }} over limit
+    <div id="stats-bar" class="mt-5 flex flex-col gap-6">
+        {% for year_stats in stats %}
+        <div>
+            <div class="flex flex-wrap items-baseline gap-x-2 mb-2">
+                <span class="text-sm font-semibold text-[#222]">{{ year_stats.year }}</span>
+                <span class="text-xs text-[#888]">
+                    {% if year_stats.is_full_year %}
+                        &middot; {{ year_stats.max_working_days }} days
                     {% else %}
-                        {{ stats.days_over_or_under|floatformat:"-1"|cut:"-" }} under limit
+                        &middot; {{ year_stats.period_start|date:"M j" }} - {{ year_stats.period_end|date:"M j" }}
+                        &middot; {{ year_stats.max_working_days }} of {{ contract.max_working_days }} days, pro-rated
+                    {% endif %}
+                </span>
+            </div>
+            <div class="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Total weekdays</div>
+                    <div class="text-[32px] font-bold leading-none text-[#666]">{{ year_stats.total_weekdays }}</div>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Days off booked</div>
+                    <div class="text-[32px] font-bold leading-none text-booked">{{ year_stats.budget_used|floatformat:"-1" }}</div>
+                    <div class="text-xs text-[#999] mt-1">of {{ year_stats.budget }} budget</div>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Working days</div>
+                    <div class="text-[32px] font-bold leading-none
+                                {% if year_stats.days_over_or_under < 0 %}text-[#222]{% else %}text-[#666]{% endif %}">
+                        {{ year_stats.effective_working_days|floatformat:"-1" }}
+                    </div>
+                    <div class="text-xs text-[#999] mt-1">
+                        {% if year_stats.days_over_or_under > 0 %}
+                            {{ year_stats.days_over_or_under|floatformat:"-1" }} under limit
+                        {% elif year_stats.days_over_or_under == 0 %}
+                            At limit
+                        {% else %}
+                            {{ year_stats.days_over_or_under|floatformat:"-1"|cut:"-" }} over limit
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
+                    <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Budget remaining</div>
+                    <div class="text-[32px] font-bold leading-none
+                                {% if year_stats.budget_remaining <= 0 %}text-[#222]{% else %}text-[#666]{% endif %}">
+                        {% if year_stats.budget_remaining > 0 %}{{ year_stats.budget_remaining|floatformat:"-1" }}{% else %}0{% endif %}
+                    </div>
+                    <div class="text-xs text-[#999] mt-1">
+                        {% if year_stats.budget_remaining < 0 %}Budget exceeded{% elif year_stats.budget_remaining == 0 %}Fully allocated{% else %}days to book off{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Progress bar -->
+            <div class="mt-5 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+                <div class="flex justify-between mb-2 text-xs text-[#888]">
+                    <span>Days-off budget usage</span>
+                    <span>{{ year_stats.budget_used|floatformat:"-1" }} / {% if year_stats.budget > 0 %}{{ year_stats.budget }}{% else %}0{% endif %}</span>
+                </div>
+                <div class="h-2 bg-[#eee] rounded overflow-hidden">
+                    {% if year_stats.budget > 0 %}
+                    <div class="h-full rounded transition-all duration-300 bg-[#555]"
+                         style="width: {% widthratio year_stats.budget_used year_stats.budget 100 %}%"></div>
                     {% endif %}
                 </div>
             </div>
-            <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
-                <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1.5">Budget remaining</div>
-                <div class="text-[32px] font-bold leading-none
-                            {% if stats.budget_remaining <= 0 %}text-[#222]{% else %}text-[#666]{% endif %}">
-                    {% if stats.budget_remaining > 0 %}{{ stats.budget_remaining|floatformat:"-1" }}{% else %}0{% endif %}
-                </div>
-                <div class="text-xs text-[#999] mt-1">
-                    {% if stats.budget_remaining < 0 %}Budget exceeded{% elif stats.budget_remaining == 0 %}Fully allocated{% else %}days to book off{% endif %}
-                </div>
-            </div>
         </div>
-
-        <!-- Progress bar -->
-        <div class="mt-5 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
-            <div class="flex justify-between mb-2 text-xs text-[#888]">
-                <span>Days-off budget usage</span>
-                <span>{{ stats.budget_used|floatformat:"-1" }} / {% if stats.budget > 0 %}{{ stats.budget }}{% else %}0{% endif %}</span>
-            </div>
-            <div class="h-2 bg-[#eee] rounded overflow-hidden">
-                {% if stats.budget > 0 %}
-                <div class="h-full rounded transition-all duration-300 bg-[#555]"
-                     style="width: {% widthratio stats.budget_used stats.budget 100 %}%"></div>
-                {% endif %}
-            </div>
-        </div>
+        {% endfor %}
     </div>
     {% endpartialdef %}
 

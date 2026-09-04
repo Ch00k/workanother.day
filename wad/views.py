@@ -26,7 +26,7 @@ from wad import ewidencja, jpk, obligations, parties, throttle
 from wad.calendar_utils import (
     POLAND_TZ,
     MonthlySummary,
-    Stats,
+    YearStats,
     compute_monthly_summary,
     compute_stats,
     get_month_calendar,
@@ -142,7 +142,7 @@ class MonthContext(TypedDict):
 
 class CalendarContext(TypedDict):
     contract: Contract
-    stats: Stats
+    stats: list[YearStats]
     months: list[MonthContext]
     home_holidays: dict[str, str]
     client_holidays: dict[str, str]

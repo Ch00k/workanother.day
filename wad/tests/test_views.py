@@ -425,6 +425,96 @@ class ContractEditTests(TestCase):
         assert self.contract.name == "Acme 2026"
 
 
+class CalendarStatsBarTests(TestCase):
+    """What the stats bar renders, which is where the day cap becomes user-visible."""
+
+    # Assigned by the autouse publisher fixture.
+    publisher: Publisher
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test")
+        self.client.force_login(self.user)
+
+        # A year with nothing registered is answered with a 404 and logged as a failed
+        # refresh, so every year these contracts touch is given one holiday to return.
+        for year in (2026, 2027):
+            self.publisher.add_holiday("NL", datetime.date(year, 5, 5), "Bevrijdingsdag")
+            self.publisher.add_holiday("CH", datetime.date(year, 8, 1), "Nationalfeiertag")
+
+    def _contract(self, start: datetime.date, end: datetime.date, max_working_days: int = 228) -> Contract:
+        return Contract.objects.create(
+            user=self.user,
+            name="Test",
+            home_country="NL",
+            client_country="CH",
+            max_working_days=max_working_days,
+            working_hours_per_day=8,
+            start_date=start,
+            end_date=end,
+        )
+
+    def test_a_contract_straddling_a_year_renders_a_block_per_year(self) -> None:
+        """The bar iterates the years, so a term crossing New Year shows two of them."""
+        contract = self._contract(datetime.date(2026, 9, 1), datetime.date(2027, 3, 31))
+
+        response = self.client.get(f"/contracts/{contract.pk}/")
+
+        assert response.status_code == 200
+        self.assertContains(response, "Sep 1 - Dec 31")
+        self.assertContains(response, "Jan 1 - Mar 31")
+        # Four months of the annual cap, then three
+        self.assertContains(response, "76 of 228 days, pro-rated")
+        self.assertContains(response, "57 of 228 days, pro-rated")
+
+    def test_a_contract_inside_one_year_renders_one_block(self) -> None:
+        contract = self._contract(datetime.date(2026, 4, 1), datetime.date(2026, 8, 31))
+
+        response = self.client.get(f"/contracts/{contract.pk}/")
+
+        self.assertContains(response, "95 of 228 days, pro-rated")
+        assert response.content.decode().count("pro-rated") == 1
+
+    def test_a_full_calendar_year_states_the_cap_whole(self) -> None:
+        contract = self._contract(datetime.date(2026, 1, 1), datetime.date(2026, 12, 31))
+
+        response = self.client.get(f"/contracts/{contract.pk}/")
+
+        self.assertContains(response, "228 days")
+        self.assertNotContains(response, "pro-rated")
+
+    def test_days_below_the_cap_read_as_under_the_limit(self) -> None:
+        """The sign convention: cap minus worked is positive when there are days to spare.
+
+        Inverting it prints the opposite status on every calendar, which is what it used to do.
+        """
+        contract = self._contract(datetime.date(2026, 1, 1), datetime.date(2026, 12, 31), max_working_days=261)
+        TimeOff.objects.create(contract=contract, date=datetime.date(2026, 3, 16), hours=8)  # Monday
+
+        response = self.client.get(f"/contracts/{contract.pk}/")
+
+        # 261 weekdays less one day off, against a cap of 261: a day in hand
+        self.assertContains(response, "1 under limit")
+        self.assertNotContains(response, "over limit")
+
+    def test_days_above_the_cap_read_as_over_the_limit(self) -> None:
+        contract = self._contract(datetime.date(2026, 1, 1), datetime.date(2026, 12, 31), max_working_days=250)
+
+        response = self.client.get(f"/contracts/{contract.pk}/")
+
+        # 261 weekdays against a 250 cap
+        self.assertContains(response, "11 over limit")
+
+    def test_a_cap_met_exactly_reads_as_at_the_limit(self) -> None:
+        """A boundary state of its own, rather than nought over the limit."""
+        contract = self._contract(datetime.date(2026, 1, 1), datetime.date(2026, 12, 31), max_working_days=261)
+
+        response = self.client.get(f"/contracts/{contract.pk}/")
+
+        self.assertContains(response, "At limit")
+        self.assertNotContains(response, "over limit")
+        self.assertNotContains(response, "under limit")
+
+
 class ToggleDayTests(TestCase):
     def setUp(self) -> None:
         self.user = User.objects.create_user(username="test")
