@@ -124,6 +124,54 @@ that has to match a return exactly is one somebody will want to paste somewhere.
 a press that starts outside it or on Escape, and never on a click inside, so a selection
 dragged out of it survives; `static/js/ui.js` handles that, one panel open at a time.
 
+## The day cap
+
+A contract's `Max Working Days per Year` is the cap for a **full calendar year**. Agreements
+write it that way — "shall not exceed 228 days per full calendar year, or pro-rated for partial
+years according to the actual duration of the contract" — so the stored figure is annual and the
+calendar works out each year's share of it.
+
+The calendar page therefore counts a contract one calendar year at a time, with a stats bar per
+year. A year the contract runs through for only part of its length carries that part of the cap:
+
+```
+cap for the year = annual cap × months the contract covers ÷ 12
+```
+
+floored, because the cap is a ceiling on billable days and part of a day cannot be billed. A year
+the contract covers end to end keeps the annual figure whole.
+
+**The share is counted in months, not days.** Both are measures of "the actual duration of the
+contract" and they differ by well under a day, but months are what reconstructs the annual
+figure. 228 over twelve months divides exactly, at 19 a month, so a term broken on month
+boundaries loses nothing to either the split or the flooring:
+
+```
+April 2026 - March 2027, by month:  171 + 57 = 228   exact
+April 2026 - March 2027, by day:    171 + 56 = 227   a day lost to flooring
+```
+
+Counting days cannot promise that, and not only because of the flooring. Calendar years are not
+the same length, so a twelve-month term crossing a leap year covers 306/366 + 59/365 of two of
+them, which is not one year: over 2020-2040 the exact unrounded day-shares of a one-year term run
+from 227.478 to 228.522, either side of 228. Months have no such artefact, and February's length
+never moves a cap.
+
+A month the term covers only part of counts as that part of the month's own length, so a mid-month
+start is not rounded up to the whole month. Nothing rounds at all where the edges are month
+boundaries, which is the usual case.
+
+Years do not pool. A contract from September to March next year has two caps, and days left
+unbilled in the first year are not available to the second. Two contracts covering one year
+between them likewise each carry their own share, which is what makes an engagement that changes
+contract mid-year add up: a term running April to August takes 228 × 5/12 = 95 days, the one
+picking it up in September takes 228 × 4/12 = 76, and April to December comes to 171 either way.
+
+What the agreement itself fixes is narrower than any of this: it states the cap per calendar year
+and says nothing about a rolling twelve months, so only a term running January 1 to December 31 is
+owed exactly 228. Where the figure decides an invoice it is worth settling in writing, since days
+above "the applicable workload limits" are not payable without prior written approval.
+
 ## Configuration
 
 | Variable | Required | Default | What it does |
