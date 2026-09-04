@@ -93,7 +93,10 @@ class ComputeStatsTests(TestCase):
 
     def test_no_time_off(self) -> None:
         contract = self._make_contract()
-        stats = compute_stats(contract, [], [], [])
+        (stats,) = compute_stats(contract, [], [], [])
+        assert stats["year"] == 2026
+        assert stats["is_full_year"]
+        assert stats["max_working_days"] == 228
         assert stats["total_weekdays"] == 261
         assert stats["time_off_days"] == 0
         assert stats["effective_working_days"] == 261
@@ -103,7 +106,7 @@ class ComputeStatsTests(TestCase):
     def test_full_day_off(self) -> None:
         contract = self._make_contract()
         time_off = [self._make_time_off(datetime.date(2026, 3, 16), 8)]  # Monday
-        stats = compute_stats(contract, time_off, [], [])
+        (stats,) = compute_stats(contract, time_off, [], [])
         assert stats["time_off_days"] == 1.0
         assert stats["effective_working_days"] == 260
         assert stats["budget_used"] == 1.0
@@ -112,21 +115,130 @@ class ComputeStatsTests(TestCase):
     def test_half_day_off(self) -> None:
         contract = self._make_contract()
         time_off = [self._make_time_off(datetime.date(2026, 3, 16), 4)]
-        stats = compute_stats(contract, time_off, [], [])
+        (stats,) = compute_stats(contract, time_off, [], [])
         assert stats["time_off_days"] == 0.5
         assert stats["effective_working_days"] == 260.5
 
-    def test_partial_year_contract(self) -> None:
-        # Oct 1 to Mar 31 next year
-        contract = self._make_contract(
-            start_date=datetime.date(2026, 10, 1),
-            end_date=datetime.date(2027, 3, 31),
-            max_working_days=100,
+    def test_days_over_or_under_counts_up_below_the_cap(self) -> None:
+        """The difference is positive with days to spare and negative once the cap is passed."""
+        (at_cap,) = compute_stats(
+            self._make_contract(max_working_days=260),
+            [self._make_time_off(datetime.date(2026, 3, 16), 8)],
+            [],
+            [],
         )
-        stats = compute_stats(contract, [], [], [])
-        # Oct 2026: 22 weekdays, Nov: 21, Dec: 23, Jan 2027: 21, Feb: 20, Mar: 23 = 130
-        assert stats["total_weekdays"] == 130
-        assert stats["budget"] == 30
+        assert at_cap["effective_working_days"] == 260
+        assert at_cap["days_over_or_under"] == 0
+
+        (over,) = compute_stats(self._make_contract(max_working_days=250), [], [], [])
+        assert over["days_over_or_under"] == -11
+
+    def test_partial_year_prorates_the_cap(self) -> None:
+        """A term covering part of a year is measured against that part of the annual cap."""
+        contract = self._make_contract(
+            start_date=datetime.date(2026, 4, 1),
+            end_date=datetime.date(2026, 8, 31),
+        )
+        (stats,) = compute_stats(contract, [], [], [])
+        assert not stats["is_full_year"]
+        assert stats["total_weekdays"] == 109
+        # Apr 1 to Aug 31 is 5 of 12 months: 228 * 5 // 12
+        assert stats["max_working_days"] == 95
+        assert stats["budget"] == 109 - 95
+
+    def test_two_year_contract_is_counted_per_year(self) -> None:
+        """Each calendar year carries its own pro-rated cap, weekdays and days off."""
+        contract = self._make_contract(
+            start_date=datetime.date(2026, 9, 1),
+            end_date=datetime.date(2027, 3, 31),
+        )
+        time_off = [
+            self._make_time_off(datetime.date(2026, 9, 1), 8),
+            self._make_time_off(datetime.date(2027, 1, 4), 8),
+            self._make_time_off(datetime.date(2027, 1, 5), 4),
+        ]
+
+        first, second = compute_stats(contract, time_off, [], [])
+
+        assert (first["year"], second["year"]) == (2026, 2027)
+        assert (first["period_start"], first["period_end"]) == (datetime.date(2026, 9, 1), datetime.date(2026, 12, 31))
+        assert (second["period_start"], second["period_end"]) == (datetime.date(2027, 1, 1), datetime.date(2027, 3, 31))
+        # 4 of 12 months, then 3 of 12
+        assert (first["max_working_days"], second["max_working_days"]) == (76, 57)
+        assert (first["total_weekdays"], second["total_weekdays"]) == (88, 64)
+        assert (first["time_off_days"], second["time_off_days"]) == (1.0, 1.5)
+
+    def test_month_shares_reconstruct_the_annual_cap(self) -> None:
+        """A year broken on month boundaries loses nothing to the split.
+
+        Counting months is what buys this: 228 over twelve of them divides exactly, so the
+        shares of a term straddling a year boundary, and of two contracts splitting one year,
+        both add back up to the annual figure.
+        """
+        straddling = self._make_contract(
+            start_date=datetime.date(2026, 4, 1),
+            end_date=datetime.date(2027, 3, 31),
+        )
+        first, second = compute_stats(straddling, [], [], [])
+        assert (first["max_working_days"], second["max_working_days"]) == (171, 57)
+        assert first["max_working_days"] + second["max_working_days"] == 228
+
+        handover = [
+            self._make_contract(start_date=datetime.date(2026, 4, 1), end_date=datetime.date(2026, 8, 31)),
+            self._make_contract(start_date=datetime.date(2026, 9, 1), end_date=datetime.date(2026, 12, 31)),
+        ]
+        caps = [compute_stats(c, [], [], [])[0]["max_working_days"] for c in handover]
+        assert caps == [95, 76]
+        assert sum(caps) == 171  # April to December, the same share the straddling term gets
+
+    def test_leap_year_does_not_change_the_share(self) -> None:
+        """Months are counted, so February's length does not move the cap."""
+        leap = self._make_contract(
+            start_date=datetime.date(2028, 1, 1),
+            end_date=datetime.date(2028, 6, 30),
+        )
+        common = self._make_contract(
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 6, 30),
+        )
+        # Six of twelve months either way: 228 * 6 // 12
+        assert compute_stats(leap, [], [], [])[0]["max_working_days"] == 114
+        assert compute_stats(common, [], [], [])[0]["max_working_days"] == 114
+
+    def test_partial_month_counts_as_its_own_fraction(self) -> None:
+        """A term starting mid-month is not rounded up to the whole of that month."""
+        contract = self._make_contract(
+            start_date=datetime.date(2026, 4, 15),
+            end_date=datetime.date(2026, 8, 31),
+        )
+        (stats,) = compute_stats(contract, [], [], [])
+        # 16 of April's 30 days, then four whole months: 228 * (68/15) // 12
+        assert stats["max_working_days"] == 86
+
+    def test_full_calendar_years_keep_the_whole_cap(self) -> None:
+        contract = self._make_contract(
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2027, 12, 31),
+        )
+        first, second = compute_stats(contract, [], [], [])
+        assert first["is_full_year"]
+        assert second["is_full_year"]
+        assert (first["max_working_days"], second["max_working_days"]) == (228, 228)
+
+    def test_holidays_are_counted_in_the_year_they_fall_in(self) -> None:
+        contract = self._make_contract(
+            start_date=datetime.date(2026, 9, 1),
+            end_date=datetime.date(2027, 3, 31),
+        )
+        home = [
+            self._make_holiday(datetime.date(2026, 11, 11)),  # Wednesday
+            self._make_holiday(datetime.date(2027, 1, 1)),  # Friday
+        ]
+
+        first, second = compute_stats(contract, [], home, [])
+
+        assert first["home_holidays_on_weekdays"] == 1
+        assert second["home_holidays_on_weekdays"] == 1
 
     def test_holidays_on_weekdays(self) -> None:
         contract = self._make_contract()
@@ -138,7 +250,7 @@ class ComputeStatsTests(TestCase):
             self._make_holiday(datetime.date(2026, 4, 27)),  # Same day (overlapping)
             self._make_holiday(datetime.date(2026, 8, 1)),  # Saturday (Swiss National Day)
         ]
-        stats = compute_stats(contract, [], home, client)
+        (stats,) = compute_stats(contract, [], home, client)
         assert stats["home_holidays_on_weekdays"] == 1  # Only Mon counts
         assert stats["client_holidays_on_weekdays"] == 1  # Only Mon counts
         assert stats["overlapping_holidays_on_weekdays"] == 1
@@ -146,7 +258,7 @@ class ComputeStatsTests(TestCase):
     def test_custom_working_hours(self) -> None:
         contract = self._make_contract(working_hours_per_day=6)
         time_off = [self._make_time_off(datetime.date(2026, 3, 16), 3)]  # half day on 6h contract
-        stats = compute_stats(contract, time_off, [], [])
+        (stats,) = compute_stats(contract, time_off, [], [])
         assert stats["time_off_days"] == 0.5
 
 
@@ -210,3 +322,24 @@ class ComputeMonthlySummaryTests(TestCase):
         summary = compute_monthly_summary(contract, time_off)
         assert summary[0]["time_off_days"] == 1.5
         assert summary[0]["net_working_days"] == 22 - 1.5
+
+    def test_time_off_outside_the_term_is_not_counted(self) -> None:
+        """A month reports the days the year reports, so the two cannot disagree.
+
+        Narrowing a contract's dates leaves its existing time off behind. Grouping by month
+        alone would let a day the yearly stats no longer count still show against its month.
+        """
+        contract = self._make_contract(
+            start_date=datetime.date(2026, 1, 15),
+            end_date=datetime.date(2026, 1, 31),
+        )
+        time_off = [
+            self._make_time_off(datetime.date(2026, 1, 5), 8),  # before the term
+            self._make_time_off(datetime.date(2026, 1, 20), 8),  # inside it
+        ]
+
+        summary = compute_monthly_summary(contract, time_off)
+
+        assert len(summary) == 1
+        assert summary[0]["time_off_days"] == 1.0
+        assert summary[0]["net_working_days"] == 12 - 1.0
