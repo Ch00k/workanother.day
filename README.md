@@ -182,6 +182,11 @@ Guest accounts are created for anyone who makes a contract without logging in, a
 removes the ones that never became accounts. Run `manage.py cleanup_guests` when the table
 wants trimming.
 
+The database is backed up daily by `.github/workflows/backup.yml`, to Tigris and to a Hetzner
+Storage Box, on top of Fly's own volume snapshots. `DB_BACKUP.md` covers what is kept, what the keys are allowed to do,
+and how to restore - including the part that is easy to forget, which is that
+`DJANGO_KSEF_TOKEN_KEY` has to survive too or the KSeF token comes back unreadable.
+
 ## Accounts
 
 There are no passwords. A visitor gets a guest account automatically, and can trade it for

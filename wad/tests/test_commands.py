@@ -1,11 +1,14 @@
+import sqlite3
 from decimal import Decimal
 from io import StringIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase, override_settings
+from django.test import TestCase, TransactionTestCase, override_settings
 
 from wad.calendar_utils import today_in_poland
 from wad.management.commands.seed_dev import (
@@ -180,3 +183,46 @@ class HealthContributionTests(TestCase):
         call_command("health_contribution", "--year=2026", "--wage=9228.64", stdout=out)
 
         assert "498.35 / 830.58 / 1495.04" in out.getvalue()
+
+
+class BackupDatabaseTests(TransactionTestCase):
+    """A TestCase would hold a transaction open around each test, and VACUUM INTO cannot run
+    inside one, so these commit what they write and let the class truncate afterwards."""
+
+    def _backup(self, path: Path) -> str:
+        out = StringIO()
+        call_command("backup_database", str(path), stdout=out)
+
+        return out.getvalue()
+
+    def test_the_copy_is_a_database_holding_what_was_written(self) -> None:
+        """What the command writes opens on its own, without the sidecars of the original,
+        and holds the rows committed before it ran."""
+        User.objects.create_user(username="backed-up")
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "copy.sqlite3"
+            self._backup(path)
+
+            copy = sqlite3.connect(path)
+            integrity = copy.execute("pragma integrity_check").fetchone()[0]
+            usernames = [row[0] for row in copy.execute("select username from auth_user")]
+            copy.close()
+
+        assert integrity == "ok"
+        assert usernames == ["backed-up"]
+
+    def test_a_leftover_from_an_earlier_run_is_replaced(self) -> None:
+        """VACUUM INTO refuses to write over a file, so a run that was interrupted before its
+        copy could be collected must not wedge every run after it."""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "copy.sqlite3"
+            path.write_bytes(b"not a database")
+
+            self._backup(path)
+
+            copy = sqlite3.connect(path)
+            integrity = copy.execute("pragma integrity_check").fetchone()[0]
+            copy.close()
+
+        assert integrity == "ok"
