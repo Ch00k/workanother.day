@@ -1,0 +1,109 @@
+name: Backup
+
+# The daily off-site copy of the production database, described in DB_BACKUP.md. Fly's own
+# volume snapshots are the first line and live in the same account as the thing they back up;
+# this is the copy that does not.
+#
+# It runs here rather than on Fly because a Fly volume attaches to exactly one machine, so
+# nothing scheduled alongside the app can read the database file. Actions cron is best-effort
+# and can be delayed by an hour or more, which a daily copy can absorb.
+on:
+  schedule:
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    # Two runs at once would fight over the one filename the copy is written to on the volume.
+    concurrency:
+      group: backup
+      cancel-in-progress: false
+    # Its own token, not the deploy one: reading the database means an SSH session, and issuing
+    # the certificate for one needs a permission a deploy token does not carry. `fly tokens
+    # create ssh` mints exactly that, for this app alone, and it cannot deploy.
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_SSH_TOKEN }}
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@v1
+
+      # Absolute paths because a command given to ssh console does not run through the image's
+      # entrypoint, so neither the working directory nor the PATH that puts the virtualenv first
+      # can be assumed.
+      - name: Copy the database out of the machine
+        run: |
+          flyctl ssh console -a workanotherday -C "/app/.venv/bin/python /app/manage.py backup_database /app/data/backup.sqlite3"
+          flyctl sftp get /app/data/backup.sqlite3 backup.sqlite3 -a workanotherday
+
+      # A 1GB volume against a database in the low tens of MB has room for one transient second
+      # copy, not for one per run. Removed even when the fetch failed, which is when it is left
+      # behind.
+      - name: Remove the copy from the machine
+        if: always()
+        run: flyctl ssh console -a workanotherday -C "rm -f /app/data/backup.sqlite3"
+
+      # A backup nobody opened is a guess. This is the cheapest moment to find out that what
+      # arrived is a database and is this application's, rather than during a restore.
+      - name: Check what arrived
+        run: |
+          python3 - <<'PY'
+          import sqlite3
+          import sys
+
+          copy = sqlite3.connect("file:backup.sqlite3?mode=ro", uri=True)
+          integrity = copy.execute("pragma integrity_check").fetchone()[0]
+          migrations = copy.execute("select count(*) from django_migrations").fetchone()[0]
+          print(f"integrity_check: {integrity}, migrations applied: {migrations}")
+
+          if integrity != "ok" or migrations == 0:
+              sys.exit("Not keeping this copy.")
+          PY
+
+      # One file per run, named for the moment it was taken, so nothing is ever written over and
+      # a listing sorts oldest first. Named once and carried to both destinations, so the two
+      # copies of a run are visibly the same copy.
+      - name: Compress and name the copy
+        run: |
+          name="db-$(date -u +%Y%m%dT%H%M%SZ).sqlite3.gz"
+          gzip -9 backup.sqlite3
+          mv backup.sqlite3.gz "$name"
+          echo "BACKUP_FILE=$name" >> "$GITHUB_ENV"
+
+      # put-object rather than `s3 cp` because cp switches to a multipart upload above 8MB, and
+      # the key this runs under is allowed s3:PutObject on this prefix and nothing else: it
+      # cannot read the backups back and it cannot delete one.
+      - name: Upload to Tigris
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}
+          AWS_REGION: auto
+        run: |
+          aws s3api put-object \
+            --endpoint-url https://fly.storage.tigris.dev \
+            --bucket app-backups \
+            --key "workanotherday/database/$BACKUP_FILE" \
+            --body "$BACKUP_FILE"
+
+      # The copy at a provider that has nothing to do with the application: Tigris is provisioned
+      # and billed through Fly, so one lost account is both of them. Last, so a Storage Box that
+      # is unreachable still leaves the run with the database stored somewhere.
+      #
+      # rsync over the Storage Box's port 23, which is the port that speaks more than SFTP. It
+      # writes to a temporary name and renames on completion, so an upload cut off halfway does
+      # not leave something that looks like a backup. The host is a secret only because this
+      # repository is public and the hostname carries the account number.
+      - name: Upload to the Storage Box
+        env:
+          SSH_KEY: ${{ secrets.STORAGE_BOX_SSH_KEY }}
+          SSH_HOST: ${{ secrets.STORAGE_BOX_HOST }}
+          KNOWN_HOSTS: ${{ secrets.STORAGE_BOX_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/storage_box
+          chmod 600 ~/.ssh/storage_box
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          rsync --times -e "ssh -p 23 -i ~/.ssh/storage_box -o IdentitiesOnly=yes" \
+            "$BACKUP_FILE" "$SSH_HOST:$BACKUP_FILE"
