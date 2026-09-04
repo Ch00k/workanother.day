@@ -50,7 +50,7 @@
                 <div class="text-xs text-[#999] mt-1">Where your client is. Its public holidays are loaded too, so the calendar can show both and mark the overlaps.</div>
             </div>
             <div>
-                <label for="max_working_days" class="block text-sm font-medium text-[#666] mb-1">Max Working Days <span class="text-red-600" aria-hidden="true">*</span></label>
+                <label for="max_working_days" class="block text-sm font-medium text-[#666] mb-1">Max Working Days per Year <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="number" id="max_working_days" name="max_working_days" placeholder="200" min="1"
                        value="{{ form_data.max_working_days|default:contract.max_working_days }}" required
                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">

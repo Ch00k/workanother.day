@@ -400,6 +400,8 @@ class Contract(models.Model):
     name = models.CharField(max_length=200)
     home_country = models.CharField(max_length=2)
     client_country = models.CharField(max_length=2)
+    # The cap for a full calendar year. A year the contract only runs through part of carries
+    # that part of the cap, so a term shorter than a year is never measured against the whole.
     max_working_days = models.PositiveIntegerField()
     working_hours_per_day = models.PositiveIntegerField(default=8)
     start_date = models.DateField()
