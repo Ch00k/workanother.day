@@ -2475,9 +2475,15 @@ def tax_payment_record(request: HttpRequest, pk: str, year: int, month: int) -> 
     revenue moves what the month owes, and the payment has to stay what was paid for the
     disagreement between the two to be visible at all.
 
-    The day is today. Nothing on ryczałt turns on it - the month covered is what decides which
-    year the payment belongs to, December's being paid in January - so it is the day the
-    transfer was made if this is pressed when the transfer is made.
+    The day is today, and is the day of the transfer because the dialog this is pressed in is
+    where the transfer is made from: it states the amount, the mikrorachunek and the okres, so
+    the press follows the transfer by minutes. A month paid before any of this existed has no
+    way in, which is a limit accepted rather than an oversight.
+
+    A month the schedule states no figure for is refused, and so is a second payment for a
+    month already recorded. Both are limits: a year at two ryczałt rates has no monthly figure
+    and so no press to make, and the refusal of the second is a check here rather than a
+    constraint on the table, so two submissions racing each other can both get past it.
     """
     seller = _owned_seller(request, pk)
 

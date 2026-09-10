@@ -702,18 +702,32 @@ no symbol, ZUS allocating what arrives from the last DRA, arrears first.
 
 **What was paid and what was filed are recorded on the same page**, because a figure computed
 and then lost sight of sends you back to a bank statement to find out. A ryczałt payment is
-recorded by pressing **Mark paid** on the month in the table, which keeps that month's own
-figure, dated the day it was pressed. Nothing is typed: the amount is taken from the schedule
+recorded by pressing **Pay** on the month in the table, which opens a dialog stating the
+transfer to make, and then **I have paid this** in it, which keeps that month's own figure,
+dated the day it was pressed. Nothing is typed: the amount is taken from the schedule
 rather than from the request, because what a return settles is the tax paid for the year's
 months and a browser is not where that number comes from. A payment belongs to the month it
 covers rather than to the day of the transfer — December's is paid in January and belongs to the
 year it settles, which is how PIT-28 takes them. Unlike a contribution it moves nothing above
 it: art. 11 deducts contributions, not tax.
 
+The date is the day of the press because the dialog is what the transfer is made from: it
+states the amount, the mikrorachunek and the okres, so the press follows the transfer by
+minutes. Two things fall outside that, and are limits rather than features. A month the
+schedule states no figure for cannot be recorded at all — a year holding revenue at two
+ryczałt rates has no single monthly figure, so a payer on two contracts at different rates
+gets no press to make; and a payment can only ever be the whole of what the month owes, so a
+part payment, an overpayment and a month whose revenue a correction moved to zero after the
+transfer went have no representation. Neither has a typed-amount path, the amount coming from
+the schedule being what makes the press one click.
+
 **The figure is kept rather than recomputed**, and that is the point of keeping it. A correction
 invoice or a late payment can move a month's revenue after the transfer went, which moves what
 the month owes; the payment stays what was paid, and the two sit side by side in the same row
 for the disagreement to be seen. Recording it twice is refused, and removing it is the way back.
+The refusal is a check on the way in rather than a constraint in the database, so two
+submissions racing each other — a double press, or a second tab — can both get past it and
+have the month showing the pair of them added up; removing the month clears both.
 
 What a payment does move is the balance the return settles, which is the year's tax less the
 ryczałt paid for its months. That is the year's own figure rather than the twelve monthly ones added up,

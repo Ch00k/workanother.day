@@ -71,6 +71,15 @@ button:disabled { cursor: not-allowed; }
 .card-heading:first-child {
   @apply mt-0;
 }
+/* A heading above a card that is off the print goes off it too: a label over nothing is no use
+   on paper. Marked here rather than with Tailwind's `print:hidden` on the element, because that
+   rule is layered and the `display: flex` above is not, so on this element the utility would
+   lose the cascade and the heading would print anyway. */
+@media print {
+  .card-heading.print-hidden {
+    display: none;
+  }
+}
 .card-heading h2 {
   @apply text-[11px] uppercase tracking-wider text-[#999] font-semibold;
 }
