@@ -7,10 +7,11 @@ is a different comparison from the one the invoice carries above and a different
 Offered only once a payment has been recorded and converted, because the day the money landed is
 what the sale is measured against. Not for a correction, which is not settled on its own.
 {% endcomment %}
-<div id="currency-sales" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+<div class="card-heading">
+    <h2>Currency sold</h2>
     {% explainer "currency-sales-help" %}
     <p>
-        Art. 6 ust. 1c of the ryczalt act applies art. 24c PIT, which measures two differences and
+        Art. 6 ust. 1c of the ryczałt act applies art. 24c PIT, which measures two differences and
         not one. The invoice above carries the first: what the revenue was booked at against what it
         was worth when the money landed. This is the second, on the money itself: what the currency
         was worth coming in against what it was worth going out.
@@ -29,13 +30,13 @@ what the sale is measured against. Not for a correction, which is not settled on
     </p>
     <p>
         Each sale is a register entry of its own, dated the day of the sale and carrying this
-        invoice's ryczalt rate. Selling a payment in parts is several sales here; a sale can never
+        invoice's ryczałt rate. Selling a payment in parts is several sales here; a sale can never
         exceed what this invoice brought in, which is what keeps art. 24c ust. 8 and its lot
         matching out of the arithmetic.
     </p>
     {% endexplainer %}
-    <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-3">Currency sold</div>
-
+</div>
+<div id="currency-sales" class="mb-4 mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
     {% if invoice.currency_sales.all %}
     <table class="w-full border-collapse text-sm mb-4">
         <thead>

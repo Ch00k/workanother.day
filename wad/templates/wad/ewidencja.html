@@ -3,7 +3,7 @@
 {% block title %}Ewidencja {{ year }} - {{ seller.name }} - Work Another Day{% endblock %}
 
 {% block body %}
-<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+<div class="page mt-6 mb-8">
     <nav class="crumbs print:hidden">
         <a href="{% url 'seller_list' %}">Sellers</a> /
         <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
@@ -68,11 +68,11 @@
     </div>
     {% endif %}
 
-    <div class="relative mt-6 flex items-center justify-between gap-3">
-        <h2 class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">The register</h2>
-        {% explainer "register-help" beside %}
+    <div class="card-heading">
+        <h2>The register</h2>
+        {% explainer "register-help" %}
         <p>
-            The ewidencja przychodow art. 15 requires to be kept, rather than a report about one.
+            The ewidencja przychodów art. 15 requires to be kept, rather than a report about one.
             From 1 January 2027 the law requires it to be kept in software able to produce the
             JPK_EWP XML, which is what this is.
         </p>
@@ -99,7 +99,7 @@
                         <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Entered</th>
                         <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Revenue date</th>
                         <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Document</th>
-                        <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Revenue PLN</th>
+                        <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Revenue</th>
                         <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Rate</th>
                     </tr>
                 </thead>
@@ -132,22 +132,22 @@
         </div>
         {% else %}
         <div class="px-5 py-8 text-sm text-[#666]">
-            Nothing entered for {{ year }}. Only issued invoices on ryczalt are entered, so a year
+            Nothing entered for {{ year }}. Only issued invoices on ryczałt are entered, so a year
             of drafts is an empty register &mdash; and an empty year has no JPK_EWP to file, because
             the file states how many rows it carries and the schema requires at least one.
         </div>
         {% endif %}
     </div>
 
-    <div class="mt-6 grid gap-4 lg:grid-cols-2">
+    <div class="mt-6 grid gap-6 lg:grid-cols-2">
         {% comment %}
         Contributions, by hand. ZUS publishes no filing API for a sole trader, so there is
         nothing to fetch. The date is the day of payment because art. 11 works on a cash basis.
         {% endcomment %}
         <div>
-            <div class="relative flex items-center justify-between gap-3">
-                <h2 class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">ZUS paid in {{ year }}</h2>
-                {% explainer "zus-help" beside %}
+            <div class="card-heading">
+                <h2>ZUS paid in {{ year }}</h2>
+                {% explainer "zus-help" %}
                 <p>
                     Entered by hand, because ZUS publishes no filing API for a sole trader: the DRA
                     is filed in eZUS and there is nothing here to fetch.
@@ -229,8 +229,8 @@
         </div>
 
         <div>
-            <h2 class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">PIT-28 for {{ year }}</h2>
-            <div class="relative mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+            <div class="card-heading">
+                <h2>PIT-28 for {{ year }}</h2>
                 {% explainer "pit-28-figures-help" %}
                 <p>
                     Art. 11 ust. 1 deducts social contributions paid and art. 11 ust. 1a half the
@@ -238,11 +238,13 @@
                     was paid during it.
                 </p>
                 <p>
-                    The base and the tax are each rounded to whole zlote under art. 63 &sect; 1
+                    The base and the tax are each rounded to whole złote under art. 63 &sect; 1
                     Ordynacji podatkowej.
                 </p>
                 <p>Figures to check against, not a return.</p>
                 {% endexplainer %}
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
                 <table class="w-full border-collapse text-sm">
                     <tr class="border-b border-[#eee]">
                         <td class="py-2 text-[#888]">Przychód</td>
