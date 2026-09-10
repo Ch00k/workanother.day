@@ -51,23 +51,40 @@ button:disabled { cursor: not-allowed; }
 .notice a { text-decoration: underline; text-underline-offset: 2px; }
 .notice a:hover { text-decoration: none; }
 
+/* The column every page is laid out in, so one width serves the whole application rather than
+   seventeen copies of a number that can drift apart. The sidebar takes 224px beside it, so the
+   cap binds from about 1424px of viewport and a narrower window simply shrinks the column.
+   Vertical margins stay with the page, which is the one part that genuinely differs. */
+.page {
+  @apply mx-auto w-full max-w-[1200px] px-4;
+}
+
+/* Every card's heading sits on a row of its own above the card, and the row is the same height
+   whether or not it carries an explainer mark: the mark is taller than the label it sits beside,
+   and headings at two different heights read as two kinds of card. The row is what carries
+   `relative`, so the panel hangs from it over the card below. */
+.card-heading {
+  @apply relative mt-6 flex items-center justify-between gap-3 min-h-6;
+}
+/* The space belongs between one card and the next, so a heading that opens its container - the
+   first on a page, or a card in a grid cell - takes none. */
+.card-heading:first-child {
+  @apply mt-0;
+}
+.card-heading h2 {
+  @apply text-[11px] uppercase tracking-wider text-[#999] font-semibold;
+}
+
 /* Why a card is the way it is, for the reader who wants to know and out of the way of the one
    who does not. A card states what it holds; the paragraph explaining the law behind it, or
-   what a figure has to match, is a second thing and belongs behind the mark in its corner.
+   what a figure has to match, is a second thing and belongs behind a mark.
 
-   Sits in the corner of the card that carries it, so that card has to be `relative`. */
+   The mark sits on the row of the card's heading, which is above the card rather than in it: a
+   card holding a table clips what is inside it, that being what rounds the table's corners, and
+   it would clip the panel with it. So the row the heading sits in carries `relative`, and the
+   panel hangs from that row over the card. */
 .explainer {
-  @apply absolute top-3 right-3;
-}
-
-/* Beside a section heading rather than in the card below it, for a card that clips what is
-   inside it: clipping is what rounds a table's corners, and it would clip the panel too. The
-   row the heading sits in carries `relative`, and the panel hangs from it over the card. */
-.explainer-beside {
   @apply static;
-}
-.explainer-beside .explainer-panel {
-  @apply top-6;
 }
 
 .explainer-button {
@@ -81,7 +98,7 @@ button:disabled { cursor: not-allowed; }
    prose. Held open until something is done about it, because text being read is text that may
    be about to be copied - see the explainer handling in static/js/ui.js. */
 .explainer-panel {
-  @apply absolute top-9 right-0 z-20 w-[min(24rem,calc(100vw-3rem))] rounded-[14px] border border-black/5 bg-white px-4 py-3 text-xs leading-relaxed text-[#666] shadow-lg;
+  @apply absolute top-6 right-0 z-20 w-[min(24rem,calc(100vw-3rem))] rounded-[14px] border border-black/5 bg-white px-4 py-3 text-xs leading-relaxed text-[#666] shadow-lg;
 }
 .explainer-panel p + p { @apply mt-2; }
 .explainer-panel a { text-decoration: underline; text-underline-offset: 2px; }

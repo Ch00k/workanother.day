@@ -2409,9 +2409,9 @@ def obligations_view(request: HttpRequest, pk: str, year: int) -> HttpResponse:
             "seller": seller,
             "schedule": schedule,
             "holidays_stale": stale,
-            # What was done about the year, as against what it owes. Neither changes a figure
-            # above: a tax payment is no deduction and a return that went is not a payment.
-            "payments": list(seller.tax_payments.filter(covers__year=year)),  # ty: ignore[unresolved-attribute]
+            # What was done about the year, as against what it owes. A return that went is not
+            # a payment and changes no figure; the payments themselves are in the schedule,
+            # against the months they settle.
             "tax_return": seller.tax_returns.filter(year=year).first(),  # ty: ignore[unresolved-attribute]
             "unpublished_year": unpublished_year,
             "today": today,
@@ -2464,43 +2464,55 @@ def contribution_delete(request: HttpRequest, pk: str) -> HttpResponse:
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
-def tax_payment_add(request: HttpRequest, pk: str) -> HttpResponse:
-    """Record a ryczałt payment against the month it covers.
+def tax_payment_record(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Record that a month's ryczałt was paid, at the figure worked out for it.
 
-    By hand, nothing being filed with a ryczałt payment for anything here to read back. The
-    month covered rather than the day of the transfer decides which year it belongs to,
-    because what a return settles is the tax for its own months and December's is paid in
-    January.
+    The amount comes from the schedule rather than from the request. What a return settles is
+    the tax paid for the year's own months, so the browser is not where that number comes
+    from - and there is nothing for a payer to type that this page has not already computed.
+
+    Kept rather than recomputed on every read: a correction that later moves the month's
+    revenue moves what the month owes, and the payment has to stay what was paid for the
+    disagreement between the two to be visible at all.
+
+    The day is today. Nothing on ryczałt turns on it - the month covered is what decides which
+    year the payment belongs to, December's being paid in January - so it is the day the
+    transfer was made if this is pressed when the transfer is made.
+    """
+    seller = _owned_seller(request, pk)
+
+    # Without holidays, which shift the due dates and bear on no figure: what is wanted here
+    # is the month's tax.
+    schedule = obligations.schedule(seller, year, set())
+
+    due = next((each for each in schedule.months if each.month == month), None)
+    if due is None or not due.tax:
+        return HttpResponse("Nothing is due for that month.", status=400)
+
+    if seller.tax_payments.filter(covers=due.date).exists():  # ty: ignore[unresolved-attribute]
+        return HttpResponse("That month is already recorded as paid.", status=409)
+
+    TaxPayment.objects.create(seller=seller, covers=due.date, paid_on=today_in_poland(), amount=due.tax)
+
+    return redirect("obligations", pk=seller.pk, year=year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def tax_payment_remove(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Take a month's recorded ryczałt off again, one marked paid by mistake misstating what a
+    return settles.
+
+    Keyed by the month rather than by the payment, because the month is what the page shows as
+    settled: everything recorded for it goes, and the month is back to owing what it owes.
     """
     seller = _owned_seller(request, pk)
 
     try:
-        covers = datetime.date.fromisoformat(str(request.POST.get("covers", "")).strip())
-        paid_on = datetime.date.fromisoformat(str(request.POST.get("paid_on", "")).strip())
-        amount = _decimal(request.POST.get("amount") or 0, "The payment", maximum=MAX_PAYMENT)
-    except (ValueError, InvoiceInputError) as error:
-        return HttpResponse(str(error) or "That is not a date.", status=400)
+        covers = datetime.date(year, month, 1)
+    except ValueError:
+        return HttpResponse("There is no such month.", status=400)
 
-    if paid_on > today_in_poland():
-        return HttpResponse("A payment cannot have been made on a day that has not arrived.", status=400)
-
-    if not amount:
-        return HttpResponse("A payment of nothing is not a payment.", status=400)
-
-    # Normalised rather than refused, the day in the month carrying no meaning.
-    TaxPayment.objects.create(seller=seller, covers=covers.replace(day=1), paid_on=paid_on, amount=amount)
-
-    return redirect("obligations", pk=seller.pk, year=covers.year)
-
-
-@require_POST  # ty: ignore[invalid-argument-type]
-def tax_payment_delete(request: HttpRequest, pk: str) -> HttpResponse:
-    """Discard a recorded payment, because one entered wrongly misstates what a return settles."""
-    payment = get_object_or_404(TaxPayment, pk=pk)
-    seller = _owned_seller(request, str(payment.seller.pk))
-
-    year = payment.covers.year
-    payment.delete()
+    seller.tax_payments.filter(covers=covers).delete()  # ty: ignore[unresolved-attribute]
 
     return redirect("obligations", pk=seller.pk, year=year)
 

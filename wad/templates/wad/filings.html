@@ -3,7 +3,7 @@
 {% block title %}JPK_EWP {{ year }} - {{ seller.name }} - Work Another Day{% endblock %}
 
 {% block body %}
-<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+<div class="page mt-6 mb-8">
     <nav class="crumbs print:hidden">
         <a href="{% url 'seller_list' %}">Sellers</a> /
         <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
@@ -23,9 +23,9 @@
     </div>
     {% endif %}
 
-    <div class="relative mt-6 flex items-center justify-between gap-3">
-        <h2 class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">Files</h2>
-        {% explainer "files-help" beside %}
+    <div class="card-heading">
+        <h2>Files</h2>
+        {% explainer "files-help" %}
         <p>
             Each file is the bytes as they were generated, kept for the same reason an invoice's
             XML is kept: the register is rebuilt from invoices every time it is read, so the file
@@ -54,7 +54,7 @@
                     list names it: an unlabelled clock reads as the reader's own.
                     {% endcomment %}
                     <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Generated (UTC)</th>
-                    <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Revenue PLN</th>
+                    <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Revenue</th>
                     <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Rows</th>
                     <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Status</th>
                 </tr>
@@ -109,7 +109,7 @@
             {% endif %}
             {% else %}
             <div class="text-sm text-[#666]">
-                Nothing to file for {{ year }}. Only issued invoices on ryczalt count towards a
+                Nothing to file for {{ year }}. Only issued invoices on ryczałt count towards a
                 year, so a year of drafts has an empty register &mdash; and an empty year has no
                 JPK_EWP, because the file states how many rows it carries and the schema requires
                 at least one.

@@ -19,7 +19,7 @@
     }
 </style>
 
-<div class="invoice-wrap mx-auto max-w-[960px] px-4 mt-6 mb-8">
+<div class="invoice-wrap page mt-6 mb-8">
     <nav class="crumbs print:hidden">
         <a href="{% url 'contract_list' %}">Contracts</a> /
         <a href="{% url 'calendar' pk=contract.pk %}">{{ contract.name }}</a> /
@@ -86,7 +86,8 @@
     </div>
 
     {% if ksef_enabled %}
-    <div id="ksef-panel" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+    <div class="card-heading">
+        <h2>KSeF</h2>
         {% explainer "ksef-help" %}
         <p>
             KSeF is Poland's national e-invoicing system. An invoice sent there is issued by KSeF
@@ -107,9 +108,10 @@
             reason in KSeF's own words and can be sent again once the cause is fixed.
         </p>
         {% endexplainer %}
-        <div class="flex items-center justify-between flex-wrap gap-3 pr-7">
+    </div>
+    <div id="ksef-panel" class="mb-4 mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
-                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
                 <div class="flex items-center gap-2 mt-0.5">
                     {% include "wad/_spinner.html" with id="ksef-spinner" spinning=invoice.is_in_flight %}
                     <div class="text-sm text-[#666]" id="ksef-status">
@@ -161,8 +163,10 @@
     about the document rather than part of it, so they sit above the invoice and off the print.
     {% endcomment %}
     {% if corrections %}
-    <div class="mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
-        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-2">Corrected by</div>
+    <div class="card-heading">
+        <h2>Corrected by</h2>
+    </div>
+    <div class="mb-4 mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
         <div class="grid gap-1 text-sm">
             {% for correction in corrections %}
             <div class="sm:flex sm:gap-3">
@@ -191,7 +195,8 @@
     which the invoice's own state already says.
     {% endcomment %}
     {% if invoice.is_issued %}
-    <div id="delivery-panel" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+    <div class="card-heading">
+        <h2>Delivery</h2>
         {% explainer "delivery-help" %}
         <p>
             Art. 106gb ust. 4 requires an invoice to reach a buyer with no Polish NIP outside
@@ -216,9 +221,10 @@
             and nothing objected, which is as much as SMTP can be asked.
         </p>
         {% endexplainer %}
-        <div class="flex items-center justify-between flex-wrap gap-3 pr-7">
+    </div>
+    <div id="delivery-panel" class="mb-4 mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
-                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">Delivery</div>
                 <div class="flex items-center gap-2 mt-0.5">
                     {% comment %}
                     Never turning on arrival: a send is begun by the reader rather than found

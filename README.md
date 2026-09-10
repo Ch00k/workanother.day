@@ -681,15 +681,42 @@ is where the health contribution gets its definition of the wage. The command al
 A year nobody has entered leaves the page saying it cannot place the contribution in a band,
 rather than placing it in the wrong one.
 
-**What was paid and what was filed are recorded on the same page**, because a figure computed
-and then lost sight of sends you back to a bank statement to find out. A ryczalt payment is
-entered against the month it covers rather than the day of the transfer — December's is paid in
-January and belongs to the year it settles, which is how PIT-28 takes them — and the month table
-carries it beside what the month owed. Unlike a contribution it moves nothing above it: art. 11
-deducts contributions, not tax.
+**Where the two transfers go is stated on the page**, and the two accounts are not held the same
+way. The mikrorachunek podatkowy is a function of the taxpayer's NIP — MF generates it from the
+identifier, and e-Urząd Skarbowy says as much on the page it shows it on — so it is computed
+from the NIP rather than stored, and a corrected NIP carries the account with it instead of
+leaving a stale number addressing somebody else's tax. It is stated with the symbol `PPE` and a
+link to e-Urząd Skarbowy to hold it against once before a first transfer goes to it. The period
+is stated per month beside the due date, because it names the month the tax is for rather than
+the month of the transfer.
 
-What it does move is the balance the return settles, which is the year's tax less the ryczalt
-paid for its months. That is the year's own figure rather than the twelve monthly ones added up,
+The numer rachunku składkowego is entered on the seller and stored, because it cannot be
+computed. Of its 26 digits, `60000002026` at digits 3 to 13 is ZUS's own and the last ten are
+the NIP, but the three between are allocated by ZUS — `001` on every number seen, the specimen
+in ZUS's own mass-mailing template included, and no rule for them is published. What can be
+checked is checked as it is entered, and all three checks are worth having: the ISO 13616 check
+digits catch a typo, ZUS's constant catches a number that is not a ZUS account at all — what a
+letter demanding contributions elsewhere would carry — and the NIP catches another payer's,
+which is otherwise a perfectly correct account number. The transfer itself carries no period and
+no symbol, ZUS allocating what arrives from the last DRA, arrears first.
+
+**What was paid and what was filed are recorded on the same page**, because a figure computed
+and then lost sight of sends you back to a bank statement to find out. A ryczałt payment is
+recorded by pressing **Mark paid** on the month in the table, which keeps that month's own
+figure, dated the day it was pressed. Nothing is typed: the amount is taken from the schedule
+rather than from the request, because what a return settles is the tax paid for the year's
+months and a browser is not where that number comes from. A payment belongs to the month it
+covers rather than to the day of the transfer — December's is paid in January and belongs to the
+year it settles, which is how PIT-28 takes them. Unlike a contribution it moves nothing above
+it: art. 11 deducts contributions, not tax.
+
+**The figure is kept rather than recomputed**, and that is the point of keeping it. A correction
+invoice or a late payment can move a month's revenue after the transfer went, which moves what
+the month owes; the payment stays what was paid, and the two sit side by side in the same row
+for the disagreement to be seen. Recording it twice is refused, and removing it is the way back.
+
+What a payment does move is the balance the return settles, which is the year's tax less the
+ryczałt paid for its months. That is the year's own figure rather than the twelve monthly ones added up,
 and it is stated with the PIT-28 deadline; a negative one is an overpayment the return claims
 back. The return itself is completed and sent in e-Urzad Skarbowy, so what is kept here is the
 date it went and the UPO that came back — one per year, replaced rather than added to, because

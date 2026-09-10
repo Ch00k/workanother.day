@@ -25,8 +25,16 @@ urlpatterns = [
     path("filings/<uuid:pk>/delete/", views.filing_delete, name="filing_delete"),  # ty: ignore[no-matching-overload]
     path("sellers/<uuid:pk>/contributions/", views.contribution_add, name="contribution_add"),  # ty: ignore[no-matching-overload]
     path("contributions/<uuid:pk>/delete/", views.contribution_delete, name="contribution_delete"),  # ty: ignore[no-matching-overload]
-    path("sellers/<uuid:pk>/tax-payments/", views.tax_payment_add, name="tax_payment_add"),  # ty: ignore[no-matching-overload]
-    path("tax-payments/<uuid:pk>/delete/", views.tax_payment_delete, name="tax_payment_delete"),  # ty: ignore[no-matching-overload]
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/paid/<int:month>/",
+        views.tax_payment_record,
+        name="tax_payment_record",
+    ),
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/paid/<int:month>/remove/",
+        views.tax_payment_remove,
+        name="tax_payment_remove",
+    ),
     path("sellers/<uuid:pk>/returns/<int:year>/", views.tax_return_record, name="tax_return_record"),  # ty: ignore[no-matching-overload]
     path("buyers/", views.buyer_list, name="buyer_list"),  # ty: ignore[no-matching-overload]
     path("buyers/new/", views.buyer_create, name="buyer_create"),

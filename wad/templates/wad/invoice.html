@@ -22,7 +22,7 @@
 
 {{ invoice_context|json_script:"invoice-context" }}
 
-<div id="invoice-form-view" class="mx-auto max-w-[960px] px-4 mt-6">
+<div id="invoice-form-view" class="page mt-6">
     <nav class="crumbs print:hidden">
         <a href="{% url 'contract_list' %}">Contracts</a> /
         <a href="{% url 'calendar' pk=contract.pk %}">{{ contract.name }}</a> /
@@ -222,7 +222,7 @@
     </div>
 </div>
 
-<div id="invoice-preview-view" class="invoice-wrap mx-auto max-w-[960px] px-4 mt-6 mb-8" style="display:none">
+<div id="invoice-preview-view" class="invoice-wrap page mt-6 mb-8" style="display:none">
     <nav class="crumbs print:hidden">
         <a href="{% url 'contract_list' %}">Contracts</a> /
         <a href="{% url 'calendar' pk=contract.pk %}">{{ contract.name }}</a> /
@@ -287,7 +287,8 @@
     </div>
 
     {% if ksef_enabled %}
-    <div id="ksef-panel" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+    <div class="card-heading">
+        <h2>KSeF</h2>
         {% explainer "ksef-month-help" %}
         <p>
             KSeF is Poland's national e-invoicing system. An invoice sent there is issued by KSeF
@@ -308,9 +309,10 @@
             reason in KSeF's own words and can be sent again once the cause is fixed.
         </p>
         {% endexplainer %}
-        <div class="flex items-center justify-between flex-wrap gap-3 pr-7">
+    </div>
+    <div id="ksef-panel" class="mb-4 mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+        <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
-                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">KSeF</div>
                 <div class="flex items-center gap-2 mt-0.5">
                     {% include "wad/_spinner.html" with id="ksef-spinner" spinning=False %}
                     <div class="text-sm text-[#666]" id="ksef-status">Not sent yet</div>
