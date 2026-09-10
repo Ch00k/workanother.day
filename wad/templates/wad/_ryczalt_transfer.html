@@ -1,0 +1,80 @@
+{% comment %}
+The ryczalt transfer, field by field as a bank's przelew podatkowy names them.
+
+Written once and included twice: on the year's page, where the okres and the amount belong to
+no month in particular, and inside a month's own dialog, where both are that month's. `month`
+is what tells the two apart - a schedule's month where there is one, absent otherwise.
+{% endcomment %}
+{% load money wad_filters %}
+<table class="w-full border-collapse text-sm">
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Rachunek odbiorcy</td>
+        <td class="py-2 text-right">
+            {% if seller.mikrorachunek %}
+            <span class="money">{{ seller.mikrorachunek|account }}</span>
+            {% else %}
+            <span class="text-[#bbb]">generated from the NIP, which this taxpayer has not got</span>
+            {% endif %}
+        </td>
+    </tr>
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Odbiorca</td>
+        <td class="py-2 text-right">Urząd Skarbowy</td>
+    </tr>
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Kwota</td>
+        <td class="py-2 text-right">
+            {% if month %}
+            <span class="money font-semibold">{{ month.tax|money }}</span> PLN
+            {% else %}
+            Ryczałt due for the month, from the table above
+            {% endif %}
+        </td>
+    </tr>
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Typ identyfikatora / identyfikator</td>
+        <td class="py-2 text-right">
+            NIP
+            {% if seller.nip %}<span class="money">{{ seller.nip }}</span>{% else %}<span class="text-[#bbb]">not entered</span>{% endif %}
+        </td>
+    </tr>
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Symbol formularza lub płatności</td>
+        <td class="py-2 text-right"><span class="money">PPE</span></td>
+    </tr>
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Okres</td>
+        <td class="py-2 text-right">
+            {% if month %}
+            Rok <span class="money">{{ month.year }}</span>, typ <span class="money">M</span>,
+            miesiąc <span class="money">{{ month.date|date:"m" }}</span>
+            <div class="text-xs text-[#999] mt-0.5">the month the tax is for, not the month you pay in</div>
+            {% else %}
+            Rok {{ year }}, typ <span class="money">M</span>, miesiąc the tax is for
+            <div class="text-xs text-[#999] mt-0.5">not the month you pay in; each month's own is in its Pay dialog</div>
+            {% endif %}
+        </td>
+    </tr>
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Identyfikator zobowiązania</td>
+        <td class="py-2 text-right">Leave empty</td>
+    </tr>
+    <tr {% if month %}class="border-b border-[#eee]"{% endif %}>
+        <td class="py-2 text-[#888] align-top">Tytuł, where the bank has no przelew podatkowy</td>
+        <td class="py-2 text-right">
+            <span class="money">/TI/N{{ seller.nip }}/OKR/{% if month %}{{ month.date|date:"y" }}M{{ month.date|date:"m" }}{% else %}&lt;okres&gt;{% endif %}/SFP/PPE</span>
+            {% if not month %}
+            <div class="text-xs text-[#999] mt-0.5">e.g. okres <span class="money">{{ year|stringformat:"s"|slice:"2:" }}M09</span> for September {{ year }}</div>
+            {% endif %}
+        </td>
+    </tr>
+    {% if month %}
+    <tr>
+        <td class="py-2 text-[#888] align-top">Termin</td>
+        <td class="py-2 text-right">
+            {{ month.due_on|date:"j F Y" }}
+            <div class="text-xs text-[#999] mt-0.5">art. 60 § 1: the day your account is debited is the day it is paid</div>
+        </td>
+    </tr>
+    {% endif %}
+</table>

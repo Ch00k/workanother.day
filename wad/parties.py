@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 
+from wad import nrb
 from wad.countries import COUNTRIES
 from wad.models import POLAND
 
@@ -57,6 +58,17 @@ def validate(post_data: QueryDict, *, is_seller: bool) -> list[str]:
             errors.append("NIP must be 10 digits.")
         if not nip and str(post_data.get("ksef_token", "")).strip():
             errors.append("A KSeF token is issued for a NIP, so the NIP is needed too.")
+
+        # Wrong is refused, and there is a lot that can be wrong about an account number: a
+        # typo the check digits catch, a number belonging to somebody else's NIP, and a number
+        # that is not a ZUS account at all, which is what a letter demanding contributions
+        # somewhere else would carry.
+        zus_account = str(post_data.get("zus_account", "")).strip()
+        if zus_account and not nrb.valid_zus_account(zus_account, nip=nip):
+            errors.append(
+                "That is not this taxpayer's ZUS account. A numer rachunku składkowego is 26 digits, "
+                f"carries {nrb.ZUS_PREFIX} at digits 3 to 13, and ends with the NIP."
+            )
 
         # Wrong is refused; missing is not. The taxpayer's own identity is only needed to
         # produce a JPK_EWP, and a seller can exist long before that, so an absent field is
@@ -120,6 +132,8 @@ def seller_fields(post_data: QueryDict, *, stored_token: str = "") -> dict[str, 
         "date_of_birth": _date(post_data.get("date_of_birth")) if in_poland else None,
         "kod_urzedu": str(post_data.get("kod_urzedu", "")).strip() if in_poland else "",
         "business_started_on": _date(post_data.get("business_started_on")) if in_poland else None,
+        # The digits alone, so one number written two ways is one number stored.
+        "zus_account": nrb.digits(str(post_data.get("zus_account", ""))) if in_poland else "",
     }
 
 

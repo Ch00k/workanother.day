@@ -3,7 +3,7 @@
 {% block title %}JPK_EWP {{ filing.year }} - {{ seller.name }} - Work Another Day{% endblock %}
 
 {% block body %}
-<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+<div class="page mt-6 mb-8">
     <nav class="crumbs print:hidden">
         <a href="{% url 'seller_list' %}">Sellers</a> /
         <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
@@ -40,7 +40,8 @@
     gateway needs is on the seller except the revenue figure, which is typed in here and kept
     nowhere - the explanation behind the mark says what it is for.
     {% endcomment %}
-    <div id="gateway-panel" class="relative rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 mb-4">
+    <div class="card-heading">
+        <h2>Document gateway</h2>
         {% explainer "gateway-help" %}
         <p>
             The file goes to the Ministry's document gateway at {{ gateway_url }}, which takes
@@ -62,10 +63,10 @@
             than by sending again.
         </p>
         {% endexplainer %}
-
-        <div class="flex items-start justify-between flex-wrap gap-3 pr-7">
+    </div>
+    <div id="gateway-panel" class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+        <div class="flex items-start justify-between flex-wrap gap-3">
             <div>
-                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">Document gateway</div>
                 <div class="flex items-center gap-2 mt-0.5">
                     {% include "wad/_spinner.html" with id="gateway-spinner" spinning=filing.is_in_flight %}
                     <div class="text-sm text-[#666]" id="gateway-status">
@@ -113,7 +114,8 @@
              style="{% if not filing.error %}display:none{% endif %}">{{ filing.error }}</div>
     </div>
 
-    <div class="relative rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 mb-4">
+    <div class="card-heading">
+        <h2>The file</h2>
         {% explainer "the-file-help" %}
         <p>
             These are the bytes as they were generated, kept rather than rendered again. The
@@ -126,7 +128,8 @@
             making a file again.
         </p>
         {% endexplainer %}
-        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-3">The file</div>
+    </div>
+    <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
         <table class="w-full border-collapse text-sm">
             <tr class="border-b border-[#eee]">
                 <td class="py-2 text-[#888] w-[220px]">Revenue as filed</td>
@@ -144,8 +147,10 @@
     </div>
 
     {% if filing.is_filed %}
-    <div class="rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 mt-4">
-        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-1">UPO</div>
+    <div class="card-heading">
+        <h2>UPO</h2>
+    </div>
+    <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
         <div class="text-xs text-[#999] mb-3">
             The receipt for this submission, which is a separate one from PIT-28 sharing its
             deadline.
@@ -163,7 +168,8 @@
     too - and the UPO that comes back from there is the same proof of filing.
     {% endcomment %}
     {% if not filing.is_in_flight %}
-    <div class="relative rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 mt-4">
+    <div class="card-heading">
+        <h2>Filed elsewhere</h2>
         {% explainer "filed-elsewhere-help" %}
         <p>
             For a file sent with the Ministry's own <span class="money">Klient JPK_WEB</span>,
@@ -175,8 +181,8 @@
             submission from PIT-28 rather than part of it.
         </p>
         {% endexplainer %}
-        <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-4">Filed elsewhere</div>
-
+    </div>
+    <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
         <form method="post" action="{% url 'filing_record' pk=filing.pk %}" class="grid gap-4">
             {% csrf_token %}
             <div>
@@ -190,7 +196,7 @@
             <div>
                 <label for="upo" class="block text-sm font-medium text-[#666] mb-1">UPO</label>
                 <textarea id="upo" name="upo" rows="4" spellcheck="false"
-                          placeholder="Paste the Urzedowe Poswiadczenie Odbioru here"
+                          placeholder="Paste the Urzędowe Poświadczenie Odbioru here"
                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">{{ filing.upo }}</textarea>
             </div>
             <div>

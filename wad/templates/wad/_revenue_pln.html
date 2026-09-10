@@ -9,7 +9,8 @@ Laid out as the two-column table the rest of the application states figures in, 
 figure's provenance under it rather than trailing off to its right: the rate, the table number
 and its date are what make a figure checkable, and they are too long to read as a suffix.
 {% endcomment %}
-<div id="revenue-pln" class="relative mb-4 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+<div class="card-heading print-hidden">
+    <h2>Revenue in PLN</h2>
     {% explainer "revenue-pln-help" %}
     <p>
         PLN is the currency every Polish threshold, rate and return is written in. This sits beside
@@ -26,18 +27,18 @@ and its date are what make a figure checkable, and they are too long to read as 
     <p>
         A correction is converted at the rate the invoice it corrects was converted at rather than
         at one of its own: it restates revenue already booked, and at any other rate a korekta
-        unwinding an invoice in full would leave a remainder in zlote behind it.
+        unwinding an invoice in full would leave a remainder in złote behind it.
     </p>
     {% else %}
     <p>
-        Art. 6 ust. 1c of the ryczalt act applies art. 24c PIT, so the revenue is also worth
+        Art. 6 ust. 1c of the ryczałt act applies art. 24c PIT, so the revenue is also worth
         whatever it was worth on the day the money landed. The difference between the two days
         adjusts it, and goes into the register dated the day of payment.
     </p>
     {% endif %}
     {% endexplainer %}
-    <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold mb-3">Revenue in PLN</div>
-
+</div>
+<div id="revenue-pln" class="mb-4 mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
     <table class="w-full border-collapse text-sm">
         <tr class="border-b border-[#eee]">
             <td class="py-2 text-[#888] align-top w-[210px]">Revenue date</td>
@@ -133,13 +134,13 @@ and its date are what make a figure checkable, and they are too long to read as 
 
         {% if invoice.ryczalt_rate %}
         <tr {% if invoice.is_issued %}class="border-b border-[#eee]"{% endif %}>
-            <td class="py-2 text-[#888] align-top">Ryczalt rate</td>
+            <td class="py-2 text-[#888] align-top">Ryczałt rate</td>
             <td class="py-2 text-right money">{{ invoice.ryczalt_rate|floatformat:"-2" }}%</td>
         </tr>
         {% endif %}
 
         {% comment %}
-        The payment side. Art. 6 ust. 1c of the ryczalt act applies art. 24c PIT, so revenue is
+        The payment side. Art. 6 ust. 1c of the ryczałt act applies art. 24c PIT, so revenue is
         also worth whatever it was worth on the day the money landed, and the difference between
         the two days adjusts it. Offered once the invoice has been issued, because until then
         there is nothing for a payment to settle.
@@ -188,7 +189,7 @@ and its date are what make a figure checkable, and they are too long to read as 
     </table>
 
     {% if not invoice.ryczalt_rate %}
-    <div class="text-xs text-[#999] mt-3">This contract is not on ryczalt, so no rate is carried.</div>
+    <div class="text-xs text-[#999] mt-3">This contract is not on ryczałt, so no rate is carried.</div>
     {% endif %}
 
     {% if invoice.is_issued and not invoice.is_correction %}
