@@ -488,7 +488,7 @@ def _tax_paid(seller: Seller, year: int) -> tuple[dict[int, decimal.Decimal], di
     made_on: dict[int, datetime.date] = {}
     for payment in payments:
         month = payment.covers.month
-        made_on[month] = max(payment.paid_on, made_on.get(month, payment.paid_on))
+        made_on[month] = max(made_on.get(month, datetime.date.min), payment.paid_on)
 
     return settled, made_on
 

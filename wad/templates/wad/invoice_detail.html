@@ -86,7 +86,7 @@
     </div>
 
     {% if ksef_enabled %}
-    <div class="card-heading">
+    <div class="card-heading print-hidden">
         <h2>KSeF</h2>
         {% explainer "ksef-help" %}
         <p>
@@ -163,7 +163,7 @@
     about the document rather than part of it, so they sit above the invoice and off the print.
     {% endcomment %}
     {% if corrections %}
-    <div class="card-heading">
+    <div class="card-heading print-hidden">
         <h2>Corrected by</h2>
     </div>
     <div class="mb-4 mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
@@ -195,7 +195,7 @@
     which the invoice's own state already says.
     {% endcomment %}
     {% if invoice.is_issued %}
-    <div class="card-heading">
+    <div class="card-heading print-hidden">
         <h2>Delivery</h2>
         {% explainer "delivery-help" %}
         <p>
