@@ -115,9 +115,11 @@ class Month:
     # Nothing where the year holds revenue at more than one ryczałt rate, which needs the
     # deductions apportioned between them.
     tax: decimal.Decimal | None
-    # What has been recorded as paid for this month. No base depends on it, a tax payment
-    # being no deduction; it is here so a month can be seen to have been settled.
+    # What has been recorded as paid for this month, and the day it was. No base depends on
+    # either, a tax payment being no deduction; they are here so a month can be seen to have
+    # been settled, and taken off again where it was marked settled by mistake.
     paid: decimal.Decimal
+    paid_on: datetime.date | None
 
     # Revenue from the start of the year through this month, less social contributions paid,
     # which is the figure art. 81 ust. 2e reads the band off.
@@ -269,7 +271,7 @@ def schedule(seller: Seller, year: int, holidays: Container[datetime.date]) -> S
 
     revenue = _grouped((entry.revenue_date.month, entry.amount) for entry in register.entries)
     social, deductible = _contributions(seller, year)
-    settled = _tax_paid(seller, year)
+    settled, settled_on = _tax_paid(seller, year)
     brackets = _brackets(year)
 
     first = _first_month(seller, year)
@@ -312,6 +314,7 @@ def schedule(seller: Seller, year: int, holidays: Container[datetime.date]) -> S
                 taxable=taxable,
                 tax=tax,
                 paid=settled.get(month, ZERO),
+                paid_on=settled_on.get(month),
                 cumulative=cumulative,
                 bracket=band,
                 due_on=working_day(_payment_date(year, month), holidays),
@@ -468,17 +471,26 @@ def _contributions(seller: Seller, year: int) -> tuple[dict[int, decimal.Decimal
     return social, deductible
 
 
-def _tax_paid(seller: Seller, year: int) -> dict[int, decimal.Decimal]:
-    """A year's ryczałt payments by the month they were made for.
+def _tax_paid(seller: Seller, year: int) -> tuple[dict[int, decimal.Decimal], dict[int, datetime.date]]:
+    """A year's ryczałt payments by the month they were made for: what was paid, and when.
 
     By the month covered rather than the day of the transfer, which is the opposite of a
     contribution: what art. 11 deducts is what was paid during the year, whereas what a
     return settles is the tax for the year's own months, December's of which is paid in
-    January.
-    """
-    payments = TaxPayment.objects.filter(seller=seller, covers__year=year)
+    January. The day is carried all the same, being what says a month was settled late.
 
-    return _grouped((payment.covers.month, payment.amount) for payment in payments)
+    Where a month took more than one transfer the day is the last of them, the figure their
+    total.
+    """
+    payments = list(TaxPayment.objects.filter(seller=seller, covers__year=year))
+
+    settled = _grouped((payment.covers.month, payment.amount) for payment in payments)
+    made_on: dict[int, datetime.date] = {}
+    for payment in payments:
+        month = payment.covers.month
+        made_on[month] = max(made_on.get(month, datetime.date.min), payment.paid_on)
+
+    return settled, made_on
 
 
 def _first_month(seller: Seller, year: int) -> int | None:

@@ -1,14 +1,13 @@
 {% comment %}
-The mark in a card's corner, and the prose behind it. Written on the page rather than in a
+The mark beside a card's heading, and the prose behind it. Written on the page rather than in a
 title attribute, so it can be styled, wrapped, and selected to copy out of - a figure that
 has to match a return exactly is one somebody will want to paste somewhere.
 
 Rendered by the {% templatetag openblock %} explainer "some-id" {% templatetag closeblock %}
-tag, which is where the prose is written. Positions itself in the corner of the card it is in,
-so that card has to be `relative` - or, written `beside`, sits where it is put, for a section
-heading above a card that clips what is inside it.
+tag, which is where the prose is written. It sits where it is put - on the row of the card's
+heading - and the panel hangs from that row, which is what carries `relative`.
 {% endcomment %}
-<div class="explainer{% if beside %} explainer-beside{% endif %}">
+<div class="explainer">
     {% comment %} lucide's circle-question-mark. {% endcomment %}
     <button type="button" class="explainer-button" data-explains="{{ id }}"
             aria-expanded="false" aria-controls="{{ id }}" aria-label="What this means">

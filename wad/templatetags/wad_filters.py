@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 from django import template
 
+from wad import nrb
+
 if TYPE_CHECKING:
     from wad.models import TimeOff
 
@@ -33,3 +35,13 @@ def hours_display(time_off_entry: TimeOff, working_hours_per_day: int) -> str:
 def split(value: str, separator: str) -> list[str]:
     """Split a string by separator."""
     return value.split(separator)
+
+
+@register.filter
+def account(value: str | None) -> str:
+    """A bank account number written out in the groups a transfer form breaks it into.
+
+    Empty for nothing, which is what a form being drawn for a party that does not exist yet
+    has where the stored number would be.
+    """
+    return nrb.formatted(value) if value else ""

@@ -15,7 +15,7 @@ from unittest import TestCase as PlainTestCase
 from django.contrib.auth.models import User
 from django.urls import reverse
 
-from wad import obligations
+from wad import nrb, obligations
 from wad.calendar_utils import today_in_poland
 from wad.models import ContributionPayment, Guest, HealthContributionYear, Invoice, TaxPayment, TaxReturn
 from wad.templatetags.money import money
@@ -637,6 +637,54 @@ class PageTests(PageTestCase):
         assert self._page().status_code == 404
 
 
+class TransferTests(PageTestCase):
+    """What each of the two payments is addressed to, and what else has to be written on it.
+
+    The account numbers are asserted in `test_nrb.py`, against numbers MF and ZUS produced.
+    What is asserted here is that the page states them and the rest of the transfer with them:
+    the symbol and the period for the tax, neither of them for the contributions.
+    """
+
+    # ZUS allocated neither of these: the digits between its constant and the NIP are its own
+    # and cannot be worked out, so this one is built for the NIP of the test taxpayer and the
+    # checks it satisfies are proved elsewhere against numbers ZUS did issue.
+    ZUS_ACCOUNT = "46 6000 0002 0260 0152 1387 0274"
+
+    def test_the_tax_account_is_stated_with_its_symbol(self) -> None:
+        self._issued(3)
+
+        response = self._page()
+
+        self.assertContains(response, "22 1010 0071 2222 5213 8702 7400")
+        self.assertContains(response, "PPE")
+
+    def test_the_zus_account_is_stated_once_zus_has_given_one(self) -> None:
+        self._issued(3)
+        self.seller.zus_account = nrb.digits(self.ZUS_ACCOUNT)
+        self.seller.save()
+
+        self.assertContains(self._page(), self.ZUS_ACCOUNT)
+
+    def test_an_account_zus_has_not_given_yet_is_shown_as_missing(self) -> None:
+        """Rather than as a blank row, which reads as a transfer needing no account."""
+        self._issued(3)
+
+        self.assertContains(self._page(), "not entered")
+
+    def test_the_title_a_bank_without_a_tax_form_needs_is_stated(self) -> None:
+        """A przelew podatkowy is an ordinary transfer with this structured title, so a bank
+        offering no such form is paid by writing the title out."""
+        self._issued(3)
+
+        self.assertContains(self._page(), f"/TI/N{self.seller.nip}/OKR/&lt;okres&gt;/SFP/PPE")
+
+    def test_the_contribution_transfer_is_titled_skladki(self) -> None:
+        """And carries neither okres nor symbol: the account identifies the payer by itself."""
+        self._issued(3)
+
+        self.assertContains(self._page(), "składki")
+
+
 class UnpublishedYearTests(PageTestCase):
     """The year being paid for month by month is not usually the year on the page.
 
@@ -684,85 +732,213 @@ class UnpublishedYearTests(PageTestCase):
 
 
 class TaxPaymentRecordTests(PageTestCase):
-    """Recording a ryczalt payment, which is the only way a month can be seen to be settled."""
+    """Recording a ryczalt payment, which is the only way a month can be seen to be settled.
 
-    def _record(self, **data: str):  # noqa: ANN202
-        return self.client.post(reverse("tax_payment_add", kwargs={"pk": self.seller.pk}), data)
+    One press per month, at the figure the month owes. Nothing is typed, so there is nothing to
+    validate: what could once be entered wrongly - a month, a date, an amount - is now the
+    month pressed, today, and what this application worked out.
+    """
 
-    def test_a_payment_is_recorded_against_the_month_it_covers(self) -> None:
+    def _record(self, month: int, year: int = YEAR):  # noqa: ANN202
+        return self.client.post(
+            reverse("tax_payment_record", kwargs={"pk": self.seller.pk, "year": year, "month": month}),
+        )
+
+    def _remove(self, month: int, year: int = YEAR):  # noqa: ANN202
+        return self.client.post(
+            reverse("tax_payment_remove", kwargs={"pk": self.seller.pk, "year": year, "month": month}),
+        )
+
+    def test_a_month_is_recorded_at_the_figure_it_owes(self) -> None:
         self._issued(3)
 
-        response = self._record(covers=f"{YEAR}-03-01", paid_on=f"{YEAR}-04-20", amount="4800.00")
+        response = self._record(3)
 
         payment = TaxPayment.objects.get()
         self.assertRedirects(response, reverse("obligations", kwargs={"pk": self.seller.pk, "year": YEAR}))
         assert payment.covers == datetime.date(YEAR, 3, 1)
-        assert payment.paid_on == datetime.date(YEAR, 4, 20)
-        assert payment.amount == D("4800.00")
+        assert payment.paid_on == today_in_poland()
+        assert payment.amount == D(4800)
 
-    def test_a_day_in_the_month_is_stored_as_its_first(self) -> None:
-        """The field means a month, so nothing but the first of one is ever kept."""
+    def test_the_figure_is_the_schedule_s_rather_than_the_request_s(self) -> None:
+        """A posted amount is not what a return settles, so none is read: 12% of the month's
+        revenue, rounded to whole zlote, is what is kept whatever arrives with the press."""
         self._issued(3)
 
-        self._record(covers=f"{YEAR}-03-17", paid_on=f"{YEAR}-04-20", amount="4800.00")
+        self.client.post(
+            reverse("tax_payment_record", kwargs={"pk": self.seller.pk, "year": YEAR, "month": 3}),
+            {"amount": "1.00", "covers": f"{YEAR}-07-01", "paid_on": f"{YEAR}-01-01"},
+        )
 
-        assert TaxPayment.objects.get().covers == datetime.date(YEAR, 3, 1)
+        payment = TaxPayment.objects.get()
+        assert payment.amount == D(4800)
+        assert payment.covers == datetime.date(YEAR, 3, 1)
 
-    def test_a_december_payment_lands_on_the_year_it_covers(self) -> None:
-        """Made in January, and it is the year it settles that the page for it belongs to."""
+    def test_what_was_kept_stays_kept_when_the_month_moves(self) -> None:
+        """The reason it is stored rather than recomputed: a correction after the transfer moves
+        what the month owes, and the payment has to stay what was paid for the two to disagree."""
+        march = self._issued(3)
+        self._issued(4)
+        self._record(3)
+
+        march.delete()
+
+        assert TaxPayment.objects.get().amount == D(4800)
+        assert self._month(3).tax == D(0)
+
+    def test_december_lands_on_the_year_it_covers(self) -> None:
+        """Pressed in January, and it is the year it settles that the page for it belongs to."""
         self._issued(12)
 
-        response = self._record(covers=f"{YEAR}-12-01", paid_on=f"{YEAR + 1}-01-20", amount="4800.00")
+        response = self._record(12)
 
         self.assertRedirects(response, reverse("obligations", kwargs={"pk": self.seller.pk, "year": YEAR}))
+        assert TaxPayment.objects.get().covers == datetime.date(YEAR, 12, 1)
 
-    def test_a_payment_still_to_be_made_is_refused(self) -> None:
-        tomorrow = today_in_poland() + datetime.timedelta(days=1)
-
-        response = self._record(covers=f"{YEAR}-03-01", paid_on=tomorrow.isoformat(), amount="4800.00")
-
-        assert response.status_code == 400
-        assert not TaxPayment.objects.exists()
-
-    def test_a_payment_of_nothing_is_refused(self) -> None:
-        response = self._record(covers=f"{YEAR}-03-01", paid_on=f"{YEAR}-04-20", amount="0")
+    def test_a_month_owing_nothing_cannot_be_recorded(self) -> None:
+        """A month with no revenue owes no ryczalt, and a payment of nothing is not a payment."""
+        response = self._record(3)
 
         assert response.status_code == 400
         assert not TaxPayment.objects.exists()
 
-    def test_something_that_is_not_a_date_is_refused(self) -> None:
-        response = self._record(covers="March", paid_on=f"{YEAR}-04-20", amount="4800.00")
+    def test_a_month_the_year_does_not_have_cannot_be_recorded(self) -> None:
+        self.seller.business_started_on = datetime.date(YEAR, 9, 1)
+        self.seller.save()
+        self._issued(9)
+
+        response = self._record(3)
 
         assert response.status_code == 400
         assert not TaxPayment.objects.exists()
 
-    def test_something_that_is_not_a_number_is_refused(self) -> None:
-        response = self._record(covers=f"{YEAR}-03-01", paid_on=f"{YEAR}-04-20", amount="a lot")
-
-        assert response.status_code == 400
-        assert not TaxPayment.objects.exists()
-
-    def test_a_recorded_payment_can_be_removed(self) -> None:
-        """One entered wrongly misstates what the return settles."""
+    def test_a_month_already_recorded_is_not_recorded_twice(self) -> None:
+        """Pressed again - a second tab, a double click - it is the same month, already settled."""
         self._issued(3)
-        self._record(covers=f"{YEAR}-03-01", paid_on=f"{YEAR}-04-20", amount="4800.00")
-        payment = TaxPayment.objects.get()
+        self._record(3)
 
-        response = self.client.post(reverse("tax_payment_delete", kwargs={"pk": payment.pk}))
+        response = self._record(3)
+
+        assert response.status_code == 409
+        assert TaxPayment.objects.count() == 1
+
+    def test_a_year_at_more_than_one_rate_states_no_figure_to_record(self) -> None:
+        """Art. 11 ust. 3 wants the deductions apportioned, so no month has a figure to keep."""
+        self._issued(3)
+        self.contract.ryczalt_rate = D("8.50")
+        self.contract.save()
+        self._issued(4)
+
+        response = self._record(3)
+
+        assert response.status_code == 400
+        assert not TaxPayment.objects.exists()
+
+    def test_a_month_carries_the_press_until_it_is_recorded(self) -> None:
+        self._issued(3)
+
+        self.assertContains(self._page(), f'data-opens="pay-{YEAR}-03"')
+
+        self._record(3)
+
+        self.assertNotContains(self._page(), f'data-opens="pay-{YEAR}-03"')
+
+    def test_the_month_s_dialog_states_that_month_s_transfer(self) -> None:
+        """What to put in each field, for that month: its amount, its okres, its deadline."""
+        self._issued(3)
+
+        response = self._page()
+
+        self.assertContains(response, f'id="pay-{YEAR}-03"')
+        self.assertContains(response, "Symbol formularza lub płatności")
+        self.assertContains(response, money(D(4800)))
+        self.assertContains(response, f"/TI/N{self.seller.nip}/OKR/{YEAR % 100}M03/SFP/PPE")
+        self.assertContains(response, "I have paid this")
+
+    def test_a_month_already_recorded_carries_no_dialog(self) -> None:
+        """Nothing to pay, so nothing to state and nothing to confirm."""
+        self._issued(3)
+        self._record(3)
+
+        self.assertNotContains(self._page(), f'id="pay-{YEAR}-03"')
+
+    def test_a_month_can_be_taken_off_as_paid(self) -> None:
+        """One marked wrongly misstates what the return settles."""
+        self._issued(3)
+        self._record(3)
+
+        response = self._remove(3)
 
         self.assertRedirects(response, reverse("obligations", kwargs={"pk": self.seller.pk, "year": YEAR}))
         assert not TaxPayment.objects.exists()
 
-    def test_the_payments_and_the_balance_are_shown(self) -> None:
+    def test_taking_a_month_off_clears_every_payment_recorded_for_it(self) -> None:
+        """The row states the month as settled, so what comes off is the month, not one of the
+        transfers that settled it."""
+        self._issued(3)
+        self._paid_ryczalt(datetime.date(YEAR, 3, 1), "2000")
+        self._paid_ryczalt(datetime.date(YEAR, 3, 1), "2800")
+
+        self._remove(3)
+
+        assert not TaxPayment.objects.exists()
+
+    def test_taking_off_a_month_leaves_the_others_alone(self) -> None:
+        self._issued(3)
+        self._issued(4)
+        self._record(3)
+        self._record(4)
+
+        self._remove(3)
+
+        assert [payment.covers.month for payment in TaxPayment.objects.all()] == [4]
+
+    def test_a_month_that_is_not_a_month_cannot_be_taken_off(self) -> None:
+        assert self._remove(13).status_code == 400
+
+    def test_the_press_that_takes_it_off_is_beside_the_month(self) -> None:
+        """Rather than in a list of its own: the table is where a month is stated as settled."""
+        self._issued(3)
+        self._record(3)
+
+        self.assertContains(self._page(), "/paid/3/remove/")
+
+    def test_a_settled_month_states_the_day_it_was_settled(self) -> None:
+        """The amount is not restated: it is the amount due, in the column beside it."""
+        self._issued(3)
+        self._paid_ryczalt(datetime.date(YEAR, 3, 1), "4800", on=datetime.date(YEAR, 4, 18))
+
+        self.assertContains(self._page(), f"18 Apr {YEAR}")
+
+    def test_a_month_paid_at_a_figure_it_no_longer_owes_states_that_figure(self) -> None:
+        """The one time the amount is worth restating: a correction moved the month after the
+        transfer went, so what was paid and what is owed have come apart."""
+        self._issued(3)
+        self._paid_ryczalt(datetime.date(YEAR, 3, 1), "4500")
+
+        self.assertContains(self._page(), f"paid {money(D('4500.00'))}")
+
+    def test_the_year_states_its_own_figure_and_the_balance(self) -> None:
+        """The annual figure is taken over the whole year rather than the twelve monthly ones
+        added up, and the balance is what the return settles."""
         self._issued(3)
         self._issued(4)
         self._paid_ryczalt(datetime.date(YEAR, 3, 1), "4800")
 
         response = self._page()
 
-        self.assertContains(response, "Ryczalt paid for")
+        self.assertContains(response, f"Ryczałt for {YEAR}")
         self.assertContains(response, money(D(9600), 0))
         self.assertContains(response, money(D("4800.00")))
+
+    def test_a_year_at_more_than_one_rate_states_no_balance(self) -> None:
+        """Nothing to state one from: no month has a figure, so neither has the year."""
+        self._issued(3)
+        self.contract.ryczalt_rate = D("8.50")
+        self.contract.save()
+        self._issued(4)
+
+        self.assertContains(self._page(), "no balance for the return to settle")
 
     def test_another_users_taxpayer_cannot_be_recorded_against(self) -> None:
         self._issued(3)
@@ -770,8 +946,9 @@ class TaxPaymentRecordTests(PageTestCase):
         payment = TaxPayment.objects.get()
         self.client.force_login(User.objects.create_user(username="stranger"))
 
-        assert self._record(covers=f"{YEAR}-03-01", paid_on=f"{YEAR}-04-20", amount="1.00").status_code == 404
-        assert self.client.post(reverse("tax_payment_delete", kwargs={"pk": payment.pk})).status_code == 404
+        assert self._record(4).status_code == 404
+        assert self._remove(3).status_code == 404
+        assert TaxPayment.objects.filter(pk=payment.pk).exists()
         assert TaxPayment.objects.count() == 1
 
 

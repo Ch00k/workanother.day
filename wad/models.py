@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, ClassVar, Final
 from django.conf import settings
 from django.db import models
 
+from wad import nrb
 from wad.fields import EncryptedTextField
 
 if TYPE_CHECKING:
@@ -121,6 +122,11 @@ class Seller(models.Model):
     # and February. Without it the schedule can only start where the revenue does.
     business_started_on = models.DateField(null=True, blank=True)
 
+    # Where the contributions are paid. Held as the digits alone, however it was entered, and
+    # checked on the way in against what ZUS says one of its numbers contains. There is no
+    # field beside it for the mikrorachunek podatkowy, that one being computed from the NIP.
+    zus_account = models.CharField(max_length=32, blank=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -128,6 +134,15 @@ class Seller(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    @property
+    def mikrorachunek(self) -> str:
+        """Where this taxpayer's ryczałt is paid. Empty until it has a NIP to generate it from.
+
+        Nothing but a Polish taxpayer has one, so naming another country leaves it empty the
+        way it leaves the NIP itself empty.
+        """
+        return nrb.mikrorachunek(self.nip) if self.country == POLAND else ""
 
     @property
     def can_reach_ksef(self) -> bool:

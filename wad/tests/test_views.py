@@ -1587,4 +1587,4 @@ class RyczaltFieldTests(TestCase):
 
     def test_the_form_names_the_rate_it_asserts(self) -> None:
         """The checkbox states a rate, so the reader can tell whether it is theirs."""
-        self.assertContains(self.client.get("/contracts/new/"), "Taxed under ryczalt at 12%")
+        self.assertContains(self.client.get("/contracts/new/"), "Taxed under ryczałt at 12%")

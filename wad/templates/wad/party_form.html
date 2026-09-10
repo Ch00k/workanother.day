@@ -1,8 +1,9 @@
 {% extends "wad/base.html" %}
+{% load wad_filters %}
 {% block title %}{{ title }} - Work Another Day{% endblock %}
 
 {% block body %}
-<div class="mx-auto max-w-[960px] px-4 mt-6 mb-8">
+<div class="page mt-6 mb-8">
     <nav class="crumbs print:hidden">
         <a href="{{ list_url }}">{{ section }}</a> /
         <span aria-current="page">{{ title }}</span>
@@ -130,10 +131,44 @@
                            {% endcomment %}
                            value="{% firstof form_data.kod_urzedu party.kod_urzedu '' %}" placeholder="0000"
                            class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                    <div class="text-xs text-[#999] mt-1">
+                        Which urząd skarbowy a JPK_EWP is addressed to. Check against
+                        <a href="https://crd.gov.pl/xml/schematy/dziedzinowe/mf/2022/01/05/eD/KodyUrzedowSkarbowych/KodyUrzedowSkarbowych_v8-0E.xsd"
+                           target="_blank" rel="noopener" class="underline hover:no-underline">KodyUrzedowSkarbowych</a>.
+                    </div>
                 </div>
-                <div class="sm:col-span-2 text-xs text-[#999]">
-                    Needed to generate a JPK_EWP, and nothing else. The four-digit code identifies
-                    the urzad skarbowy the file is addressed to.
+            </div>
+
+            {% comment %}
+            Where the two obligations are paid. Only the second of them is a field: MF generates
+            the mikrorachunek podatkowy from the NIP, so it is computed from the NIP above rather
+            than stored, and a correction to that NIP carries it along instead of leaving a stale
+            number behind. The ZUS account cannot be computed and so has to be entered.
+            {% endcomment %}
+            <div>
+                <label for="mikrorachunek" class="block text-sm font-medium text-[#666] mb-1">Mikrorachunek podatkowy</label>
+                {% comment %}
+                Disabled rather than named: it is computed, so there is nothing for the form to
+                submit and nothing for the server to read back.
+                {% endcomment %}
+                <input type="text" id="mikrorachunek" disabled placeholder="Needs a NIP"
+                       value="{{ party.mikrorachunek|account }}"
+                       class="w-full rounded-[10px] border border-[#ddd] bg-[#fafafa] text-[#666] px-4 py-2.5 text-sm money">
+                <div class="text-xs text-[#999] mt-1">
+                    Generated from the NIP, can't be changed. Check it against
+                    <a href="https://urzadskarbowy.gov.pl/micro-account" target="_blank" rel="noopener"
+                       class="underline hover:no-underline">e-Urząd Skarbowy</a>.
+                </div>
+            </div>
+            <div>
+                <label for="zus_account" class="block text-sm font-medium text-[#666] mb-1">ZUS account</label>
+                <input type="text" id="zus_account" name="zus_account" inputmode="numeric" spellcheck="false"
+                       value="{% firstof form_data.zus_account party.zus_account|account '' %}"
+                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                <div class="text-xs text-[#999] mt-1">
+                    Where the contributions are paid. Can be found at
+                    <a href="https://www.zus.pl/ezus/obszar-platnika/skladki-i-salda" target="_blank" rel="noopener"
+                       class="underline hover:no-underline">Składki i salda</a>.
                 </div>
             </div>
             </div>
@@ -178,12 +213,12 @@
 
 {% if party and can_delete %}
 {% comment %}
-A seller carries the whole of a taxpayer's annual side - contributions, ryczalt payments, files
+A seller carries the whole of a taxpayer's annual side - contributions, ryczałt payments, files
 generated and returns filed - and every one of those cascades, so the question names them. A
 buyer carries nothing of its own. Neither can be deleted once an invoice names it.
 {% endcomment %}
 <form id="delete-party-form" method="post" action="{{ delete_url }}" class="hidden"
-      data-confirm="{% if is_seller %}Delete {{ party.name }}? Its contributions, ryczalt payments, generated files and filed returns go with it.{% else %}Delete {{ party.name }}?{% endif %}">{% csrf_token %}</form>
+      data-confirm="{% if is_seller %}Delete {{ party.name }}? Its contributions, ryczałt payments, generated files and filed returns go with it.{% else %}Delete {{ party.name }}?{% endif %}">{% csrf_token %}</form>
 {% endif %}
 
 <script {% csp_nonce_attr %}>
