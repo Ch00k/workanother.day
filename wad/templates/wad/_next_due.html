@@ -1,0 +1,44 @@
+{% comment %}
+What the year is waiting on, stated where the page opens rather than left to be picked out of
+the table below: the earliest month still owing a transfer, what each of its two transfers
+comes to, and the day both fall due.
+
+No total, because there is no transfer that size: the ryczałt goes to the Urząd Skarbowy and
+the składki to ZUS, and adding them would state a figure nobody sends.
+
+This opens the month rather than acting on it. The account numbers and the okres each transfer
+carries are on the month's page, so that is where a payment is made and recorded - a press here
+would record money as sent by somebody who has not yet been told where to send it.
+{% endcomment %}
+{% load money %}
+<div class="mt-5 rounded-[14px] bg-white shadow-sm overflow-hidden border {% if due.due_on < today %}border-red-200{% else %}border-black/5{% endif %}">
+    <div class="px-5 py-4 flex items-center justify-between gap-x-8 gap-y-4 flex-wrap">
+        <div>
+            <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">Next due</div>
+            <div class="mt-1 flex items-baseline gap-3 flex-wrap">
+                <span class="text-[20px] font-bold tracking-tight leading-tight">{{ due.date|date:"F Y" }}</span>
+                {% include "wad/_month_status.html" with month=due %}
+            </div>
+            <div class="text-xs text-[#888] mt-1">by {{ due.due_on|date:"j F Y" }}</div>
+        </div>
+
+        <div class="flex items-center gap-x-8 gap-y-4 flex-wrap">
+            <div>
+                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">Ryczałt</div>
+                <div class="money text-sm mt-1">
+                    {% if due.tax is not None %}{{ due.tax|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
+                </div>
+            </div>
+            <div>
+                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">Składki</div>
+                <div class="money text-sm mt-1">
+                    {% if due.dra_total is not None %}{{ due.dra_total|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
+                </div>
+            </div>
+            <a href="{% url 'month' pk=seller.pk year=due.year month=due.month %}"
+               class="btn btn-primary">
+                Pay
+            </a>
+        </div>
+    </div>
+</div>

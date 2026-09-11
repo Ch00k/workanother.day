@@ -96,6 +96,32 @@ that — text extraction recovers a space from any gap between digit groups, whe
 written there or not — and a plain space is the whitespace a form expecting a figure is likeliest
 to accept.
 
+A page offers three kinds of **button** and no others: `.btn .btn-primary` for the action it was
+opened to perform, `.btn .btn-secondary` for whatever else it allows, `.btn .btn-danger` for what
+deletes, clears or resets. All three are semi-bold, the fill and the colour being the whole of the
+difference between them. A link that acts as one carries the same pair — what the reader is
+looking at is a button, and whether the server needs a form to answer it is not their concern —
+and so does a select the reader presses to choose from a list, such as the year a tax page is read
+at. There is one size, whatever the button answers. `.link` is for a control written into the
+text carrying it rather than boxed beside it, and a plain link takes it too. Margins,
+widths and alignment stay on the element, that being the part which genuinely differs; `:disabled`
+is on `.btn` itself, so a button that gains one already looks the part and stops lighting up under
+the pointer. `test_controls.py` fails the build on a control styled from loose utilities instead:
+the three kinds had drifted into twenty-four spellings, and buttons meant to look identical sat
+4px apart in the same row.
+
+A **field** — a box a form takes an answer from — is `.field`: a hairline border and the focus
+ring, which is what separates it from the two-pixel border of a button. The width (`w-full`,
+`w-36`) and what the answer is written in (`money`, `font-mono`) stay at the call site, those
+being the parts that legitimately vary. A `select` is the one tag that can be either a field or
+a button, and it says which by the class it carries.
+
+A field holding one line and a button are both `h-10`, so a row carrying both is a row rather
+than two rows a couple of pixels apart. The height is stated outright because neither can be got
+there by padding: their borders differ by a pixel each side, and a browser drawing the arrow on a
+select forces a `line-height` inside it that no author rule overrides. A `textarea` is the
+exception, its height being the number of rows it was asked for.
+
 Anything a page has to state about itself is a **notice**, and there is one of those: `.notice`
 in `assets/tailwind.css`, amber for something to know, `.notice-error` for something that went
 wrong, `.notice-neutral` for a confirmation with nothing to act on. Three colours, one shape, no
@@ -513,21 +539,49 @@ keeps the rate it was issued under — and a contract that is not on ryczalt sup
 
 ## The annual package
 
-A Polish seller's annual side is one tax year seen from three sides, reached by `Taxes` on its
-card on the **Sellers** page: what falls due at `/sellers/<id>/taxes/<year>/`, the revenue
-register at `/sellers/<id>/taxes/<year>/register/`, and the JPK_EWP generated from that register
-at `/sellers/<id>/taxes/<year>/jpk/`. The card lands on the year now, which is the one being paid
-for; every one of the three carries the same strip, so a side is switched between and a year is
-switched to in the same place, and switching the year stays on the side being read. A year is
-offered there if it has revenue, if it has a file, or if it is the current one. The register is
-the thing art. 15 requires to be kept, not a report about one: from 1 January 2027 the law
-requires it to be kept in software able to produce the XML, and this is that software.
+A Polish seller's annual side is one page per tax year, at `/sellers/<id>/taxes/<year>/`. It is
+reached from **Taxes** in the sidebar, which lands on the year now — the one being paid for —
+and goes straight there where the account has a single Polish seller, the list being where
+several of them are told apart. `Taxes` on a seller's card on the **Sellers** page reaches the
+same place. An account whose sellers are all established elsewhere is offered no section at
+all, having no ewidencja to keep.
+
+The year page opens with the month it is waiting on: the earliest month still owing a transfer,
+what each of its two transfers comes to, and the day both fall due. Below that the year runs in
+the order it is lived — month by month, then what falls **during the year** (the health band,
+the wakacje składkowe application), then what settles it **after the year** (the dates, the
+PIT-28 figures and the contributions they deduct, whether the return went, JPK_EWP). Paying a
+month is done on the month's own page, where the account numbers and the okres each transfer
+carries are stated.
+
+Every figure about the year is read here, and only here. **PIT-28 for the year** runs the whole
+computation in one card — revenue, the contributions art. 11 takes off it, the base, the tax,
+what has been paid towards it and what is left for the return to settle — because a return is
+filled in from it and a figure assembled out of two pages is one nobody can check. **ZUS paid**
+beside it lists the transfers those deduction lines are made of, which is what answers a year
+that deducts a surprising amount. Both are read-only: a contribution is recorded where the
+transfer is made, and the register page holds the register alone.
+
+**Dates** is the year's checklist rather than three dates that stand open however much has been
+done about them: each says what became of it, and the settlement carries the press that records
+paying it. Two of the three are already recorded where they are produced — the return by its
+date and UPO, the file by the state the gateway left it in — and are read back there rather
+than kept twice, so the cards below are the detail behind a line of the list.
+
+Two pages hang off the year rather than standing beside it, because they are its source and its
+output: the revenue register at `/sellers/<id>/taxes/<year>/register/`, linked under the month
+table the revenue column is read from, and the JPK_EWP generated from that register at
+`/sellers/<id>/taxes/<year>/jpk/`, in the after-the-year block beside the return that shares its
+deadline. All three carry the year as a control of its own, and switching it keeps the page
+being read. A year is offered there if it has revenue, if it has a file, or if it is the current
+one. The register is the thing art. 15 requires to be kept, not a report about one: from
+1 January 2027 the law requires it to be kept in software able to produce the XML, and this is
+that software.
 
 The pages are offered from the moment a Polish seller exists, before anything has been issued,
 and say what an empty year means. These are obligations rather than reports of one, so they are
 somewhere to go and look before there is anything in them — and a page that appears only once it
-has content cannot be found by anyone wondering whether it exists. A seller established elsewhere
-is offered none of it, having no ewidencja to keep.
+has content cannot be found by anyone wondering whether it exists.
 
 Entries come from two places. Every issued invoice becomes one, dated by its revenue date; and
 every exchange difference becomes another, dated the day the money landed and carrying the rate
@@ -608,12 +662,10 @@ A file sent elsewhere is still recorded by hand: the Ministry's own
 qualified signature, and the UPO that comes back from there is the same proof of filing. Either
 way it is a separate submission from PIT-28 sharing its deadline, not part of it.
 
-ZUS payments are entered by hand, because ZUS publishes no filing API for a sole trader. The
-date is the day the payment was made rather than the month it covered: art. 11 ust. 1 and
-ust. 1a are both cash-basis, so what a year deducts is what was paid during it. The PIT-28
-figures follow — revenue, less social contributions paid, less half the health contribution
-paid, at 12%, with the base and the tax each rounded to whole zlote under art. 63 § 1 Ordynacji
-podatkowej.
+The register page holds the register and nothing else. What the year comes to — revenue, less
+social contributions paid, less half the health contribution paid, at 12%, with the base and
+the tax each rounded to whole zlote under art. 63 § 1 Ordynacji podatkowej — is read on the
+year's own page, where the payments it settles against are.
 
 ## What falls due, and when
 
@@ -659,15 +711,30 @@ difference on 20 May — which is knowable from the day of the crossing rather t
 settlement, so the page states it as a figure to provision for. A negative one is a refund,
 and it has to be claimed by 1 June rather than arriving.
 
+Paying it is recorded against the year, not against a month: it recomputes every insured month
+of the year at once, so no month settles it and no month's page states it. The press beside the
+date puts it in at the figure worked out, as a month's press does, and it deducts by the day it
+was paid — a settlement for one year paid the following May is deducted from the year it left
+the account in. A settlement coming out a refund is offered no press: money claimed back is not
+a payment, and the claim goes in the DRA. Neither is a year that has not ended: the band it
+settles at follows revenue right through December, the DRA carrying it is the one for the
+following April, and half of anything recorded early would be deducted from the wrong year. The
+provision is still stated during the year — that is what it is for — it is simply not yet a
+payment.
+
 The three bases move every January with the wage they are taken from, so they are data rather
 than constants — and copies of them disagree, since figures from a reform that never took
 effect circulate alongside the ones ZUS published. The years already published are entered by
 a migration, and a later one goes in with the one announced wage, from which the three are
-worked out:
+worked out. **Contribution bases** in the sidebar is where, one card per kind:
 
 ```bash
 manage.py health_contribution --year 2027 --wage 9700.00
 ```
+
+does the same from a shell, which is how a fresh instance and CI get seeded. Both call the same
+function, and both write one row keyed on the year, so neither can produce a figure the other
+would not.
 
 The wage is przeciętne miesięczne wynagrodzenie w sektorze przedsiębiorstw **włącznie z
 wypłatami z zysku** for the fourth quarter of the year before, announced by the Prezes GUS in
@@ -675,14 +742,106 @@ Monitor Polski each January — for 2026, M.P. 2026 poz. 117. GUS issues a secon
 the same day, bez wypłat nagród z zysku, which for 2026 is 9 228,30 against 9 228,64: close
 enough to pass unnoticed, and made under a different statute for a different purpose. The one
 to take is the one issued under art. 5 pkt 31 ustawy o świadczeniach opieki zdrowotnej, which
-is where the health contribution gets its definition of the wage. The command also prints back
-9% of each base, which is the monthly contribution ZUS publishes.
+is where the health contribution gets its definition of the wage. Both the page and the command
+state back 9% of each base, which is the monthly contribution ZUS publishes — the check that
+says the right announcement was read, since the bases themselves are published nowhere to
+compare.
 
 A year nobody has entered leaves the page saying it cannot place the contribution in a band,
 rather than placing it in the wrong one.
 
-**Where the two transfers go is stated on the page**, and the two accounts are not held the same
-way. The mikrorachunek podatkowy is a function of the taxpayer's NIP — MF generates it from the
+**The social half of the DRA is computed too, and nothing about it is typed in.** Which base a
+month is charged on follows the regime it falls in, and the sequence is worked out from the day
+the business started: ulga na start for six months under art. 18 Prawo przedsiębiorców — the
+month a mid-month start falls in being free of contributions but not one of the six, art. 18
+ust. 2 — then twenty-four calendar months of preferencyjne składki on 30 percent of the minimum
+wage, which art. 18aa counts from the end of the ulga period rather than from the start of the
+business, and then full contributions on 60 percent of the forecast average wage for good. A
+taxpayer says on the seller form which of the two reliefs they took and every date follows; the
+form states them back — "ulga na start to February 2027, preferencyjne składki to February 2029,
+pełne składki from March 2029" — so the elections can be read against what they produce. Nothing
+holds a dated history of the regimes, which would be a second copy of the start date free to
+disagree with it.
+
+The components are emerytalne at 19.52%, rentowe at 8.00%, wypadkowe at the rate ZUS set for
+this payer — 1.67% for one reporting at most nine insured, which is the default — chorobowe at
+2.45% where it was elected, it being voluntary for a sole trader under art. 11 ust. 2, and
+Fundusz Pracy with Fundusz Solidarnościowy at 2.45% together, owed only where the base reaches
+the minimum wage in force that month, which the preferential base never does. The rates are in
+the statute and live in code; the two wages they are applied to are announced yearly and are
+data, entered the way the health bases are:
+
+```bash
+manage.py social_contribution --year 2027 --minimum-wage 4950.00 --forecast-wage 9800.00
+```
+
+with `--minimum-wage-from-july` where the minimum wage steps mid-year, as it did in 2023 and
+2024 — the preferential base steps with it, and so does the threshold the funds are owed from.
+The **Contribution bases** page takes the same three figures, the July one optional. Both state
+every base back component by component, which is what a human holds against the figures ZUS
+publishes for the full base and biznes.gov.pl publishes for the preferential one. A year nobody
+has entered states no figure at all.
+
+Both kinds are national — one row a year for the whole instance rather than one per taxpayer —
+so the page is gated on `is_staff`: one reader's typo would move every taxpayer's contributions.
+A reader who cannot enter them is told the instance owner has not, rather than pointed at a
+command they cannot run.
+
+Entering a year again replaces it, which covers a mistyped wage. **Remove** beside each card
+covers the other case — a year entered against the wrong one, or an instance being set up again
+— and puts the year back to one nobody has entered. The two go separately, being announced
+separately and by different bodies. It asks first, because what goes with the row is every
+taxpayer's ability to state a contribution for that year; what a payment was recorded at is
+untouched, a month ceasing to state what it owes rather than ceasing to have been paid.
+
+**Wakacje składkowe** is the one thing here recorded rather than derived, being a choice ZUS
+grants or refuses: art. 17a frees one chosen calendar month a year of the payer's own pension,
+disability, accident and sickness contributions and of FP and FS, the state paying all of them.
+It is claimed against the month on that month's page.
+
+Nothing here files the RWS — ZUS offers no filing interface a sole trader can reach — but the
+date it has to go in by is worked out and stated, because it is the one deadline that cannot be
+met late: the application is filed **during the month before the month claimed** and is not
+considered at any other time, and ust. 1 pkt 4 asks that the month before the application was
+one those insurances were owed for, which no ulga na start month is. So the earliest month a
+year can claim is the third after its first insured month, and the year's page states the last
+day to ask for it with what the relief would be worth.
+
+The months a year can offer are the ones whose application falls inside it, which is February
+to the January on the other side of it: January's own application went in last December and
+belongs to the year before's page. The month named is the earliest of them **still** open — an
+application month already over is not a deadline, so a year read in September offers October
+rather than the February it could once have had, and a year read after it has ended offers
+nothing. A year already holding a granted month has none of its own left and offers the January
+after it, that one falling in a year that holds none.
+
+The base is not reduced and the health contribution is not covered, so a granted month owes
+that and nothing else. A month under ulga na start cannot be claimed — art. 17a ust. 1 pkt 4
+asks for the insurances the relief leaves unpaid — nor can one whose own application month
+falls too early to satisfy it, which is the same test the deadline is worked out from; and a
+year already holding one says which month has it.
+
+The **ZUS due** column states the whole DRA total, the social components and the health
+contribution in one figure because one transfer settles all of it, with the health part and the
+regime named under it: a month at 420.86 and a month at 1 788.29 differ by a rule and by nothing
+else on the page. A month whose figure cannot be worked out states a dash and the reason rather
+than a zero — no start date, no wages entered for the year, or the one month art. 18 ust. 9
+charges on part of a base, which arises only for a mid-month start without ulga na start and is
+refused rather than guessed at.
+
+**What is owed moves no deduction.** These are figures to pay. What art. 11 takes off revenue is
+what was paid, on the cash basis ust. 1 and ust. 1a require, read from the contribution payments
+recorded — so computing a month changes no base, no band and no tax.
+
+**A month has a page of its own**, at `/sellers/<id>/taxes/<year>/months/<month>/`, and the
+year's table is a list of them: a row opens the month it is about, and the table itself acts on
+nothing. What the month owes is broken down there component by component, both transfers are
+stated field by field at that month's own figures, and the presses that record them, take them
+off again and claim wakacje składkowe are all on it. The table keeps what is read down a column:
+the amounts, where the month stands in a word, and the day it falls due.
+
+**Where the two transfers go is stated on the month's page**, and the two accounts are not held
+the same way. The mikrorachunek podatkowy is a function of the taxpayer's NIP — MF generates it from the
 identifier, and e-Urząd Skarbowy says as much on the page it shows it on — so it is computed
 from the NIP rather than stored, and a corrected NIP carries the account with it instead of
 leaving a stale number addressing somebody else's tax. It is stated with the symbol `PPE` and a
@@ -700,38 +859,55 @@ letter demanding contributions elsewhere would carry — and the NIP catches ano
 which is otherwise a perfectly correct account number. The transfer itself carries no period and
 no symbol, ZUS allocating what arrives from the last DRA, arrears first.
 
-**What was paid and what was filed are recorded on the same page**, because a figure computed
-and then lost sight of sends you back to a bank statement to find out. A ryczałt payment is
-recorded by pressing **Pay** on the month in the table, which opens a dialog stating the
-transfer to make, and then **I have paid this** in it, which keeps that month's own figure,
-dated the day it was pressed. Nothing is typed: the amount is taken from the schedule
-rather than from the request, because what a return settles is the tax paid for the year's
-months and a browser is not where that number comes from. A payment belongs to the month it
-covers rather than to the day of the transfer — December's is paid in January and belongs to the
-year it settles, which is how PIT-28 takes them. Unlike a contribution it moves nothing above
-it: art. 11 deducts contributions, not tax.
+**What was paid and what was filed are recorded where they are worked out**, because a figure
+computed and then lost sight of sends you back to a bank statement to find out. A month's
+payments are recorded by **I have paid these** on the month's page, which records every transfer
+the month still owes at that month's own figures, dated the day it was pressed. One press per
+month rather than one per payee: the two fall due on the same day and are made in the same
+sitting, and two presses beside each other would be two chances to do half of it. Nothing is
+typed: the amounts are taken from the schedule rather than from the request, because what a
+return settles is the tax paid for the year's months and a browser is not where that number
+comes from.
 
-The date is the day of the press because the dialog is what the transfer is made from: it
-states the amount, the mikrorachunek and the okres, so the press follows the transfer by
-minutes. Two things fall outside that, and are limits rather than features. A month the
-schedule states no figure for cannot be recorded at all — a year holding revenue at two
-ryczałt rates has no single monthly figure, so a payer on two contracts at different rates
-gets no press to make; and a payment can only ever be the whole of what the month owes, so a
-part payment, an overpayment and a month whose revenue a correction moved to zero after the
-transfer went have no representation. Neither has a typed-amount path, the amount coming from
-the schedule being what makes the press one click.
+The two rows it leaves behind are not one record of one act, and their dates do different work.
+A ryczałt payment belongs to the month it covers — December's is paid in January and belongs to
+the year it settles, which is how PIT-28 takes them — while a contribution belongs to the year
+it was paid in, art. 11 deducting on a cash basis, so a December pair recorded in January
+belongs to two different years. Unlike a contribution, a tax payment moves nothing above it:
+art. 11 deducts contributions, not tax.
 
-**The figure is kept rather than recomputed**, and that is the point of keeping it. A correction
-invoice or a late payment can move a month's revenue after the transfer went, which moves what
-the month owes; the payment stays what was paid, and the two sit side by side in the same row
-for the disagreement to be seen. Recording it twice is refused, and removing it is the way back.
-The refusal is a check on the way in rather than a constraint in the database, so two
-submissions racing each other — a double press, or a second tab — can both get past it and
-have the month showing the pair of them added up; removing the month clears both.
+The date is the day of the press because the page is what the transfers are made from: it
+states each amount, each account and the okres the tax one carries, so the press follows the
+transfers by minutes. A transfer of nothing is not stated at all — a month that billed nothing
+owes no ryczałt, and an account beside a zero reads as something to go and do — and a half that
+cannot be worked out is named with the reason, the press recording what there is. Where one of
+the two has already been recorded the month reads as part paid, and pressing again records only
+what is left. Two things fall outside that, and are limits rather than features. A month with no
+figure at all cannot be recorded, and a payment can only ever be the whole of what the month
+owes — so a part payment, an overpayment and a month whose revenue a correction moved to zero
+after the transfer went have no representation. Neither has a typed-amount path, the amounts
+coming from the schedule being what makes the press one click.
+
+**Every contribution payment is recorded where the transfer is made**: a month's pair by the
+press on the month's page, the annual health settlement by the press beside the dates. There is
+no typed way in. One existed, and it was a second chance to record a transfer already recorded
+by a press — which deducts it twice, lowering the base, the tax and the health band with
+nothing on any page disagreeing. What it cost to remove is the escape hatch: a DRA total the
+schedule cannot produce — a corrected DRA, arrears — now has nowhere to go, and the year's
+deduction is understated until one is added back deliberately.
+
+**The figures are kept rather than recomputed**, and that is the point of keeping them. A
+correction invoice or a late payment can move a month's revenue after the transfer went, which
+moves what the month owes; the payment stays what was paid, and the two sit side by side in the
+same row for the disagreement to be seen. Pressing again once everything payable is recorded is
+refused, and **Remove** on the month is the way back — it clears everything recorded against
+that month, of both kinds. The refusal is a check on the way in rather than a constraint in the
+database, so two submissions racing each other — a double press, or a second tab — can both get
+past it and have the month showing the pair of them added up; removing the month clears both.
 
 What a payment does move is the balance the return settles, which is the year's tax less the
 ryczałt paid for its months. That is the year's own figure rather than the twelve monthly ones added up,
-and it is stated with the PIT-28 deadline; a negative one is an overpayment the return claims
+and it is the last line of the PIT-28 card; a negative one is an overpayment the return claims
 back. The return itself is completed and sent in e-Urzad Skarbowy, so what is kept here is the
 date it went and the UPO that came back — one per year, replaced rather than added to, because
 nothing here holds the document either version was. KAS holds both records too, and where they

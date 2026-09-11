@@ -1,0 +1,258 @@
+{% extends "wad/base.html" %}
+{% load explainer money %}
+{% block title %}Contribution bases {{ year }} - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="page mt-6 mb-8">
+    <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+            <h1 class="text-[28px] font-bold tracking-tight leading-tight">Contribution bases {{ year }}</h1>
+            <div class="text-xs text-[#888] mt-1">
+                National figures, so one set a year for the whole instance rather than one per taxpayer
+            </div>
+        </div>
+        {% comment %}
+        The same control the tax pages carry, and for the same reason: a year selects what the
+        page is about, and an instance accumulates one a year.
+        {% endcomment %}
+        <label class="flex items-center gap-2 text-sm text-[#888]">
+            Year
+            <select data-navigates
+                    class="btn btn-secondary">
+                {% for link in year_links %}
+                <option value="{{ link.url }}" {% if link.active %}selected{% endif %}>{{ link.label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+    </div>
+
+    {% comment %}
+    Why the figures are typed at all, stated once at the top rather than implied by two forms.
+    Nothing here fetches them, and copies of them disagree.
+    {% endcomment %}
+    <div class="notice mt-5">
+        Both sets are announced once a year and nothing here goes and fetches them. Enter the
+        announced wage and the bases are worked out from it: figures typed separately can disagree
+        with each other and with the wage they came from, and nothing downstream would notice. What
+        checks a wage is the contributions stated back beside it &mdash; a wage from the wrong
+        announcement reproduces neither what ZUS nor what biznes.gov.pl published.
+    </div>
+
+    <div class="mt-6 grid gap-6 lg:grid-cols-2 items-start">
+        <div>
+            <div class="card-heading">
+                <h2>Health contribution</h2>
+                {% explainer "health-bases-help" %}
+                <p>
+                    Art. 81 ust. 2e of the ustawa o świadczeniach opieki zdrowotnej sets the base at
+                    60, 100 or 180 percent of the average wage, according to revenue accumulated from
+                    the start of the year. The percentages and the two revenue thresholds are in the
+                    act; the wage they are taken from is announced every January.
+                </p>
+                <p>
+                    The one to take is przeciętne miesięczne wynagrodzenie w sektorze przedsiębiorstw
+                    włącznie z wypłatami z zysku, in the fourth quarter of the year before, announced
+                    by the Prezes GUS in Monitor Polski under art. 5 pkt 31. GUS issues a second
+                    obwieszczenie the same day &mdash; bez wypłat nagród z zysku, some 34 grosze away
+                    and for something else entirely.
+                </p>
+                <p>
+                    Check the monthly contributions stated back against the ones ZUS publishes. They
+                    are 9 percent of each base.
+                </p>
+                {% endexplainer %}
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
+                {% if brackets %}
+                <div class="px-5 pt-4">
+                    <table class="w-full border-collapse text-sm">
+                        <thead>
+                            <tr class="border-b border-[#eee]">
+                                <th class="text-left py-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Band</th>
+                                <th class="text-right py-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Base</th>
+                                <th class="text-right py-2 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Monthly at 9%</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for band in brackets %}
+                            <tr class="border-b border-[#eee]">
+                                <td class="py-2 text-[#888]">{{ band.share }}% of the average wage</td>
+                                <td class="py-2 text-right money">{{ band.base|money }}</td>
+                                <td class="py-2 text-right money font-semibold">{{ band.amount|money }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="px-5 pt-4 text-sm text-[#666]">
+                    Nothing entered for {{ year }}, so no taxpayer's health contribution can be placed
+                    in a band this year.
+                </div>
+                {% endif %}
+
+                {% comment %}
+                The 100 percent band is the announced wage itself, so the field comes back filled
+                with what a year already holds: the figure to check, rather than a blank that says
+                nothing about what is stored.
+                {% endcomment %}
+                {% comment %}
+                The button sits outside the form it submits, so the two controls stand side by
+                side: they act on the same year and clearing is not a footnote to saving.
+                {% endcomment %}
+                <form id="health-bases" method="post" action="{% url 'health_bases_record' year=year %}" class="px-5 pt-4">
+                    {% csrf_token %}
+                    <label for="wage" class="block text-sm font-medium text-[#666] mb-1">
+                        Average wage, fourth quarter of {{ year|add:"-1" }}
+                    </label>
+                    <input type="number" id="wage" name="wage" step="0.01" min="0" required placeholder="0.00"
+                           value="{% if brackets %}{{ brackets.1.base|stringformat:'s' }}{% endif %}"
+                           class="w-full field money">
+                    <div class="text-xs text-[#999] mt-1">Entering it again replaces the three bases.</div>
+                </form>
+
+                {% comment %}
+                Clearing is the way back from a wage read off the wrong announcement, where
+                entering the right one is not the answer. Offered only where the year holds
+                something, and asked about first: what goes with it is every taxpayer's health
+                contribution for the year.
+                {% endcomment %}
+                <div class="px-5 py-4 flex items-center gap-3">
+                    <button type="submit" form="health-bases"
+                            class="btn btn-primary">
+                        Save
+                    </button>
+                    {% if brackets %}
+                    <form method="post" action="{% url 'health_bases_remove' year=year %}"
+                          data-confirm="Clear the {{ year }} health bases? No taxpayer's health contribution can be placed in a band for {{ year }} until a wage is entered again. Payments already recorded keep the figures they were made at.">
+                        {% csrf_token %}
+                        <button type="submit"
+                                class="btn btn-danger">
+                            Clear
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <div class="card-heading">
+                <h2>Social contributions</h2>
+                {% explainer "social-bases-help" %}
+                <p>
+                    Art. 18a ust. 1 ustawy o sus charges the preferential period on 30 percent of the
+                    minimum wage, set by rozporządzenie Rady Ministrów, and art. 18 ust. 8 charges
+                    everyone else on 60 percent of the prognozowane przeciętne wynagrodzenie
+                    miesięczne from the budget act.
+                </p>
+                <p>
+                    The minimum wage can step mid-year, and has twice recently: 3 490 to 3 600 in July
+                    2023 and 4 242 to 4 300 in July 2024. The preferential base steps with it, and so
+                    does the threshold Fundusz Pracy is owed from, so a year holds both figures and
+                    the month decides which is in force. Leave the July field empty where the year
+                    holds one wage.
+                </p>
+                <p>
+                    Check the full base against what ZUS publishes and the preferential one against
+                    biznes.gov.pl. Wypadkowe is stated at {{ accident_rate|floatformat:"-2" }}%, the
+                    rate for a payer reporting at most nine insured; a taxpayer assigned another rate
+                    carries it on the taxpayer.
+                </p>
+                {% endexplainer %}
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
+                {% if announced_bases %}
+                <div class="px-5 pt-4 grid gap-4">
+                    {% for announced in announced_bases %}
+                    <table class="w-full border-collapse text-sm">
+                        <tr class="border-b border-[#eee]">
+                            <td class="py-2 font-semibold">{{ announced.regime.label }}{{ announced.stretch }}</td>
+                            <td class="py-2 text-right money font-semibold">{{ announced.base|money }}</td>
+                        </tr>
+                        <tr class="border-b border-[#eee]">
+                            <td class="py-2 text-[#888]">Emerytalne</td>
+                            <td class="py-2 text-right money">{{ announced.pension|money }}</td>
+                        </tr>
+                        <tr class="border-b border-[#eee]">
+                            <td class="py-2 text-[#888]">Rentowe</td>
+                            <td class="py-2 text-right money">{{ announced.disability|money }}</td>
+                        </tr>
+                        <tr class="border-b border-[#eee]">
+                            <td class="py-2 text-[#888]">Wypadkowe</td>
+                            <td class="py-2 text-right money">{{ announced.accident|money }}</td>
+                        </tr>
+                        <tr class="border-b border-[#eee]">
+                            <td class="py-2 text-[#888]">Chorobowe</td>
+                            <td class="py-2 text-right money">{{ announced.sickness|money }}</td>
+                        </tr>
+                        {% comment %}
+                        Stated as not owed rather than as nothing: the funds join at the minimum
+                        wage, and a zero beside them reads as an amount that came out zero.
+                        {% endcomment %}
+                        <tr>
+                            <td class="py-2 text-[#888]">FP + FS</td>
+                            <td class="py-2 text-right money">
+                                {% if announced.funds is not None %}{{ announced.funds|money }}{% else %}<span class="text-[#bbb]">not owed</span>{% endif %}
+                            </td>
+                        </tr>
+                    </table>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="px-5 pt-4 text-sm text-[#666]">
+                    Nothing entered for {{ year }}, so no taxpayer's social contributions can be worked
+                    out this year.
+                </div>
+                {% endif %}
+
+                <form id="social-bases" method="post" action="{% url 'social_bases_record' year=year %}" class="px-5 pt-4 grid gap-4">
+                    {% csrf_token %}
+                    <div class="grid gap-4 sm:grid-cols-2">
+                        <div>
+                            <label for="minimum_wage" class="block text-sm font-medium text-[#666] mb-1">Minimum wage</label>
+                            <input type="number" id="minimum_wage" name="minimum_wage" step="0.01" min="0" required
+                                   placeholder="0.00" value="{{ social.minimum_wage|default_if_none:'' }}"
+                                   class="w-full field money">
+                        </div>
+                        <div>
+                            <label for="minimum_wage_from_july" class="block text-sm font-medium text-[#666] mb-1">
+                                Minimum wage from July
+                            </label>
+                            <input type="number" id="minimum_wage_from_july" name="minimum_wage_from_july" step="0.01"
+                                   min="0" placeholder="none" value="{{ social.minimum_wage_from_july|default_if_none:'' }}"
+                                   class="w-full field money">
+                            <div class="text-xs text-[#999] mt-1">Empty where the year holds one wage.</div>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="forecast_wage" class="block text-sm font-medium text-[#666] mb-1">
+                            Forecast average monthly wage
+                        </label>
+                        <input type="number" id="forecast_wage" name="forecast_wage" step="0.01" min="0" required
+                               placeholder="0.00" value="{{ social.forecast_average_wage|default_if_none:'' }}"
+                               class="w-full field money">
+                    </div>
+                </form>
+
+                <div class="px-5 py-4 flex items-center gap-3">
+                    <button type="submit" form="social-bases"
+                            class="btn btn-primary">
+                        Save
+                    </button>
+                    {% if social %}
+                    <form method="post" action="{% url 'social_bases_remove' year=year %}"
+                          data-confirm="Clear the {{ year }} wages? No taxpayer's social contributions can be worked out for {{ year }} until they are entered again. Payments already recorded keep the figures they were made at.">
+                        {% csrf_token %}
+                        <button type="submit"
+                                class="btn btn-danger">
+                            Clear
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

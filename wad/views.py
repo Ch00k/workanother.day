@@ -22,7 +22,7 @@ from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_GET, require_POST
 from ksef2 import KSeFException
 
-from wad import ewidencja, jpk, obligations, parties, throttle
+from wad import contributions, ewidencja, jpk, obligations, parties, throttle
 from wad.calendar_utils import (
     POLAND_TZ,
     MonthlySummary,
@@ -36,7 +36,7 @@ from wad.calendar_utils import (
 from wad.countries import COUNTRIES, country_name
 from wad.documents import RenderError, document_context, invoice_pdf, verification_url
 from wad.ical import ImportError as ICalImportError
-from wad.ical import export_time_off, export_user_time_off, import_time_off
+from wad.ical import export_time_off, export_user_calendar, import_time_off
 from wad.invoicing import (
     fill_gaps,
     next_number,
@@ -62,21 +62,25 @@ from wad.mail import (
 )
 from wad.middleware import create_guest_user
 from wad.models import (
+    DEFAULT_ACCIDENT_RATE,
     POLAND,
     RYCZALT_RATE,
     AccountToken,
     Buyer,
     CalendarToken,
     Contract,
+    ContributionHoliday,
     ContributionPayment,
     CurrencySale,
     Delivery,
     Filing,
     Guest,
+    HealthContributionYear,
     Holiday,
     Invoice,
     InvoiceLine,
     Seller,
+    SocialContributionYear,
     TaxPayment,
     TaxReturn,
     TimeOff,
@@ -439,7 +443,7 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 
 def calendar_feed(request: HttpRequest, token: str) -> HttpResponse:  # noqa: ARG001
     cal_token = get_object_or_404(CalendarToken, token=token)
-    ics_content = export_user_time_off(cal_token.user)
+    ics_content = export_user_calendar(cal_token.user)
     return HttpResponse(ics_content, content_type="text/calendar; charset=utf-8")
 
 
@@ -1929,6 +1933,12 @@ def _party_context(request: HttpRequest, *, is_seller: bool, party: Seller | Buy
         ),
         "list_url": reverse(f"{kind}_list"),
         "delete_url": reverse(f"{kind}_delete", kwargs={"pk": party.pk}) if party else "",
+        # What a seller nobody has told otherwise pays wypadkowe at, so the form offers the
+        # same figure the field would have stored anyway.
+        "default_accident_rate": DEFAULT_ACCIDENT_RATE,
+        # What the elections come to in months, which is the whole of the derivation being
+        # visible. Nothing for a seller not yet saved: there is no start date to count from.
+        "contribution_sequence": contributions.sequence(party) if isinstance(party, Seller) else "",
         # An identity an invoice was issued under has to outlive editing screens.
         "can_delete": party is not None and not party.invoices.exists(),  # ty: ignore[unresolved-attribute]
     }
@@ -1986,30 +1996,21 @@ def _owned_seller(request: HttpRequest, pk: str) -> Seller:
 
 
 class TaxYearLink(NamedTuple):
-    """One destination in the strip every annual page carries."""
+    """One year a tax page can be read at."""
 
     label: str
     url: str
     active: bool
 
 
-# The three sides of a year, in the order a taxpayer wants them: what to pay this month, the
-# register the figures come from, and the file made of it once the year is over.
-TAX_YEAR_TABS = (
-    ("What falls due", "obligations"),
-    ("Ewidencja", "ewidencja"),
-    ("JPK_EWP", "filing_list"),
-)
-
-
-def _tax_year_nav(seller: Seller, year: int, current: str) -> dict[str, Any]:
-    """The strip above all three annual pages: the sides of this year, and the years to switch to.
+def _tax_year_picker(seller: Seller, year: int, current: str) -> dict[str, Any]:
+    """The years a taxpayer has, for the control that switches the year a page is read at.
 
     A year earns a place by having revenue in it, by having a file produced for it, or by being
     the one now - so a taxpayer that has issued nothing still has a year to stand in, and a year
     whose invoices were all deleted after its file was made can still be reached.
 
-    A year switched to keeps the side being read, which is why the years are built against the
+    A year switched to keeps the page being read, which is why the links are built against the
     page asking rather than against the register.
     """
     years = set(ewidencja.years(seller))
@@ -2018,14 +2019,6 @@ def _tax_year_nav(seller: Seller, year: int, current: str) -> dict[str, Any]:
 
     return {
         "year": year,
-        "tabs": [
-            TaxYearLink(
-                label=label,
-                url=reverse(url_name, kwargs={"pk": seller.pk, "year": year}),
-                active=url_name == current,
-            )
-            for label, url_name in TAX_YEAR_TABS
-        ],
         "year_links": [
             TaxYearLink(
                 label=str(other),
@@ -2038,12 +2031,31 @@ def _tax_year_nav(seller: Seller, year: int, current: str) -> dict[str, Any]:
 
 
 @require_GET  # ty: ignore[invalid-argument-type]
+def taxes(request: HttpRequest) -> HttpResponse:
+    """The taxpayer's current tax year, for a visitor who asked for taxes and named nobody.
+
+    Taxes are owed by a taxpayer rather than by an account, so this only knows where to go
+    when there is one Polish seller to go to. Where there are several, which one is a
+    question, and the list is where it is answered.
+    """
+    if not _is_account_holder(request):
+        raise Http404
+
+    sellers = [seller for seller in request.user.sellers.all() if seller.country == POLAND]  # ty: ignore[unresolved-attribute]
+    if len(sellers) != 1:
+        return redirect("seller_list")
+
+    return redirect("obligations", pk=sellers[0].pk, year=today_in_poland().year)
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
 def ewidencja_view(request: HttpRequest, pk: str, year: int) -> HttpResponse:
-    """A taxpayer's revenue register for one year, and what the annual return makes of it.
+    """A taxpayer's revenue register for one year.
 
     The register is the thing art. 15 requires to be kept, and from 1 January 2027 to be kept
     in software able to produce the XML. So this page is the obligation itself rather than a
-    report about it.
+    report about it, and it holds nothing else: what the year's figures come to is read on the
+    year's own page, where everything else about the year is.
     """
     seller = _owned_seller(request, pk)
 
@@ -2066,9 +2078,8 @@ def ewidencja_view(request: HttpRequest, pk: str, year: int) -> HttpResponse:
             # Named so the page can say what to go and fill in, rather than only that the
             # file cannot be produced.
             "missing_for_jpk": seller.missing_for_jpk,
-            "payments": list(seller.contribution_payments.filter(paid_on__year=year)),  # ty: ignore[unresolved-attribute]
             "today": today_in_poland(),
-            **_tax_year_nav(seller, year, "ewidencja"),
+            **_tax_year_picker(seller, year, "ewidencja"),
         },
     )
 
@@ -2093,7 +2104,7 @@ def filing_list(request: HttpRequest, pk: str, year: int) -> HttpResponse:
             # is nothing for Generate to do and it is not offered.
             "generatable": year in ewidencja.years(seller),
             "missing_for_jpk": seller.missing_for_jpk,
-            **_tax_year_nav(seller, year, "filing_list"),
+            **_tax_year_picker(seller, year, "filing_list"),
         },
     )
 
@@ -2392,14 +2403,14 @@ def obligations_view(request: HttpRequest, pk: str, year: int) -> HttpResponse:
     """
     seller = _owned_seller(request, pk)
 
+    today = today_in_poland()
     holidays, stale = get_holidays_for_years(POLAND, [year, year + 1])
-    schedule = obligations.schedule(seller, year, {holiday.date for holiday in holidays})
+    schedule = obligations.schedule(seller, year, {holiday.date for holiday in holidays}, today=today)
 
     # The year being paid for right now, when it is not the year on the page. ZUS publishes
     # its bases each January and nothing here goes and fetches them, so an instance can be
     # months into a year it cannot place a contribution in without anybody opening that
     # year's page to find out - February being spent on last year, for the return.
-    today = today_in_poland()
     unpublished_year = today.year if today.year != year and not obligations.is_published(today.year) else None
 
     return render(
@@ -2413,103 +2424,185 @@ def obligations_view(request: HttpRequest, pk: str, year: int) -> HttpResponse:
             # a payment and changes no figure; the payments themselves are in the schedule,
             # against the months they settle.
             "tax_return": seller.tax_returns.filter(year=year).first(),  # ty: ignore[unresolved-attribute]
+            # The files made of the year, summarised where the rest of the year's paperwork
+            # is. What each one holds is on the list they link to.
+            "filings": list(seller.filings.filter(year=year)),  # ty: ignore[unresolved-attribute]
             "unpublished_year": unpublished_year,
             "today": today,
-            **_tax_year_nav(seller, year, "obligations"),
+            **_tax_year_picker(seller, year, "obligations"),
+        },
+    )
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def month_view(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """One month of a taxpayer's year: what it owes, how to pay it, and what was paid.
+
+    The year's table is a list of these and acts on none of them. Everything a month can be
+    acted on is here: the two transfers stated field by field, the press that records them
+    both, and the wakacje składkowe application, which is made against the month it covers.
+    """
+    seller = _owned_seller(request, pk)
+
+    today = today_in_poland()
+    holidays, stale = get_holidays_for_years(POLAND, [year, year + 1])
+    schedule = obligations.schedule(seller, year, {holiday.date for holiday in holidays}, today=today)
+
+    due = next((each for each in schedule.months if each.month == month), None)
+    if due is None:
+        raise Http404
+
+    return render(
+        request,
+        "wad/month.html",
+        {
+            "seller": seller,
+            "schedule": schedule,
+            "month": due,
+            "year": year,
+            "holidays_stale": stale,
+            "today": today,
         },
     )
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
-def contribution_add(request: HttpRequest, pk: str) -> HttpResponse:
-    """Record a ZUS payment against a taxpayer.
+def payments_record(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Record every transfer a month owes, at the figures worked out for it.
 
-    By hand, because ZUS publishes no filing API for a sole trader. The date is the day it was
-    paid: art. 11 ust. 1 and ust. 1a both work on a cash basis, so that is what decides which
-    year deducts it.
-    """
-    seller = _owned_seller(request, pk)
-
-    try:
-        paid_on = datetime.date.fromisoformat(str(request.POST.get("paid_on", "")).strip())
-        social = _decimal(request.POST.get("social") or 0, "Social contributions", maximum=MAX_PAYMENT)
-        health = _decimal(request.POST.get("health") or 0, "Health contribution", maximum=MAX_PAYMENT)
-    except (ValueError, InvoiceInputError) as error:
-        return HttpResponse(str(error) or "That is not a date.", status=400)
-
-    if paid_on > today_in_poland():
-        return HttpResponse("A payment cannot have been made on a day that has not arrived.", status=400)
-
-    ContributionPayment.objects.create(
-        seller=seller,
-        paid_on=paid_on,
-        social=social,
-        health=health,
-        note=str(request.POST.get("note", "")).strip()[:MAX_NOTE_LENGTH],
-    )
-
-    return redirect("ewidencja", pk=seller.pk, year=paid_on.year)
-
-
-@require_POST  # ty: ignore[invalid-argument-type]
-def contribution_delete(request: HttpRequest, pk: str) -> HttpResponse:
-    """Discard a recorded payment, because one entered wrongly changes what a year deducts."""
-    payment = get_object_or_404(ContributionPayment, pk=pk)
-    seller = _owned_seller(request, str(payment.seller.pk))
-
-    year = payment.paid_on.year
-    payment.delete()
-
-    return redirect("ewidencja", pk=seller.pk, year=year)
-
-
-@require_POST  # ty: ignore[invalid-argument-type]
-def tax_payment_record(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
-    """Record that a month's ryczałt was paid, at the figure worked out for it.
-
-    The amount comes from the schedule rather than from the request. What a return settles is
-    the tax paid for the year's own months, so the browser is not where that number comes
-    from - and there is nothing for a payer to type that this page has not already computed.
+    A month owes a ryczałt transfer and a składki transfer, both due on the same day and made
+    in the same sitting, so one press records all of them. The amounts come from the schedule
+    rather than from the request: there is nothing for a payer to type that this page has not
+    already computed, and what a return settles is the tax for the year's own months rather
+    than a number a browser supplied.
 
     Kept rather than recomputed on every read: a correction that later moves the month's
     revenue moves what the month owes, and the payment has to stay what was paid for the
     disagreement between the two to be visible at all.
 
-    The day is today, and is the day of the transfer because the dialog this is pressed in is
-    where the transfer is made from: it states the amount, the mikrorachunek and the okres, so
-    the press follows the transfer by minutes. A month paid before any of this existed has no
-    way in, which is a limit accepted rather than an oversight.
+    The day is today, and is the day of the transfers because the dialog this is pressed in is
+    where they are made from: it states each amount, each account and the okres, so the press
+    follows the transfers by minutes. A month paid before any of this existed has no way in,
+    which is a limit accepted rather than an oversight.
 
-    A month the schedule states no figure for is refused, and so is a second payment for a
-    month already recorded. Both are limits: a year at two ryczałt rates has no monthly figure
-    and so no press to make, and the refusal of the second is a check here rather than a
-    constraint on the table, so two submissions racing each other can both get past it.
+    A month with nothing to state a figure for is refused, and so is one where everything
+    payable is already recorded. A month with one of the two recorded is neither: the missing
+    one is recorded and the press succeeds. What is already recorded is read and the rows
+    written inside one transaction, which on this database begins by taking the write lock, so
+    a second submission arriving while the first is in flight waits for it and then sees what
+    it wrote - rather than both reading an unpaid month and recording it twice.
     """
     seller = _owned_seller(request, pk)
 
-    # Without holidays, which shift the due dates and bear on no figure: what is wanted here
-    # is the month's tax.
-    schedule = obligations.schedule(seller, year, set())
+    with transaction.atomic():
+        # Without holidays, which shift the due dates and bear on no figure: what is wanted
+        # here are the month's amounts.
+        schedule = obligations.schedule(seller, year, set())
 
-    due = next((each for each in schedule.months if each.month == month), None)
-    if due is None or not due.tax:
-        return HttpResponse("Nothing is due for that month.", status=400)
+        due = next((each for each in schedule.months if each.month == month), None)
+        if due is None or not any(obligation.amount for obligation in due.obligations):
+            return HttpResponse("Nothing is due for that month.", status=400)
 
-    if seller.tax_payments.filter(covers=due.date).exists():  # ty: ignore[unresolved-attribute]
-        return HttpResponse("That month is already recorded as paid.", status=409)
+        payable = [obligation for obligation in due.obligations if obligation.is_payable]
+        if not payable:
+            return HttpResponse("That month is already recorded as paid.", status=409)
 
-    TaxPayment.objects.create(seller=seller, covers=due.date, paid_on=today_in_poland(), amount=due.tax)
+        _record_payments(seller, due, payable)
 
-    return redirect("obligations", pk=seller.pk, year=year)
+    return redirect("month", pk=seller.pk, year=year, month=month)
+
+
+def _record_payments(seller: Seller, due: obligations.Month, payable: list[obligations.Obligation]) -> None:
+    """Create the row each transfer leaves behind, all of them dated today.
+
+    The two rows are not one record of one act, and their dates do different work: a ryczałt
+    payment belongs to the year of the month it covers, and a contribution to the year it was
+    paid in, art. 11 ust. 1 deducting on a cash basis. A December pair recorded in January
+    therefore belongs to two different years.
+    """
+    paid_on = today_in_poland()
+
+    for obligation in payable:
+        if obligation.kind is obligations.Kind.RYCZALT:
+            TaxPayment.objects.create(seller=seller, covers=due.date, paid_on=paid_on, amount=obligation.amount)
+        elif due.social is not None and due.health is not None:
+            # Split as the deduction needs it: social in full under art. 11 ust. 1, health at
+            # half under ust. 1a. The transfer itself is one payment of their total.
+            ContributionPayment.objects.create(
+                seller=seller,
+                covers=due.date,
+                paid_on=paid_on,
+                social=due.social.total,
+                health=due.health,
+            )
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
-def tax_payment_remove(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
-    """Take a month's recorded ryczałt off again, one marked paid by mistake misstating what a
-    return settles.
+def contribution_holiday_record(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Record that ZUS granted wakacje składkowe for a month, art. 17a ustawy o sus.
+
+    The month is a choice made in an application ZUS grants or refuses, so it is recorded
+    rather than worked out. What it changes is that month's pension, disability, accident and
+    sickness contributions, which the state pays instead; the health contribution is not
+    covered and the base is not reduced.
+
+    Two refusals, and they are the ones the deadline is worked out from: a month has to be one
+    art. 17a can be claimed for at all, which `obligations.is_claimable` decides for both, and
+    one month a calendar year is the limit, so a year that already holds one says which. The
+    year is read and the row written inside one transaction, so two presses racing each other
+    cannot leave the year holding two.
+    """
+    seller = _owned_seller(request, pk)
+
+    try:
+        granted = datetime.date(year, month, 1)
+    except ValueError:
+        return HttpResponse("There is no such month.", status=400)
+
+    if contributions.regime_on(seller, granted) is None:
+        return HttpResponse("The business had not started by that month.", status=400)
+
+    if not obligations.is_claimable(seller, granted):
+        return HttpResponse(
+            "Wakacje składkowe cannot be claimed for that month: art. 17a ust. 1 pkt 4 asks that the payer "
+            "was subject to those insurances in the month before the application, which is two months "
+            "before the month claimed, and no ulga na start month is.",
+            status=400,
+        )
+
+    with transaction.atomic():
+        claimed = seller.contribution_holidays.filter(month__year=year).exclude(month=granted).first()  # ty: ignore[unresolved-attribute]
+        if claimed is not None:
+            return HttpResponse(f"{claimed.month:%B %Y} already holds this year's wakacje składkowe.", status=409)
+
+        ContributionHoliday.objects.get_or_create(seller=seller, month=granted)
+
+    return redirect("month", pk=seller.pk, year=year, month=month)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def contribution_holiday_remove(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Take a granted month off again, for an application refused or recorded against the
+    wrong month. The year is free to hold another one afterwards."""
+    seller = _owned_seller(request, pk)
+
+    try:
+        granted = datetime.date(year, month, 1)
+    except ValueError:
+        return HttpResponse("There is no such month.", status=400)
+
+    seller.contribution_holidays.filter(month=granted).delete()  # ty: ignore[unresolved-attribute]
+
+    return redirect("month", pk=seller.pk, year=year, month=month)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def payments_remove(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Take a month's recorded payments off again, of both kinds.
 
     Keyed by the month rather than by the payment, because the month is what the page shows as
-    settled: everything recorded for it goes, and the month is back to owing what it owes.
+    settled: everything recorded against it goes, and the month is back to owing what it owes.
+    A contribution entered by hand against no month is not touched, having settled no month.
     """
     seller = _owned_seller(request, pk)
 
@@ -2519,6 +2612,227 @@ def tax_payment_remove(request: HttpRequest, pk: str, year: int, month: int) -> 
         return HttpResponse("There is no such month.", status=400)
 
     seller.tax_payments.filter(covers=covers).delete()  # ty: ignore[unresolved-attribute]
+    seller.contribution_payments.filter(covers=covers).delete()  # ty: ignore[unresolved-attribute]
+
+    return redirect("month", pk=seller.pk, year=year, month=month)
+
+
+def _owner(request: HttpRequest) -> None:
+    """Refuse anyone but the instance owner.
+
+    The figures these pages hold are national and apply to every taxpayer on the instance, so
+    entering them belongs to whoever runs it rather than to whoever is reading. A miss is a 404
+    rather than a 403, because whether the page exists is not something to confirm.
+    """
+    if not request.user.is_staff:  # ty: ignore[unresolved-attribute]
+        raise Http404
+
+
+def _bases_year_picker(year: int) -> list[TaxYearLink]:
+    """The years the bases page can be read at.
+
+    Every year somebody has entered either kind for, and the two that can be entered now: this
+    one, whose figures are announced in January, and the next, announced before it starts.
+    """
+    years = set(HealthContributionYear.objects.values_list("year", flat=True))
+    years.update(SocialContributionYear.objects.values_list("year", flat=True))
+    years.update({today_in_poland().year, today_in_poland().year + 1, year})
+
+    return [
+        TaxYearLink(
+            label=str(other),
+            url=reverse("contribution_bases", kwargs={"year": other}),
+            active=other == year,
+        )
+        for other in sorted(years, reverse=True)
+    ]
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def bases(request: HttpRequest) -> HttpResponse:
+    """The year now, for a visitor who asked for the bases and named none.
+
+    The year being worked out right now is the one its figures are read at, and the year's are
+    announced in January, so the current year is where the section lands.
+    """
+    _owner(request)
+
+    return redirect("contribution_bases", year=today_in_poland().year)
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def contribution_bases(request: HttpRequest, year: int) -> HttpResponse:
+    """The announced figures a year's contributions are worked out from.
+
+    National data rather than any taxpayer's: one row per year for the whole instance, from
+    announcements nothing here can go and fetch. What the page is for is checking a typed wage
+    against what was published - the bases and the contributions they come to are stated back
+    beside every field, and a wage taken from the wrong announcement reproduces neither.
+    """
+    _owner(request)
+
+    published = SocialContributionYear.objects.filter(year=year).first()
+
+    return render(
+        request,
+        "wad/contribution_bases.html",
+        {
+            "year": year,
+            "year_links": _bases_year_picker(year),
+            "brackets": obligations.brackets_for(year),
+            "social": published,
+            "announced_bases": (
+                contributions.announced_bases(published, DEFAULT_ACCIDENT_RATE) if published is not None else ()
+            ),
+            "accident_rate": DEFAULT_ACCIDENT_RATE,
+        },
+    )
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def health_bases_record(request: HttpRequest, year: int) -> HttpResponse:
+    """Enter the wage a year's three health contribution bases are worked out from.
+
+    One announced figure decides all three, so the three are worked out rather than entered:
+    typed separately they can disagree with each other and with the wage they came from, and
+    nothing downstream would notice.
+    """
+    _owner(request)
+
+    try:
+        wage = _decimal(request.POST.get("wage"), "The average wage", maximum=MAX_PAYMENT)
+    except InvoiceInputError as error:
+        return HttpResponse(str(error), status=400)
+
+    if wage <= 0:
+        return HttpResponse("The average wage is a figure somebody announced.", status=400)
+
+    lower, middle, upper = HealthContributionYear.bases(wage)
+    HealthContributionYear.objects.update_or_create(
+        year=year,
+        defaults={"lower_base": lower, "middle_base": middle, "upper_base": upper},
+    )
+
+    return redirect("contribution_bases", year=year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def health_bases_remove(request: HttpRequest, year: int) -> HttpResponse:
+    """Take a year's health bases off, leaving it as one nobody has entered.
+
+    The way back from a wage read off the wrong announcement, where entering the right one is
+    not the answer: a year that should never have been entered at all, an instance being set up
+    again. What a payment already recorded came to is not touched - it keeps the figure it was
+    made at - so what goes is the year's ability to state a contribution, not its history.
+    """
+    _owner(request)
+
+    HealthContributionYear.objects.filter(year=year).delete()
+
+    return redirect("contribution_bases", year=year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def social_bases_record(request: HttpRequest, year: int) -> HttpResponse:
+    """Enter the two announced wages a year's social contribution bases are worked out from.
+
+    The July figure is optional and clearing it takes it off, because a year that was entered
+    as stepping and does not step is a year charging the wrong base for six months.
+    """
+    _owner(request)
+
+    try:
+        minimum = _decimal(request.POST.get("minimum_wage"), "The minimum wage", maximum=MAX_PAYMENT)
+        forecast = _decimal(request.POST.get("forecast_wage"), "The forecast average wage", maximum=MAX_PAYMENT)
+        from_july = str(request.POST.get("minimum_wage_from_july", "")).strip()
+        stepped = _decimal(from_july, "The minimum wage from July", maximum=MAX_PAYMENT) if from_july else None
+    except InvoiceInputError as error:
+        return HttpResponse(str(error), status=400)
+
+    if minimum <= 0 or forecast <= 0 or (stepped is not None and stepped <= 0):
+        return HttpResponse("A wage is a figure somebody announced.", status=400)
+
+    SocialContributionYear.objects.update_or_create(
+        year=year,
+        defaults={
+            "minimum_wage": minimum,
+            "minimum_wage_from_july": stepped,
+            "forecast_average_wage": forecast,
+        },
+    )
+
+    return redirect("contribution_bases", year=year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def social_bases_remove(request: HttpRequest, year: int) -> HttpResponse:
+    """Take a year's announced wages off, leaving it as one nobody has entered.
+
+    What a payment already recorded came to is not touched, as with the health bases: a month
+    stops stating what it owes rather than stopping having been paid.
+    """
+    _owner(request)
+
+    SocialContributionYear.objects.filter(year=year).delete()
+
+    return redirect("contribution_bases", year=year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def settlement_record(request: HttpRequest, pk: str, year: int) -> HttpResponse:
+    """Record paying a year's annual health contribution settlement.
+
+    It belongs to the year rather than to any of its months: it recomputes every insured month
+    at the band the year ended in and charges the difference, riding in the DRA for April
+    without being April's contribution. So it is recorded against the year, and the month
+    pages neither state it nor settle it.
+
+    The amount comes from the schedule rather than from the request, as a month's does: the
+    difference is worked out here and there is nothing for a payer to type. It goes in as
+    health alone, art. 11 ust. 1a deducting half of it on the cash basis the payment date
+    decides - a settlement paid in May is deducted from the year it was paid in, not the year
+    it settles.
+
+    A settlement that comes out a refund is refused: money claimed back is not a payment, and
+    the claim is made in the DRA rather than here. So is a year that has not ended - the band
+    it settles at follows revenue to December, the DRA carrying it is the one for the following
+    April, and half of what went in here would be deducted from the wrong year besides.
+    """
+    seller = _owned_seller(request, pk)
+
+    paid_on = today_in_poland()
+
+    with transaction.atomic():
+        # Without holidays, which shift the date and bear on no figure: what is wanted is the
+        # provision, and whether the year is over enough for it to be one.
+        schedule = obligations.schedule(seller, year, set(), today=paid_on)
+
+        if not schedule.settlement_payable:
+            return HttpResponse("There is no settlement to pay for that year.", status=400)
+
+        if seller.contribution_payments.filter(settles_year=year).exists():  # ty: ignore[unresolved-attribute]
+            return HttpResponse("That settlement is already recorded as paid.", status=409)
+
+        ContributionPayment.objects.create(
+            seller=seller,
+            settles_year=year,
+            paid_on=paid_on,
+            health=schedule.health_provision,
+        )
+
+    return redirect("obligations", pk=seller.pk, year=year)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def settlement_remove(request: HttpRequest, pk: str, year: int) -> HttpResponse:
+    """Take a year's settlement payment off again, where it was recorded by mistake.
+
+    Keyed by the year rather than by the payment, as a month's removal is by the month: the
+    year is what the page shows as settled.
+    """
+    seller = _owned_seller(request, pk)
+
+    seller.contribution_payments.filter(settles_year=year).delete()  # ty: ignore[unresolved-attribute]
 
     return redirect("obligations", pk=seller.pk, year=year)
 

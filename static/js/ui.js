@@ -78,6 +78,16 @@
             return;
         }
 
+        // A row whose first cell holds a link: a click anywhere in it follows that link, as a
+        // mouse convenience over the link itself. Anything inside it that acts on its own - a
+        // link, a button, a form - is left to do so, and a selection being dragged out of the
+        // row is not a click on it.
+        const row = event.target.closest('[data-opens-url]');
+        if (row && !event.target.closest('a, button, input, label, form') && !window.getSelection().toString()) {
+            window.location.assign(row.dataset.opensUrl);
+            return;
+        }
+
         const opener = event.target.closest('[data-opens]');
         if (!opener) return;
 
@@ -125,6 +135,15 @@
     document.addEventListener('change', event => {
         if (event.target.closest('[data-submits]')) {
             event.target.form.requestSubmit();
+            return;
+        }
+
+        // A select whose options are destinations: choosing one goes there. The tax year a
+        // page is read at is picked this way, a taxpayer gaining one a year and a row of
+        // links running out of room for them.
+        const destinations = event.target.closest('[data-navigates]');
+        if (destinations) {
+            window.location.assign(destinations.value);
         }
     });
 })();

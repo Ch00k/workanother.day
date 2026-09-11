@@ -37,15 +37,17 @@ register = template.Library()
 
 # Python groups with a comma or an underscore and nothing else, so the mark it grouped with is
 # exchanged for the one this application writes.
-GROUPED = "{:,.%df}"
+GROUPED = "{:,.2f}"
+
+CENT = decimal.Decimal("0.01")
 
 # Written as an escape because the character itself is indistinguishable from a space here.
 GAP = "\u2009"
 
 
 @register.filter
-def money(value: object, places: int = 2) -> str:
-    """An amount, grouped, to `places` decimals. Empty for nothing, which is not zero.
+def money(value: object) -> str:
+    """An amount, grouped, to two decimals. Empty for nothing, which is not zero.
 
     Quantized as a Decimal and formatted from it, so what is printed is the figure that was
     stored rather than what a float made of it on the way through.
@@ -54,11 +56,8 @@ def money(value: object, places: int = 2) -> str:
         return ""
 
     try:
-        amount = decimal.Decimal(str(value)).quantize(
-            decimal.Decimal(1).scaleb(-places),
-            rounding=decimal.ROUND_HALF_UP,
-        )
+        amount = decimal.Decimal(str(value)).quantize(CENT, rounding=decimal.ROUND_HALF_UP)
     except decimal.InvalidOperation, ValueError:
         return str(value)
 
-    return (GROUPED % places).format(amount).replace(",", GAP)
+    return GROUPED.format(amount).replace(",", GAP)

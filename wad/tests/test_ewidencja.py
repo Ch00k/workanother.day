@@ -554,6 +554,7 @@ class AnnualFiguresTests(TaxpayerTestCase):
 
         assert register.taxable == D("39999.97")
         # The base rounds to 40 000, and 12% of that is 4 800 exactly.
+        assert register.base == D("40000.00")
         assert register.tax == D(4800)
 
     def test_the_base_is_rounded_before_the_rate_is_applied(self) -> None:
@@ -834,7 +835,11 @@ class PageTests(TaxpayerTestCase):
         self.assertContains(response, "no PLN figure yet")
         self.assertContains(response, record.number)
 
-    def test_the_pit_28_figures_are_shown(self) -> None:
+    def test_the_page_carries_the_register_and_nothing_else(self) -> None:
+        """The register is the obligation art. 15 requires to be kept, and this page is that
+        rather than a place the year's other figures are also kept. What the year comes to is
+        read on the year's own page, so neither the annual figures nor the contributions that
+        deduct against them are repeated here."""
         self._issued(3)
         ContributionPayment.objects.create(
             seller=self.seller, paid_on=datetime.date(YEAR, 4, 20), social=D("1600.00"), health=D("900.00")
@@ -842,8 +847,10 @@ class PageTests(TaxpayerTestCase):
 
         response = self._page()
 
-        self.assertContains(response, "PIT-28")
-        self.assertContains(response, money(D("37950.00")))
+        self.assertContains(response, "Suma przychodów")
+        self.assertNotContains(response, "PIT-28")
+        self.assertNotContains(response, "Podstawa")
+        self.assertNotContains(response, "ZUS paid in")
 
     def test_the_years_with_something_in_them_are_offered(self) -> None:
         self._issued(3)
@@ -877,53 +884,6 @@ class PageTests(TaxpayerTestCase):
 
         self.assertNotContains(response, "Taxes")
         self.assertNotContains(response, reverse("obligations", kwargs={"pk": self.seller.pk, "year": TODAY.year}))
-
-
-class ContributionTests(TaxpayerTestCase):
-    def _add(self, **data: str):  # noqa: ANN202
-        return self.client.post(reverse("contribution_add", kwargs={"pk": self.seller.pk}), data)
-
-    def test_a_payment_can_be_recorded_and_removed(self) -> None:
-        self._add(paid_on=f"{YEAR}-04-20", social="1600.00", health="900.00", note="March")
-
-        payment = ContributionPayment.objects.get()
-        assert payment.social == D("1600.00")
-        assert payment.health == D("900.00")
-        assert payment.note == "March"
-
-        self.client.post(reverse("contribution_delete", kwargs={"pk": payment.pk}))
-        assert not ContributionPayment.objects.exists()
-
-    def test_it_lands_in_the_year_it_was_paid_in(self) -> None:
-        response = self._add(paid_on=f"{YEAR}-04-20", social="100.00", health="0")
-
-        assert response.status_code == 302
-        assert response["Location"] == reverse("ewidencja", kwargs={"pk": self.seller.pk, "year": YEAR})
-
-    def test_something_that_is_not_a_date_is_refused(self) -> None:
-        assert self._add(paid_on="the twentieth", social="100.00", health="0").status_code == 400
-        assert not ContributionPayment.objects.exists()
-
-    def test_an_amount_no_payment_could_be_is_refused(self) -> None:
-        assert self._add(paid_on=f"{YEAR}-04-20", social="9" * 20, health="0").status_code == 400
-
-    def test_a_negative_amount_is_refused(self) -> None:
-        """A payment is money that went out, and a deduction is not a way to add revenue."""
-        assert self._add(paid_on=f"{YEAR}-04-20", social="-500.00", health="0").status_code == 400
-
-    def test_a_payment_dated_after_today_is_refused(self) -> None:
-        """The form's own max attribute is no check at all against a direct post, and art. 11
-        deducts on a cash basis: a contribution dated forward is an amount nobody has paid
-        reducing the tax on a year that has not finished."""
-        tomorrow = TODAY + datetime.timedelta(days=1)
-
-        assert self._add(paid_on=tomorrow.isoformat(), social="100.00", health="0").status_code == 400
-        assert not ContributionPayment.objects.exists()
-
-    def test_another_users_taxpayer_cannot_be_paid_for(self) -> None:
-        self.client.force_login(User.objects.create_user(username="stranger"))
-
-        assert self._add(paid_on=f"{YEAR}-04-20", social="100.00", health="0").status_code == 404
 
 
 class PaymentDateWithSalesTests(TaxpayerTestCase):

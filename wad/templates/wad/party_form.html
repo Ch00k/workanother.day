@@ -22,13 +22,13 @@
             <div>
                 <label for="name" class="block text-sm font-medium text-[#666] mb-1">Name <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="name" name="name" required value="{% firstof form_data.name party.name '' %}"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
             </div>
             <div>
                 <label for="address" class="block text-sm font-medium text-[#666] mb-1">Address <span class="text-red-600" aria-hidden="true">*</span></label>
                 <textarea id="address" name="address" rows="3" required
                           placeholder="Street and number&#10;Postcode and city"
-                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">{% firstof form_data.address party.address '' %}</textarea>
+                          class="w-full field">{% firstof form_data.address party.address '' %}</textarea>
                 <div class="text-xs text-[#999] mt-1">
                     Printed on the invoice as written. The first row is sent to KSeF as the street
                     line, the rest as the second.
@@ -37,7 +37,7 @@
             <div>
                 <label for="country" class="block text-sm font-medium text-[#666] mb-1">Country <span class="text-red-600" aria-hidden="true">*</span></label>
                 <select id="country" name="country" required
-                        class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                        class="w-full field">
                     {% for code, label in countries %}
                     <option value="{{ code }}" {% if code == selected_country %}selected{% endif %}>{{ label }}</option>
                     {% endfor %}
@@ -55,7 +55,7 @@
             <div>
                 <label for="email" class="block text-sm font-medium text-[#666] mb-1">Email</label>
                 <input type="email" id="email" name="email" value="{% firstof form_data.email party.email '' %}"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
                 <div class="text-xs text-[#999] mt-1">
                     {% if is_seller %}
                     Invoices are sent from here, so replies come straight back to you. The mail
@@ -73,14 +73,14 @@
                 <input type="text" id="nip" name="nip" inputmode="numeric" maxlength="10"
                        pattern="[1-9]((\d[1-9])|([1-9]\d))\d{7}" title="NIP must be 10 digits."
                        value="{% firstof form_data.nip party.nip '' %}" placeholder="5213870274"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
                 <div class="text-xs text-[#999] mt-1">Required to send invoices to KSeF.</div>
             </div>
             <div>
                 <label for="ksef_token" class="block text-sm font-medium text-[#666] mb-1">KSeF token</label>
                 <input type="password" id="ksef_token" name="ksef_token" autocomplete="off" spellcheck="false"
                        {% if party.ksef_token %}placeholder="Stored - leave blank to keep it"{% endif %}
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
                 <div class="text-xs text-[#999] mt-1">
                     Can issue invoices under the NIP above until you revoke it. Never shown again once saved.
                 </div>
@@ -96,25 +96,25 @@
                     <label for="first_name" class="block text-sm font-medium text-[#666] mb-1">First name</label>
                     <input type="text" id="first_name" name="first_name" maxlength="30"
                            value="{% firstof form_data.first_name party.first_name '' %}"
-                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                           class="w-full field">
                 </div>
                 <div>
                     <label for="last_name" class="block text-sm font-medium text-[#666] mb-1">Surname</label>
                     <input type="text" id="last_name" name="last_name" maxlength="81"
                            value="{% firstof form_data.last_name party.last_name '' %}"
-                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                           class="w-full field">
                 </div>
                 <div>
                     <label for="date_of_birth" class="block text-sm font-medium text-[#666] mb-1">Date of birth</label>
                     <input type="date" id="date_of_birth" name="date_of_birth"
                            value="{% firstof form_data.date_of_birth party.date_of_birth|date:'Y-m-d' '' %}"
-                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                           class="w-full field">
                 </div>
                 <div>
                     <label for="business_started_on" class="block text-sm font-medium text-[#666] mb-1">Business started <span class="text-red-600" aria-hidden="true">*</span></label>
                     <input type="date" id="business_started_on" name="business_started_on" required
                            value="{% firstof form_data.business_started_on party.business_started_on|date:'Y-m-d' '' %}"
-                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                           class="w-full field">
                     <div class="text-xs text-[#999] mt-1">
                         Required, unlike the three above it: contributions are owed from the month
                         it started, whether or not anything was billed in them, and there is no
@@ -130,11 +130,11 @@
                            cannot be copied into the field by mistake.
                            {% endcomment %}
                            value="{% firstof form_data.kod_urzedu party.kod_urzedu '' %}" placeholder="0000"
-                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                           class="w-full field">
                     <div class="text-xs text-[#999] mt-1">
                         Which urząd skarbowy a JPK_EWP is addressed to. Check against
                         <a href="https://crd.gov.pl/xml/schematy/dziedzinowe/mf/2022/01/05/eD/KodyUrzedowSkarbowych/KodyUrzedowSkarbowych_v8-0E.xsd"
-                           target="_blank" rel="noopener" class="underline hover:no-underline">KodyUrzedowSkarbowych</a>.
+                           target="_blank" rel="noopener" class="link">KodyUrzedowSkarbowych</a>.
                     </div>
                 </div>
             </div>
@@ -153,23 +153,82 @@
                 {% endcomment %}
                 <input type="text" id="mikrorachunek" disabled placeholder="Needs a NIP"
                        value="{{ party.mikrorachunek|account }}"
-                       class="w-full rounded-[10px] border border-[#ddd] bg-[#fafafa] text-[#666] px-4 py-2.5 text-sm money">
+                       class="w-full field money">
                 <div class="text-xs text-[#999] mt-1">
                     Generated from the NIP, can't be changed. Check it against
                     <a href="https://urzadskarbowy.gov.pl/micro-account" target="_blank" rel="noopener"
-                       class="underline hover:no-underline">e-Urząd Skarbowy</a>.
+                       class="link">e-Urząd Skarbowy</a>.
                 </div>
             </div>
             <div>
                 <label for="zus_account" class="block text-sm font-medium text-[#666] mb-1">ZUS account</label>
                 <input type="text" id="zus_account" name="zus_account" inputmode="numeric" spellcheck="false"
                        value="{% firstof form_data.zus_account party.zus_account|account '' %}"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field money">
                 <div class="text-xs text-[#999] mt-1">
                     Where the contributions are paid. Can be found at
                     <a href="https://www.zus.pl/ezus/obszar-platnika/skladki-i-salda" target="_blank" rel="noopener"
-                       class="underline hover:no-underline">Składki i salda</a>.
+                       class="link">Składki i salda</a>.
                 </div>
+            </div>
+            {% comment %}
+            What this taxpayer is insured under, which is what every month's składki are worked
+            out from. The reliefs are elections, so which months they cover follows from the day
+            the business started rather than being entered anywhere.
+            {% endcomment %}
+            <div class="grid gap-3">
+                <div class="text-sm font-medium text-[#666]">Contributions</div>
+                <label class="flex gap-2 items-start text-sm">
+                    <input type="checkbox" id="ulga_na_start" name="ulga_na_start" class="mt-0.5"
+                           {% if form_data %}{% if form_data.ulga_na_start %}checked{% endif %}{% elif party.ulga_na_start %}checked{% endif %}>
+                    <span>
+                        Ulga na start
+                        <span class="block text-xs text-[#999]">
+                            Six months free of social contributions, art. 18 Prawo przedsiębiorców.
+                            The health contribution is owed throughout them.
+                        </span>
+                    </span>
+                </label>
+                <label class="flex gap-2 items-start text-sm">
+                    <input type="checkbox" id="preferential_contributions" name="preferential_contributions" class="mt-0.5"
+                           {% if form_data %}{% if form_data.preferential_contributions %}checked{% endif %}{% elif party.preferential_contributions %}checked{% endif %}>
+                    <span>
+                        Preferencyjne składki
+                        <span class="block text-xs text-[#999]">
+                            Twenty-four months charged on 30% of the minimum wage, art. 18a ustawy
+                            o sus, which art. 18aa runs from the end of ulga na start.
+                        </span>
+                    </span>
+                </label>
+                <label class="flex gap-2 items-start text-sm">
+                    <input type="checkbox" id="chorobowe" name="chorobowe" class="mt-0.5"
+                           {% if form_data %}{% if form_data.chorobowe %}checked{% endif %}{% elif party.chorobowe %}checked{% endif %}>
+                    <span>
+                        Chorobowe
+                        <span class="block text-xs text-[#999]">
+                            Voluntary sickness insurance at 2.45% of the base, owed only where you
+                            elected it.
+                        </span>
+                    </span>
+                </label>
+                <div>
+                    <label for="accident_rate" class="block text-sm font-medium text-[#666] mb-1">Wypadkowe rate</label>
+                    <input type="text" id="accident_rate" name="accident_rate" inputmode="decimal"
+                           value="{% firstof form_data.accident_rate party.accident_rate default_accident_rate %}"
+                           class="w-full field">
+                    <div class="text-xs text-[#999] mt-1">
+                        The percentage ZUS set for this payer. 1.67 is the rate for one reporting at
+                        most nine insured, whatever the activity.
+                    </div>
+                </div>
+                {% comment %}
+                What the boxes above come to in months, counted from the day the business
+                started. Nothing else states those dates, and this is what a reader checks the
+                elections against.
+                {% endcomment %}
+                {% if contribution_sequence %}
+                <div class="text-xs text-[#999]">Which months these produce: {{ contribution_sequence }}.</div>
+                {% endif %}
             </div>
             </div>
             {% else %}
@@ -177,7 +236,7 @@
                 <label for="tax_id" class="block text-sm font-medium text-[#666] mb-1">Tax identifier</label>
                 <input type="text" id="tax_id" name="tax_id" value="{% firstof form_data.tax_id party.tax_id '' %}"
                        placeholder="123456789"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
                 <div class="text-xs text-[#999] mt-1">
                     Sent as structured data. For an EU business, the VAT number without its country prefix.
                 </div>
@@ -187,7 +246,7 @@
                 <label for="tax_ids" class="block text-sm font-medium text-[#666] mb-1">Printed tax IDs</label>
                 <textarea id="tax_ids" name="tax_ids" rows="2"
                           placeholder="VAT ID: 000000000&#10;Registry no: 00000000"
-                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">{% firstof form_data.tax_ids party.tax_ids '' %}</textarea>
+                          class="w-full field">{% firstof form_data.tax_ids party.tax_ids '' %}</textarea>
                 <div class="text-xs text-[#999] mt-1">
                     Printed on the invoice exactly as written, one per row. Never sent to KSeF,
                     which carries the identifiers above instead.
@@ -196,13 +255,13 @@
 
             <div class="flex gap-3 items-center">
                 <button type="submit"
-                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                        class="btn btn-primary">
                     Save
                 </button>
-                <a href="{{ list_url }}" class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
+                <a href="{{ list_url }}" class="btn btn-secondary">Cancel</a>
                 {% if party and can_delete %}
                 <button type="submit" form="delete-party-form"
-                        class="ml-auto rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                        class="ml-auto btn btn-danger">
                     Delete
                 </button>
                 {% endif %}

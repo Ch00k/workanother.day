@@ -28,7 +28,7 @@ from django.contrib.auth.models import User
 from django.core.management.base import BaseCommand, CommandError
 from django.http import QueryDict
 
-from wad import ewidencja, jpk, obligations
+from wad import contributions, ewidencja, jpk, nrb, obligations
 from wad.calendar_utils import today_in_poland
 from wad.invoicing import next_number, record_payment
 from wad.models import (
@@ -123,6 +123,32 @@ TIME_OFF = ((7, 21, 8), (7, 22, 8), (7, 23, 8), (7, 24, 8), (7, 25, 8), (10, 31,
 # year's revenue reaches, so it is taken from the schedule rather than written down here.
 SOCIAL_CONTRIBUTION = D("1773.96")
 
+# A second taxpayer, and the one the contribution side is worth looking at. The first is on
+# full contributions from the year before last, which states one figure every month and
+# exercises none of the sequence; this one starts its business this month having elected both
+# reliefs, so its months run through ulga na start, then the preferential base, then full
+# contributions - and the first six owe the health contribution and nothing else.
+RELIEF_SELLER_NAME = "Nowak Software"
+RELIEF_SELLER_ADDRESS = "ul. Kwiatowa 7\n30-001 Krakow"
+RELIEF_SELLER_NIP = "7010012345"
+RELIEF_SELLER_FIRST_NAME = "Anna"
+RELIEF_SELLER_LAST_NAME = "Nowak"
+RELIEF_SELLER_BORN = datetime.date(1990, 6, 2)
+RELIEF_SELLER_EMAIL = "anna@example.com"
+
+# The three digits between ZUS's constant and the NIP. ZUS allocates them and publishes no
+# rule for them; every number seen carries 001, the specimen in ZUS's own template included.
+ZUS_ALLOCATION = "001"
+
+# Its contract: the shape a relocation produces, running from the day the business started to
+# the following spring rather than over a calendar year.
+RELIEF_CONTRACT_NAME = "Alpine Systems"
+RELIEF_CONTRACT_MONTHS = 7
+RELIEF_BUYER_NAME = "Alpine Systems AG"
+RELIEF_BUYER_ADDRESS = "Seestrasse 12\n6300 Zug"
+RELIEF_BUYER_TAX_ID = "CHE-987.654.321"
+RELIEF_BUYER_EMAIL = "ap@example.ch"
+
 # A KSeF token is issued for one NIP in one KSeF, so both come from the environment: a
 # hardcoded pair would authenticate as nobody. Generate them in the sandbox the deployment
 # points at and export them together.
@@ -133,6 +159,25 @@ SELLER_KSEF_TOKEN = os.environ.get("KSEF_DEV_TOKEN", "")
 # nothing here is filing anything with anybody.
 SEEDED_UPO = "<Potwierdzenie>Seeded development receipt, not a UPO.</Potwierdzenie>"
 SEEDED_REFERENCE = "5eeded00000000000000b0dedeadbe0f"
+
+
+def _zus_account(nip: str) -> str:
+    """A numer rachunku składkowego for a NIP, shaped the way ZUS issues them.
+
+    ZUS's own constant, the three digits it allocates, and the payer's NIP, with the check
+    digits computed over the lot - so the number passes the three checks the seller form
+    makes of one. Nobody allocated this one: it is a seed, and ZUS is not asked.
+    """
+    body = nrb.ZUS_PREFIX + ZUS_ALLOCATION + nip
+
+    return nrb.check_digits(body) + body
+
+
+def _months_after(day: datetime.date, months: int) -> datetime.date:
+    """The same day of the month `months` later, which is where a term of that length ends."""
+    total = day.month - 1 + months
+
+    return day.replace(year=day.year + total // 12, month=total % 12 + 1)
 
 
 class Command(BaseCommand):
@@ -149,7 +194,9 @@ class Command(BaseCommand):
 
         user = self._user()
         seller = self._seller(user)
+        relief_seller = self._relief_seller(user)
         contracts = self._contracts(user, seller)
+        contracts["relief"] = self._relief_contract(user, relief_seller)
 
         self._time_off(contracts)
         invoices = self._history(contracts["chf"])
@@ -160,7 +207,7 @@ class Command(BaseCommand):
         self._returns(seller)
         self._filing(seller)
 
-        self._report(seller, contracts)
+        self._report(seller, relief_seller, contracts)
 
     def _user(self) -> User:
         user, _ = User.objects.get_or_create(username=USERNAME, defaults={"is_staff": True})
@@ -198,6 +245,77 @@ class Command(BaseCommand):
         )
 
         return seller
+
+    def _relief_seller(self, user: User) -> Seller:
+        """A taxpayer partway through the reliefs, which is the sequence nobody types in.
+
+        Started on the first of this month, so wherever the calendar has got to the six ulga
+        months are the ones being looked at: they owe the health contribution and no social
+        one at all, and the preferential base follows them, and full contributions follow
+        that. Chorobowe is elected, as the taxpayer this was built for intends to elect it,
+        and the wypadkowe rate is left at the one a payer reporting at most nine insured pays.
+        """
+        started = self.today.replace(day=1)
+
+        seller, _ = Seller.objects.update_or_create(
+            user=user,
+            name=RELIEF_SELLER_NAME,
+            defaults={
+                "address": RELIEF_SELLER_ADDRESS,
+                "country": "PL",
+                "nip": RELIEF_SELLER_NIP,
+                "email": RELIEF_SELLER_EMAIL,
+                "first_name": RELIEF_SELLER_FIRST_NAME,
+                "last_name": RELIEF_SELLER_LAST_NAME,
+                "date_of_birth": RELIEF_SELLER_BORN,
+                "kod_urzedu": SELLER_KOD_URZEDU,
+                "business_started_on": started,
+                "zus_account": _zus_account(RELIEF_SELLER_NIP),
+                "ulga_na_start": True,
+                "preferential_contributions": True,
+                "chorobowe": True,
+            },
+        )
+
+        return seller
+
+    def _relief_contract(self, user: User, seller: Seller) -> Contract:
+        """What that taxpayer bills, from the day the business started to the spring after it.
+
+        No invoices on it. What it is here to show is a year of contributions owed by a
+        business that billed nothing yet, which is what a September start looks like from the
+        taxes page - and an invoice raised from the contract is the ordinary way to move it on.
+        """
+        buyer, _ = Buyer.objects.update_or_create(
+            user=user,
+            name=RELIEF_BUYER_NAME,
+            defaults={
+                "address": RELIEF_BUYER_ADDRESS,
+                "country": CHF_BUYER_COUNTRY,
+                "tax_id": RELIEF_BUYER_TAX_ID,
+                "email": RELIEF_BUYER_EMAIL,
+            },
+        )
+
+        started = seller.business_started_on or self.today.replace(day=1)
+        contract, _ = Contract.objects.update_or_create(
+            user=user,
+            name=RELIEF_CONTRACT_NAME,
+            defaults={
+                "home_country": "PL",
+                "client_country": CHF_BUYER_COUNTRY,
+                "max_working_days": 228,
+                "working_hours_per_day": 8,
+                "start_date": started,
+                "end_date": _months_after(started, RELIEF_CONTRACT_MONTHS),
+                "seller": seller,
+                "buyer": buyer,
+                "send_to_ksef": False,
+                "ryczalt_rate": RYCZALT_RATE,
+            },
+        )
+
+        return contract
 
     def _contracts(self, user: User, seller: Seller) -> dict[str, Contract]:
         """Three contracts, because the three shapes behave differently.
@@ -490,9 +608,9 @@ class Command(BaseCommand):
 
             paid[(month.year, month.month)] = ContributionPayment.objects.create(
                 seller=seller,
+                covers=month,
                 paid_on=paid_on,
                 social=SOCIAL_CONTRIBUTION,
-                note=f"DRA {month:%m/%Y}",
             )
 
         for year in (self.last_year, self.today.year):
@@ -597,16 +715,21 @@ class Command(BaseCommand):
 
         return following.replace(day=20)
 
-    def _report(self, seller: Seller, contracts: dict[str, Contract]) -> None:
+    def _report(self, seller: Seller, relief: Seller, contracts: dict[str, Contract]) -> None:
         invoices = Invoice.objects.filter(user=seller.user)
 
         self.stdout.write(self.style.SUCCESS("Dev data ready."))
         self.stdout.write(f"  User:         {USERNAME} (staff)")
         self.stdout.write(f"  Access token: {ACCESS_TOKEN}")
         self.stdout.write(f"  Seller:       {seller.name} (NIP {seller.nip}, {seller.first_name} {seller.last_name})")
+        self.stdout.write(
+            f"  Seller:       {relief.name} (NIP {relief.nip}) - started "
+            f"{relief.business_started_on:%-d %b %Y}, {contributions.sequence(relief)}"
+        )
         self.stdout.write(f"  Contract:     {contracts['plain'].name} - calendar only, no seller")
         self.stdout.write(f"  Contract:     {contracts['ksef'].name} -> KSeF {settings.KSEF_ENVIRONMENT}, one draft")
         self.stdout.write(f"  Contract:     {contracts['chf'].name} - {CURRENCY}, issued outside KSeF")
+        self.stdout.write(f"  Contract:     {contracts['relief'].name} - {relief.name}, no invoices yet")
         self.stdout.write(
             f"  Invoices:     {invoices.count()} "
             f"({invoices.filter(state=Invoice.State.ISSUED).count()} issued, "

@@ -1,11 +1,10 @@
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import cast
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from wad.models import GROSZ, HealthContributionYear
-
-CONTRIBUTION_RATE = Decimal("0.09")
+from wad import obligations
+from wad.models import HealthContributionYear
 
 
 class Command(BaseCommand):
@@ -48,7 +47,6 @@ class Command(BaseCommand):
 
         # The bases are what the application works from, and the contributions are what ZUS
         # publishes, so these are what a wage taken from the wrong announcement is caught by.
-        contributions = " / ".join(
-            str((base * CONTRIBUTION_RATE).quantize(GROSZ, rounding=ROUND_HALF_UP)) for base in (lower, middle, upper)
-        )
-        self.stdout.write(f"Monthly contributions at 9%: {contributions}. Check against what ZUS published.")
+        # Worked out by the bands themselves, which is what the pages charge.
+        amounts = " / ".join(str(band.amount) for band in obligations.brackets_for(cast("int", options["year"])))
+        self.stdout.write(f"Monthly contributions at 9%: {amounts}. Check against what ZUS published.")

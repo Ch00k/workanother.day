@@ -19,11 +19,15 @@ if TYPE_CHECKING:
 
 @contextlib.contextmanager
 def today_is(day: datetime.date) -> Iterator[None]:
-    """Run the block with the views reading `day` as today.
+    """Run the block with the views and the calendar feed reading `day` as today.
 
-    Only the views' own clock is replaced. Replacing datetime.datetime instead reaches every
-    caller in the process, Django's session expiry among them, which then stores a date the
-    database is right to complain about.
+    Only those two clocks are replaced, and they are the ones a page or a feed reads a date
+    against. Replacing datetime.datetime instead reaches every caller in the process, Django's
+    session expiry among them, which then stores a date the database is right to complain
+    about.
     """
-    with mock.patch("wad.views.today_in_poland", return_value=day):
+    with (
+        mock.patch("wad.views.today_in_poland", return_value=day),
+        mock.patch("wad.ical.today_in_poland", return_value=day),
+    ):
         yield

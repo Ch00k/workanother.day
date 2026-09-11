@@ -1,0 +1,43 @@
+{% comment %}
+The head of every page about one tax year: where it sits, what it is, and the year it is read
+at. Written once because the three pages differ only in the name of the one being read.
+
+The year is a control of its own rather than a row of links, because it selects what the page
+is about rather than standing beside the page's own navigation - and a taxpayer accumulates one
+a year, which a row of links runs out of room for.
+
+`heading` names the page within the year and is empty on the year's own page, which the other
+two hang off.
+{% endcomment %}
+<nav class="crumbs print:hidden">
+    <a href="{% url 'seller_list' %}">Sellers</a> /
+    <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
+    {% if heading %}
+    <a href="{% url 'obligations' pk=seller.pk year=year %}">Taxes {{ year }}</a> /
+    <span aria-current="page">{{ heading }}</span>
+    {% else %}
+    <span aria-current="page">Taxes {{ year }}</span>
+    {% endif %}
+</nav>
+
+<div class="flex items-start justify-between gap-4 flex-wrap">
+    <div>
+        <h1 class="text-[28px] font-bold tracking-tight leading-tight">
+            {% if heading %}{{ heading }}{% else %}Taxes{% endif %} {{ year }}
+        </h1>
+        <div class="text-xs text-[#888] mt-1">{{ seller.name }}{% if seller.nip %} &middot; NIP {{ seller.nip }}{% endif %}</div>
+    </div>
+    {% comment %}
+    Switching the year keeps the page being read, the links having been built against it. A
+    label rather than a bare control, because a year on its own does not say what it selects.
+    {% endcomment %}
+    <label class="print:hidden flex items-center gap-2 text-sm text-[#888]">
+        Year
+        <select data-navigates
+                class="btn btn-secondary">
+            {% for link in year_links %}
+            <option value="{{ link.url }}" {% if link.active %}selected{% endif %}>{{ link.label }}</option>
+            {% endfor %}
+        </select>
+    </label>
+</div>

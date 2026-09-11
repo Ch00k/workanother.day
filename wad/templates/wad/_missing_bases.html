@@ -1,0 +1,16 @@
+{% comment %}
+A year whose announced bases nobody has entered, said to whoever is reading it. The figures are
+national and one set serves the whole instance, so only its owner can put this right: they get
+the page, and everyone else gets who to wait for rather than an instruction they cannot follow.
+
+`bases_year` is the year missing them, which is not always the year the page is being read at.
+{% endcomment %}
+Nobody has entered the bases ZUS published for {{ bases_year }}, so the health contribution
+cannot be placed in a band. They are 60, 100 and 180 percent of the average wage in the fourth
+quarter of the year before, announced each January.
+{% if user.is_staff %}
+<a href="{% url 'contribution_bases' year=bases_year %}">Enter the wage</a> and the three are
+worked out from it.
+{% else %}
+The instance owner has not entered them yet.
+{% endif %}

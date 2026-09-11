@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import decimal
 import re
 from typing import TYPE_CHECKING
 
@@ -9,7 +10,7 @@ from django.core.validators import validate_email
 
 from wad import nrb
 from wad.countries import COUNTRIES
-from wad.models import POLAND
+from wad.models import DEFAULT_ACCIDENT_RATE, POLAND
 
 if TYPE_CHECKING:
     from django.http import QueryDict
@@ -91,6 +92,15 @@ def validate(post_data: QueryDict, *, is_seller: bool) -> list[str]:
         elif _date(started) is None:
             errors.append("The day the business started is not a date.")
 
+        # The rate ZUS set for this payer, which every month's wypadkowe is worked out at, so
+        # something that is not a rate cannot be stored and quietly applied. Absent is allowed
+        # and keeps the default; zero or less is not a rate anybody was assigned.
+        rate = str(post_data.get("accident_rate", "")).strip()
+        if rate:
+            parsed = _rate(rate)
+            if parsed is None or not 0 < parsed <= 100:
+                errors.append("The accident contribution rate is a percentage, as ZUS stated it - 1.67, say.")
+
     return errors
 
 
@@ -134,7 +144,30 @@ def seller_fields(post_data: QueryDict, *, stored_token: str = "") -> dict[str, 
         "business_started_on": _date(post_data.get("business_started_on")) if in_poland else None,
         # The digits alone, so one number written two ways is one number stored.
         "zus_account": nrb.digits(str(post_data.get("zus_account", ""))) if in_poland else "",
+        # What the payer is insured under. A taxpayer established elsewhere pays no ZUS
+        # contributions, so naming another country takes the elections off rather than leaving
+        # them set where the form no longer shows them.
+        "ulga_na_start": in_poland and _checked(post_data.get("ulga_na_start")),
+        "preferential_contributions": in_poland and _checked(post_data.get("preferential_contributions")),
+        "chorobowe": in_poland and _checked(post_data.get("chorobowe")),
+        "accident_rate": (_rate(post_data.get("accident_rate")) if in_poland else None) or DEFAULT_ACCIDENT_RATE,
     }
+
+
+def _checked(value: object) -> bool:
+    """Whether a checkbox was ticked. An unticked one is not submitted at all."""
+    return value is not None
+
+
+def _rate(value: object) -> decimal.Decimal | None:
+    """A submitted percentage, or nothing where it was left blank or is not a number."""
+    try:
+        rate = decimal.Decimal(str(value)) if value else None
+    except decimal.InvalidOperation:
+        return None
+
+    # "nan" and "inf" parse as Decimals, and a NaN raises on every comparison after this.
+    return rate if rate is None or rate.is_finite() else None
 
 
 def _date(value: object) -> datetime.date | None:

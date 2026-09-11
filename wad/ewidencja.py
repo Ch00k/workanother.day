@@ -37,6 +37,17 @@ ZLOTY = decimal.Decimal(1)
 GROSZ = decimal.Decimal("0.01")
 PERCENT = decimal.Decimal(100)
 
+
+def whole_zlote(amount: decimal.Decimal) -> decimal.Decimal:
+    """Art. 63 § 1 Ordynacji podatkowej: końcówki under 50 groszy dropped, 50 and over raised.
+
+    It rounds both of the figures a return states - the podstawa opodatkowania and the kwota
+    podatku - and it does so for every period one is computed for, so a month's base and a
+    year's alike go through here rather than through a copy of the rule.
+    """
+    return amount.quantize(ZLOTY, rounding=decimal.ROUND_HALF_UP)
+
+
 # What K_10 says on an entry that is a difference rather than a document. Polish, because the
 # register is read by whoever reads the file. The two differences are named apart because they
 # arise under different points of art. 24c and a reader has no other way to tell them apart:
@@ -103,6 +114,15 @@ class Year:
         return sum((entry.amount for entry in self.entries if entry.rate == rate), decimal.Decimal(0))
 
     @property
+    def health_deduction(self) -> decimal.Decimal:
+        """What art. 11 ust. 1a takes off revenue: half the health contribution paid.
+
+        Halved and rounded here rather than where the year is totalled, so what the page
+        subtracts is the figure the subtraction actually used.
+        """
+        return (self.health_paid / 2).quantize(GROSZ, rounding=decimal.ROUND_HALF_UP)
+
+    @property
     def deductions(self) -> decimal.Decimal:
         """What comes off revenue before the rate is applied.
 
@@ -111,7 +131,7 @@ class Year:
         during the year rather than what the year eventually settles at - the May true-up
         belongs to the following year's computation.
         """
-        return self.social_paid + (self.health_paid / 2).quantize(GROSZ, rounding=decimal.ROUND_HALF_UP)
+        return self.social_paid + self.health_deduction
 
     @property
     def taxable(self) -> decimal.Decimal:
@@ -123,6 +143,15 @@ class Year:
         return max(self.revenue - self.deductions, decimal.Decimal(0))
 
     @property
+    def base(self) -> decimal.Decimal:
+        """The podstawa the rate is applied to: revenue less deductions, to whole złote.
+
+        Art. 63 § 1 Ordynacji podatkowej rounds the base as well as the tax, halves upward, so
+        this rather than `taxable` is the figure PIT-28 carries and the one the rate touches.
+        """
+        return whole_zlote(self.taxable)
+
+    @property
     def tax(self) -> decimal.Decimal | None:
         """The ryczałt due on the year, or nothing where no single figure can state it.
 
@@ -132,13 +161,17 @@ class Year:
         A year holding one rate is the only shape this application produces. A year with
         several would need the base apportioned between them under art. 11 ust. 3, and
         nothing here does that, so no figure is stated rather than a wrong one.
+
+        A year holding none states nothing owed rather than nothing at all: it billed nothing,
+        and any rate on nothing comes to nothing.
         """
-        if len(self.rates) != 1:
+        if len(self.rates) > 1:
             return None
 
-        base = self.taxable.quantize(ZLOTY, rounding=decimal.ROUND_HALF_UP)
+        if not self.rates:
+            return decimal.Decimal(0)
 
-        return (base * self.rates[0] / PERCENT).quantize(ZLOTY, rounding=decimal.ROUND_HALF_UP)
+        return whole_zlote(self.base * self.rates[0] / PERCENT)
 
 
 def register(seller: Seller, year: int) -> Year:
