@@ -1,0 +1,64 @@
+{% comment %}
+The contribution transfer, field by field as a bank's form names them. An ordinary transfer
+rather than a przelew podatkowy: it carries no okres and no symbol, the account being issued
+to the payer and identifying them by itself.
+
+Included from a month's page, and only where that month states a DRA total: a transfer of an
+amount nobody could work out is not one to make.
+{% endcomment %}
+{% load money wad_filters %}
+<table class="w-full border-collapse text-sm">
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Rachunek odbiorcy</td>
+        <td class="py-2 text-right">
+            {% if seller.zus_account %}
+            <span class="money">{{ seller.zus_account|account }}</span>
+            {% else %}
+            <span class="text-[#bbb]">not entered</span>
+            {% endif %}
+        </td>
+    </tr>
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Odbiorca</td>
+        <td class="py-2 text-right">Zakład Ubezpieczeń Społecznych</td>
+    </tr>
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Kwota</td>
+        <td class="py-2 text-right">
+            <span class="money font-semibold">{{ month.dra_total|money }}</span> PLN
+            {% comment %}
+            The one transfer covers the whole DRA, so what it is made of is stated under it:
+            the components are what a DRA is checked against, and nothing else on the page
+            breaks the figure down.
+            {% endcomment %}
+            <div class="text-xs text-[#999] mt-0.5">
+                emerytalne <span class="money">{{ month.social.pension|money }}</span> &middot;
+                rentowe <span class="money">{{ month.social.disability|money }}</span> &middot;
+                wypadkowe <span class="money">{{ month.social.accident|money }}</span> &middot;
+                chorobowe <span class="money">{{ month.social.sickness|money }}</span> &middot;
+                FP+FS <span class="money">{{ month.social.funds|money }}</span> &middot;
+                zdrowotne <span class="money">{{ month.health|money }}</span>
+            </div>
+            {% if month.social.exempt %}
+            <div class="text-xs text-[#999] mt-0.5">
+                wakacje składkowe: the state pays everything the relief covers, so only the
+                health contribution is transferred
+            </div>
+            {% endif %}
+        </td>
+    </tr>
+    <tr class="border-b border-[#eee]">
+        <td class="py-2 text-[#888] align-top">Tytuł</td>
+        <td class="py-2 text-right">
+            <span class="money">składki</span>
+            <div class="text-xs text-[#999] mt-0.5">no okres, no symbol, no NIP: the account identifies the payer</div>
+        </td>
+    </tr>
+    <tr>
+        <td class="py-2 text-[#888] align-top">Termin</td>
+        <td class="py-2 text-right">
+            {{ month.due_on|date:"j F Y" }}
+            <div class="text-xs text-[#999] mt-0.5">art. 47 ust. 1 pkt 4: the same day as the ryczałt</div>
+        </td>
+    </tr>
+</table>

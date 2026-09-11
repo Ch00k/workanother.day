@@ -7,7 +7,8 @@
     <nav class="crumbs print:hidden">
         <a href="{% url 'seller_list' %}">Sellers</a> /
         <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
-        <a href="{% url 'filing_list' pk=seller.pk year=filing.year %}">JPK_EWP {{ filing.year }}</a> /
+        <a href="{% url 'obligations' pk=seller.pk year=filing.year %}">Taxes {{ filing.year }}</a> /
+        <a href="{% url 'filing_list' pk=seller.pk year=filing.year %}">JPK_EWP</a> /
         <span aria-current="page">{{ filing.produced_at|date:"j M Y, H:i" }}</span>
     </nav>
 
@@ -22,12 +23,12 @@
         </div>
         <div class="flex flex-wrap gap-2">
             <a href="{% url 'filing_download' pk=filing.pk %}"
-               class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+               class="btn btn-primary">
                 Download
             </a>
             {% if not filing.is_filed and not filing.is_in_flight %}
             <button type="submit" form="delete-filing-form"
-                    class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                    class="btn btn-danger">
                 Delete
             </button>
             {% endif %}
@@ -100,10 +101,10 @@
                     </label>
                     <input type="text" inputmode="decimal" id="revenue" name="revenue"
                            placeholder="0.00" autocomplete="off" spellcheck="false"
-                           class="w-[240px] rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                           class="w-[240px] field money">
                 </div>
                 <button type="button" id="gateway-send-button"
-                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2.5 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                        class="btn btn-primary">
                     Submit
                 </button>
             </div>
@@ -190,18 +191,18 @@
                 <input type="date" id="filed_on" name="filed_on"
                        min="{{ produced_on|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"
                        value="{{ filing.filed_on|date:'Y-m-d' }}"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
                 <div class="text-xs text-[#999] mt-1">Clearing the date takes the filing record off again.</div>
             </div>
             <div>
                 <label for="upo" class="block text-sm font-medium text-[#666] mb-1">UPO</label>
                 <textarea id="upo" name="upo" rows="4" spellcheck="false"
                           placeholder="Paste the Urzędowe Poświadczenie Odbioru here"
-                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">{{ filing.upo }}</textarea>
+                          class="w-full field money">{{ filing.upo }}</textarea>
             </div>
             <div>
                 <button type="submit"
-                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                        class="btn btn-primary">
                     Save
                 </button>
             </div>

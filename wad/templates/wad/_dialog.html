@@ -12,7 +12,7 @@ contents an opener fetches, which arrive when it is opened.
     <div class="px-5 py-4 flex justify-between items-center border-b border-[#eee]">
         <h2 class="text-xl font-bold">{{ dialog_title }}</h2>
         <button data-closes-dialog
-                class="text-[#999] hover:text-[#666] text-xl leading-none px-2">&times;</button>
+                class="btn-dismiss">&times;</button>
     </div>
     <div{% if content_id %} id="{{ content_id }}"{% endif %} class="{{ content_class|default:'px-5 py-4 overflow-y-auto max-h-[70vh]' }}">
         {% if content_template %}{% include content_template %}{% endif %}

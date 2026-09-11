@@ -42,7 +42,7 @@
             <tr class="border-b border-[#eee]">
                 <td class="py-2 text-[#888] w-[210px]">Invoice</td>
                 <td class="py-2 text-right">
-                    <a class="underline hover:no-underline" href="{% url 'invoice_detail' pk=corrected.pk %}">{{ corrected.number }}</a>
+                    <a class="link" href="{% url 'invoice_detail' pk=corrected.pk %}">{{ corrected.number }}</a>
                     <div class="text-xs text-[#999] mt-0.5">issued {{ corrected.issue_date|date:"j F Y" }}</div>
                 </td>
             </tr>
@@ -92,7 +92,7 @@
                 <label for="reason" class="block text-sm font-medium text-[#666] mb-1">Reason <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="reason" name="reason" required maxlength="{{ max_reason_length }}"
                        value="{{ reason }}" placeholder="Day count corrected to the days approved"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
                 <div class="text-xs text-[#999] mt-1">
                     Printed on the correction, up to {{ max_reason_length }} characters.
                 </div>
@@ -106,7 +106,7 @@
             <fieldset>
                 <legend class="block text-sm font-medium text-[#666] mb-1">What brought it about <span class="text-red-600" aria-hidden="true">*</span></legend>
                 <div class="grid gap-2">
-                    <label class="flex gap-3 items-start rounded-[10px] border border-[#ddd] px-4 py-2.5">
+                    <label class="field flex gap-3 items-start">
                         {% comment %}
                         Neither is checked to begin with. It decides which month is going to be
                         settled again, so it is answered rather than accepted.
@@ -121,7 +121,7 @@
                             </span>
                         </span>
                     </label>
-                    <label class="flex gap-3 items-start rounded-[10px] border border-[#ddd] px-4 py-2.5">
+                    <label class="field flex gap-3 items-start">
                         <input type="radio" name="cause" value="{{ causes.LATER_EVENT }}" required
                                {% if cause == causes.LATER_EVENT %}checked{% endif %} class="mt-1">
                         <span class="text-sm">
@@ -157,19 +157,19 @@
                         <label class="block sm:flex-[56] min-w-0">
                             <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Description</span>
                             <input type="text" name="description" required value="{{ line.description }}"
-                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                                   class="w-full field">
                         </label>
                         <label class="block sm:flex-[14]">
                             <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Qty</span>
                             <input type="number" inputmode="decimal" name="days" required min="0" step="0.5"
                                    value="{{ line.days }}"
-                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                                   class="w-full field">
                         </label>
                         <label class="block sm:flex-[14]">
                             <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Price</span>
                             <input type="number" inputmode="decimal" name="rate" required min="0" step="any"
                                    value="{{ line.rate }}"
-                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                                   class="w-full field">
                         </label>
                         {% comment %}
                         The box carries the corrected line's own position, because an unticked
@@ -178,8 +178,7 @@
                         {% endcomment %}
                         <label class="flex items-center gap-2 sm:flex-[16] text-sm text-[#666]">
                             <input type="checkbox" name="withdraw" value="{{ line.position }}"
-                                   {% if line.withdrawn %}checked{% endif %}
-                                   class="rounded border-[#ddd]">
+                                   {% if line.withdrawn %}checked{% endif %}>
                             <span class="sm:hidden">Withdraw this line</span>
                         </label>
                     </div>
@@ -192,11 +191,11 @@
 
             <div class="flex gap-3 items-center mt-2">
                 <button type="submit"
-                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                        class="btn btn-primary">
                     Save correction
                 </button>
                 <a href="{% url 'invoice_detail' pk=corrected.pk %}"
-                   class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
+                   class="btn btn-secondary">Cancel</a>
             </div>
         </form>
     </div>

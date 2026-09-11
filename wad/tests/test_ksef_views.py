@@ -9,7 +9,7 @@ from django.urls import reverse
 
 from wad.calendar_utils import today_in_poland
 from wad.ksef.submission import claim_for_sending, freeze, record_acceptance, record_rejection
-from wad.models import Buyer, Contract, Guest, Invoice, Seller
+from wad.models import DEFAULT_ACCIDENT_RATE, Buyer, Contract, Guest, Invoice, Seller
 from wad.templatetags.money import money
 from wad.tests.factories import store_invoice
 from wad.tests.http import PUBLISHER, Publisher
@@ -501,6 +501,95 @@ class SellerFormTests(TestCase):
 
         seller = Seller.objects.get()
         assert not seller.can_reach_ksef
+
+    def _control(self, body: str, field: str) -> str:
+        """The tag the form renders for one field, so an attribute on it can be read."""
+        start = body.index(f'id="{field}"')
+
+        return body[start : body.index(">", start)]
+
+    def test_a_seller_starts_on_full_contributions_at_the_default_rate(self) -> None:
+        """Nothing elected is an answer rather than an omission: no relief, no chorobowe, and
+        the wypadkowe rate a payer reporting at most nine insured pays."""
+        self._post(reverse("seller_create"))
+
+        seller = Seller.objects.get()
+        assert not seller.ulga_na_start
+        assert not seller.preferential_contributions
+        assert not seller.chorobowe
+        assert seller.accident_rate == DEFAULT_ACCIDENT_RATE
+
+    def test_the_elections_are_recorded(self) -> None:
+        self._post(
+            reverse("seller_create"),
+            ulga_na_start="on",
+            preferential_contributions="on",
+            chorobowe="on",
+            accident_rate="2.20",
+        )
+
+        seller = Seller.objects.get()
+        assert seller.ulga_na_start
+        assert seller.preferential_contributions
+        assert seller.chorobowe
+        assert seller.accident_rate == decimal.Decimal("2.20")
+
+    def test_an_election_is_taken_off_again(self) -> None:
+        """An unticked checkbox is not submitted at all, so saving has to clear what was set."""
+        self._post(reverse("seller_create"), ulga_na_start="on")
+        seller = Seller.objects.get()
+
+        self._post(reverse("seller_edit", kwargs={"pk": seller.pk}))
+
+        seller.refresh_from_db()
+        assert not seller.ulga_na_start
+
+    def test_the_elections_are_rendered_back(self) -> None:
+        """The form is where they are read as well as set: nothing else states what a taxpayer
+        elected, and the months the reliefs cover are worked out from these three boxes."""
+        self._post(reverse("seller_create"), ulga_na_start="on", accident_rate="2.20")
+        seller = Seller.objects.get()
+
+        body = self.client.get(reverse("seller_edit", kwargs={"pk": seller.pk})).content.decode()
+
+        assert "checked" in self._control(body, "ulga_na_start")
+        assert "checked" not in self._control(body, "chorobowe")
+        assert 'value="2.20"' in self._control(body, "accident_rate")
+
+    def test_the_form_states_what_the_elections_produce(self) -> None:
+        """The dates are worked out from the start date rather than entered, so this line is
+        the whole of the derivation being visible to whoever ticked the boxes."""
+        self._post(reverse("seller_create"), ulga_na_start="on", preferential_contributions="on")
+        seller = Seller.objects.get()
+
+        response = self.client.get(reverse("seller_edit", kwargs={"pk": seller.pk}))
+
+        self.assertContains(response, "ulga na start to June 2020")
+        self.assertContains(response, "pełne składki from July 2022")
+
+    def test_a_rate_that_is_not_a_percentage_is_reported(self) -> None:
+        """Stored, it would be applied to every month's base without anything looking wrong.
+        "nan" is in here because it parses as a Decimal and then raises on every comparison."""
+        for submitted in ("one and a half", "0", "-1.67", "nan", "1e999"):
+            response = self._post(reverse("seller_create"), accident_rate=submitted)
+
+            assert b"accident contribution rate" in response.content, submitted
+            assert not Seller.objects.exists(), submitted
+
+    def test_a_seller_established_elsewhere_carries_no_elections(self) -> None:
+        """It pays no ZUS contributions, so naming another country takes them off with the NIP."""
+        self._post(
+            reverse("seller_create"),
+            country="CH",
+            ulga_na_start="on",
+            chorobowe="on",
+            accident_rate="3.00",
+        )
+
+        seller = Seller.objects.get()
+        assert not seller.ulga_na_start
+        assert not seller.chorobowe
+        assert seller.accident_rate == DEFAULT_ACCIDENT_RATE
 
     def test_the_token_is_never_rendered_back(self) -> None:
         self._post(reverse("seller_create"), nip="5213870274", ksef_token="original-token")

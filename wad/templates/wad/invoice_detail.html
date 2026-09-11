@@ -34,20 +34,20 @@
             </h1>
             <div class="text-xs text-[#888] mt-1">
                 {{ contract.name }} &middot; {{ invoice.period_start|date:"F Y" }}
-                {% if invoice.is_correction %}&middot; corrects <a class="underline hover:no-underline" href="{% url 'invoice_detail' pk=invoice.corrects.pk %}">{{ invoice.corrects.number }}</a>{% endif %}
+                {% if invoice.is_correction %}&middot; corrects <a class="link" href="{% url 'invoice_detail' pk=invoice.corrects.pk %}">{{ invoice.corrects.number }}</a>{% endif %}
                 {% if not ksef_enabled %}&middot; {{ invoice.get_state_display }}{% endif %}
             </div>
         </div>
         <div class="flex flex-wrap gap-2">
             {% if not ksef_enabled and invoice.state == "draft" %}
             <button type="submit" form="issue-invoice-form"
-                    class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                    class="btn btn-primary">
                 Mark as issued
             </button>
             {% endif %}
             {% if invoice.is_editable %}
             <a href="{% if invoice.is_correction %}{% url 'correction_edit' pk=invoice.pk %}{% else %}{% url 'invoice_edit' pk=invoice.pk %}{% endif %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+               class="btn btn-secondary">
                 Edit
             </a>
             {% endif %}
@@ -60,7 +60,7 @@
             {% endcomment %}
             {% if invoice.is_issued and not uncorrectable_reason %}
             <a href="{% url 'invoice_correct' pk=invoice.pk %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+               class="btn btn-secondary">
                 Issue a correction
             </a>
             {% endif %}
@@ -73,12 +73,12 @@
             sent - not whatever this browser's print dialogue would have made of the page.
             {% endcomment %}
             <a href="{% url 'invoice_document' pk=invoice.pk %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+               class="btn btn-secondary">
                 Download PDF
             </a>
             {% if invoice.is_editable %}
             <button type="submit" form="delete-invoice-form"
-                    class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                    class="btn btn-danger">
                 Delete
             </button>
             {% endif %}
@@ -146,7 +146,7 @@
                 <button type="button" id="ksef-send-button"
                         {% if invoice.state != "draft" %}disabled{% endif %}
                         data-confirm="Send invoice {{ invoice.number }} to KSeF ({{ ksef_environment }})? An invoice KSeF accepts is issued and cannot be changed or deleted afterwards.{% if ksef_environment == 'PRODUCTION' %} This one has legal effect.{% endif %}"
-                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                        class="btn btn-primary">
                     Send
                 </button>
             </div>
@@ -170,7 +170,7 @@
         <div class="grid gap-1 text-sm">
             {% for correction in corrections %}
             <div class="sm:flex sm:gap-3">
-                <a class="sm:w-[140px] shrink-0 money underline hover:no-underline" href="{% url 'invoice_detail' pk=correction.pk %}">{{ correction.number }}</a>
+                <a class="sm:w-[140px] shrink-0 money link" href="{% url 'invoice_detail' pk=correction.pk %}">{{ correction.number }}</a>
                 <span class="money {% if correction.difference < 0 %}text-[#a33]{% endif %}">
                     {% if correction.difference > 0 %}+{% endif %}{{ correction.currency }} {{ correction.difference|money }}
                 </span>
@@ -256,7 +256,7 @@
                     <button type="button" id="delivery-send-button"
                             {% if send_blocked_reason %}disabled{% endif %}
                             data-confirm="Send invoice {{ invoice.number }} to {{ invoice.buyer.email }}?"
-                            class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                            class="btn btn-primary">
                         {% if deliveries %}Send again{% else %}Send{% endif %}
                     </button>
                 </span>

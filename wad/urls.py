@@ -11,8 +11,9 @@ urlpatterns = [
     path("sellers/new/", views.seller_create, name="seller_create"),
     path("sellers/<uuid:pk>/", views.seller_edit, name="seller_edit"),
     path("sellers/<uuid:pk>/delete/", views.seller_delete, name="seller_delete"),  # ty: ignore[no-matching-overload]
-    # One tax year, from three sides: what it owes, the register behind it, and the files
-    # produced from that register.
+    # A tax year is one page, and the register behind it and the files produced from it hang
+    # off that page rather than standing beside it.
+    path("taxes/", views.taxes, name="taxes"),  # ty: ignore[no-matching-overload]
     path("sellers/<uuid:pk>/taxes/<int:year>/", views.obligations_view, name="obligations"),  # ty: ignore[no-matching-overload]
     path("sellers/<uuid:pk>/taxes/<int:year>/register/", views.ewidencja_view, name="ewidencja"),  # ty: ignore[no-matching-overload]
     path("sellers/<uuid:pk>/taxes/<int:year>/jpk/", views.filing_list, name="filing_list"),  # ty: ignore[no-matching-overload]
@@ -23,19 +24,56 @@ urlpatterns = [
     path("filings/<uuid:pk>/status/", views.filing_status, name="filing_status"),  # ty: ignore[no-matching-overload]
     path("filings/<uuid:pk>/record/", views.filing_record, name="filing_record"),  # ty: ignore[no-matching-overload]
     path("filings/<uuid:pk>/delete/", views.filing_delete, name="filing_delete"),  # ty: ignore[no-matching-overload]
-    path("sellers/<uuid:pk>/contributions/", views.contribution_add, name="contribution_add"),  # ty: ignore[no-matching-overload]
-    path("contributions/<uuid:pk>/delete/", views.contribution_delete, name="contribution_delete"),  # ty: ignore[no-matching-overload]
+    # The announced figures every taxpayer on the instance is worked out from. National data
+    # rather than anybody's, so the pages belong to whoever runs the instance.
+    path("bases/", views.bases, name="bases"),  # ty: ignore[no-matching-overload]
+    path("bases/<int:year>/", views.contribution_bases, name="contribution_bases"),  # ty: ignore[no-matching-overload]
+    path("bases/<int:year>/health/", views.health_bases_record, name="health_bases_record"),  # ty: ignore[no-matching-overload]
+    path("bases/<int:year>/health/remove/", views.health_bases_remove, name="health_bases_remove"),  # ty: ignore[no-matching-overload]
+    path("bases/<int:year>/social/", views.social_bases_record, name="social_bases_record"),  # ty: ignore[no-matching-overload]
+    path("bases/<int:year>/social/remove/", views.social_bases_remove, name="social_bases_remove"),  # ty: ignore[no-matching-overload]
+    # A month is the unit a taxpayer settles: it has a page of its own, both of its transfers
+    # are recorded by one press and taken off again by one, whichever payee each went to.
     path(  # ty: ignore[no-matching-overload]
-        "sellers/<uuid:pk>/taxes/<int:year>/paid/<int:month>/",
-        views.tax_payment_record,
-        name="tax_payment_record",
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/",
+        views.month_view,
+        name="month",
     ),
     path(  # ty: ignore[no-matching-overload]
-        "sellers/<uuid:pk>/taxes/<int:year>/paid/<int:month>/remove/",
-        views.tax_payment_remove,
-        name="tax_payment_remove",
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/payments/",
+        views.payments_record,
+        name="payments_record",
+    ),
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/payments/remove/",
+        views.payments_remove,
+        name="payments_remove",
+    ),
+    # Wakacje składkowe, recorded against the month claimed: one a year, and never a month
+    # under ulga na start.
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/holiday/",
+        views.contribution_holiday_record,
+        name="contribution_holiday_record",
+    ),
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/holiday/remove/",
+        views.contribution_holiday_remove,
+        name="contribution_holiday_remove",
     ),
     path("sellers/<uuid:pk>/returns/<int:year>/", views.tax_return_record, name="tax_return_record"),  # ty: ignore[no-matching-overload]
+    # The annual health settlement, recorded against the year it settles: it recomputes every
+    # insured month of that year, so it belongs to none of them.
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/settlement/",
+        views.settlement_record,
+        name="settlement_record",
+    ),
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/settlement/remove/",
+        views.settlement_remove,
+        name="settlement_remove",
+    ),
     path("buyers/", views.buyer_list, name="buyer_list"),  # ty: ignore[no-matching-overload]
     path("buyers/new/", views.buyer_create, name="buyer_create"),
     path("buyers/<uuid:pk>/", views.buyer_edit, name="buyer_edit"),
