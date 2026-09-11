@@ -1,0 +1,32 @@
+{% comment %}
+One dated obligation as a card states it: what it is, the day it falls on, the figure where
+this application can work one out, whether it still stands open, and the paragraph saying what
+has to be done about it. Written once because the dates after the year and the one inside it
+are read the same way.
+{% endcomment %}
+{% load money %}
+<div class="flex items-baseline justify-between gap-3">
+    <div class="text-sm font-semibold text-[#222]">{{ deadline.what }}</div>
+    <div class="money text-sm text-[#666] whitespace-nowrap">{{ deadline.on|date:"j M Y" }}</div>
+</div>
+{% comment %}
+What became of it, in the obligation's own word: a return and a file are filed, the settlement
+is paid. A date is the whole of the claim - that it went, and when - so one that has not is
+marked by the absence of this rather than by a second badge saying nothing happened.
+{% endcomment %}
+{% if deadline.is_settled %}
+<div class="mt-1">
+    <span class="rounded-[6px] bg-green-100 text-green-800 px-2 py-0.5 text-xs font-semibold">
+        {{ deadline.settled_as|capfirst }} {{ deadline.settled_on|date:"j M Y" }}
+    </span>
+</div>
+{% endif %}
+{% comment %}
+Positive is money going out; negative is money that stays, which a return claims back, a
+settlement refunds, or a relief simply saves. Coloured apart, because the sign alone is a
+character wide and the two mean opposite things.
+{% endcomment %}
+{% if deadline.amount is not None %}
+<div class="money text-sm mt-1 {% if deadline.amount < 0 %}text-green-700{% endif %}">{{ deadline.amount|money }} PLN</div>
+{% endif %}
+<div class="text-xs text-[#999] mt-1">{{ deadline.note }}</div>

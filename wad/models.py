@@ -32,6 +32,12 @@ RYCZALT_RATE: Final = decimal.Decimal("12.00")
 # What every PLN figure here is stated to, and what a rate applied to an amount is rounded to.
 GROSZ: Final = decimal.Decimal("0.01")
 
+# Wypadkowe, as a percentage of the base. The regulation sets a rate per activity, from 0.67
+# to 3.33 percent, and 1.67 is what a payer reporting at most nine insured pays whatever the
+# activity is. Carried per seller, because it is a fact about the payer rather than a national
+# figure, and this is where one nobody has told otherwise starts.
+DEFAULT_ACCIDENT_RATE: Final = decimal.Decimal("1.67")
+
 
 def generate_token() -> str:
     return "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
@@ -127,6 +133,23 @@ class Seller(models.Model):
     # field beside it for the mikrorachunek podatkowy, that one being computed from the NIP.
     zus_account = models.CharField(max_length=32, blank=True, default="")
 
+    # What this payer is insured under, which decides what every month from the start date
+    # onwards is charged on. The two reliefs are elections made once and then spent: ulga na
+    # start covers six months of art. 18 Prawo przedsiębiorców, preferencyjne składki the 24
+    # months of art. 18a ustawy o sus that art. 18aa runs from the end of them. Which month
+    # each covers follows arithmetically from the day the business started, so the dates are
+    # worked out rather than recorded - a hand-kept history of them would be a second copy of
+    # the start date, free to disagree with it.
+    ulga_na_start = models.BooleanField(default=False)
+    preferential_contributions = models.BooleanField(default=False)
+
+    # Chorobowe is voluntary, art. 11 ust. 2 ustawy o sus, and owed only where it was elected.
+    # Not dated for the reason the reliefs are not: what a month was actually assessed at is
+    # in the payment recorded for it, whatever the elections now say.
+    chorobowe = models.BooleanField(default=False)
+
+    accident_rate = models.DecimalField(max_digits=5, decimal_places=2, default=DEFAULT_ACCIDENT_RATE)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -166,6 +189,20 @@ class Seller(models.Model):
 
         return [description for value, description in required if not value]
 
+    @property
+    def missing_for_contributions(self) -> list[str]:
+        """What this seller still needs before a month's contributions can be worked out.
+
+        Named the way `missing_for_jpk` names what a register needs, and for the same reason:
+        each is something its owner can go and fill in, and a month says nothing until they
+        have. The elections are not among them - not having taken a relief is an answer.
+        """
+        required = [
+            (self.business_started_on, "the day the business started"),
+        ]
+
+        return [description for value, description in required if not value]
+
 
 class ContributionPayment(models.Model):
     """A ZUS payment, as the taxpayer made it.
@@ -183,12 +220,23 @@ class ContributionPayment(models.Model):
     seller = models.ForeignKey(Seller, on_delete=models.CASCADE, related_name="contribution_payments")
     paid_on = models.DateField()
 
+    # The first of the month whose DRA this settles, where it is known. It decides nothing
+    # about the deduction, which follows paid_on above: what it says is that the month has been
+    # settled, which is what the schedule shows. Empty on a payment entered by hand against no
+    # particular month.
+    covers = models.DateField(null=True, blank=True)
+
+    # The year whose annual health settlement this pays, where it pays one. The settlement
+    # recomputes every insured month of a year at the band the year ended in, so it belongs to
+    # the year rather than to any of its months - it rides in the DRA for April without being
+    # April's contribution. Empty on every other payment.
+    settles_year = models.PositiveIntegerField(null=True, blank=True)
+
     # Split, because they are deducted differently: social contributions in full, the health
     # contribution at half under art. 11 ust. 1a.
     social = models.DecimalField(max_digits=12, decimal_places=2, default=decimal.Decimal(0))
     health = models.DecimalField(max_digits=12, decimal_places=2, default=decimal.Decimal(0))
 
-    note = models.CharField(max_length=200, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -196,6 +244,38 @@ class ContributionPayment(models.Model):
 
     def __str__(self) -> str:
         return f"ZUS {self.paid_on}: {self.social} + {self.health}"
+
+
+class ContributionHoliday(models.Model):
+    """A month ZUS granted wakacje składkowe for, art. 17a ustawy o sus.
+
+    On application, one calendar month a year is free of the payer's own pension, disability,
+    accident and sickness contributions, the state paying them instead. The base is not
+    pro-rated - it stays the lowest one applicable to the payer - and the health contribution
+    is not covered, so a granted month still owes it in full.
+
+    Dated rather than derived, unlike everything on the seller: which month is claimed is a
+    choice made in an application ZUS grants or refuses, and no rule produces it. One a year is
+    the statutory limit and a month under ulga na start cannot be claimed at all, both of which
+    are checked where the month is recorded; the schema carries only the per-month uniqueness.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    seller = models.ForeignKey(Seller, on_delete=models.CASCADE, related_name="contribution_holidays")
+
+    # The first of the granted month, the day in it carrying no meaning.
+    month = models.DateField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering: ClassVar = ["-month"]
+        constraints: ClassVar = [
+            models.UniqueConstraint(fields=["seller", "month"], name="unique_holiday_per_month"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Wakacje składkowe {self.month:%Y-%m}"
 
 
 class TaxPayment(models.Model):
@@ -378,6 +458,72 @@ class HealthContributionYear(models.Model):
         contribution, 9 percent of each of these.
         """
         return tuple((wage * share).quantize(GROSZ, rounding=decimal.ROUND_HALF_UP) for share in cls.SHARES)
+
+
+class SocialContributionYear(models.Model):
+    """The two announced wages a year's social contribution bases are worked out from.
+
+    A sole trader insured for themselves is charged on a base the statute states as a share of
+    a national figure, and which figure depends on the regime: art. 18a ust. 1 ustawy o sus
+    sets the preferential base at 30 percent of the minimum wage, and art. 18 ust. 8 sets the
+    full base at 60 percent of the prognozowane przeciętne wynagrodzenie miesięczne. The
+    minimum wage is set by regulation of the Council of Ministers each year and the forecast
+    wage comes from the budget act, so both are announced annually and both are data here.
+
+    The minimum wage can step mid-year, and has twice recently: 3 490 to 3 600 in July 2023
+    and 4 242 to 4 300 in July 2024. The preferential base steps with it, and so does the
+    threshold Fundusz Pracy is owed from, so a year holds both figures and the month decides
+    which of them is in force.
+
+    Kept as data for the reason the health bases are: a year nobody has entered is a year this
+    application says it cannot work a contribution out for, rather than one it guesses at from
+    the year before.
+
+    National figures, so one row per year for the whole instance rather than one per seller.
+    """
+
+    # The shares the two bases are set at, by art. 18a ust. 1 and art. 18 ust. 8.
+    PREFERENTIAL_SHARE: ClassVar = decimal.Decimal("0.30")
+    FULL_SHARE: ClassVar = decimal.Decimal("0.60")
+
+    # The month a mid-year rise has taken effect in, both times there has been one.
+    JULY: ClassVar = 7
+
+    year = models.PositiveIntegerField(unique=True)
+
+    # The minimum wage from January, and the one from July where the year holds a second.
+    minimum_wage = models.DecimalField(max_digits=12, decimal_places=2)
+    minimum_wage_from_july = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
+    forecast_average_wage = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        ordering: ClassVar = ["-year"]
+
+    def __str__(self) -> str:
+        return f"Social contribution wages for {self.year}"
+
+    def minimum_wage_in(self, month: datetime.date) -> decimal.Decimal:
+        """The minimum wage in force in a month of this year."""
+        if self.minimum_wage_from_july is not None and month.month >= self.JULY:
+            return self.minimum_wage_from_july
+
+        return self.minimum_wage
+
+    def preferential_base_in(self, month: datetime.date) -> decimal.Decimal:
+        """What art. 18a ust. 1 charges a month of the preferential period on."""
+        return (self.minimum_wage_in(month) * self.PREFERENTIAL_SHARE).quantize(
+            GROSZ,
+            rounding=decimal.ROUND_HALF_UP,
+        )
+
+    @property
+    def full_base(self) -> decimal.Decimal:
+        """What art. 18 ust. 8 charges a month of full contributions on, the year through.
+
+        One figure for the year: the forecast wage is announced once and does not step.
+        """
+        return (self.forecast_average_wage * self.FULL_SHARE).quantize(GROSZ, rounding=decimal.ROUND_HALF_UP)
 
 
 class Buyer(models.Model):

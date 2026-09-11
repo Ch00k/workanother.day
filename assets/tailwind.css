@@ -5,6 +5,117 @@ a, button, summary { cursor: pointer; }
 /* Undo that for anything switched off, wherever it is, so no button lies about being ready. */
 button:disabled { cursor: not-allowed; }
 
+/* What a control is, as against where it sits. A page offers three kinds of them - the one
+   action it was opened to perform, the others it also allows, and the one that destroys
+   something - and the kind is all a button states here. Margins, widths and alignment stay
+   with the page, that being the part which genuinely differs from one to the next.
+
+   A link that acts as one of these carries the same pair of classes: what the reader is looking
+   at is a button, and whether the server needs a form to answer it is not their concern.
+
+   `test_controls.py` fails the build on a control styled from loose utilities instead, because
+   the three kinds drifted into two dozen spellings once already. */
+.btn {
+  @apply h-10 rounded-[10px] border-2 px-4 py-2 text-sm font-semibold transition;
+}
+/* Faded and inert, wherever the kind. Stated once here rather than on each button that can be
+   switched off, so one that gains a `disabled` tomorrow already looks the part. */
+.btn:disabled {
+  @apply opacity-40;
+}
+
+/* The action the page was opened to perform. One to a row of them. */
+.btn-primary {
+  @apply border-transparent bg-[#333] text-white;
+}
+
+/* What else the row offers. Outlined rather than filled: the fill is what marks the primary
+   out, and it is the only difference the reader has to see. */
+.btn-secondary {
+  @apply border-[#ddd] text-[#666];
+}
+
+/* What deletes, clears or resets. The colour is the whole of the difference. */
+.btn-danger {
+  @apply border-red-600 text-red-600;
+}
+
+/* Hover states hang off `:not(:disabled)`, so a button with nothing to do does not light up
+   under the pointer. Written as selectors rather than `hover:` utilities because these rules
+   are unlayered and would otherwise beat the `disabled:` ones they are qualified by. */
+.btn-primary:hover:not(:disabled) {
+  @apply opacity-90;
+}
+.btn-secondary:hover:not(:disabled) {
+  @apply border-[#bbb] bg-gray-100;
+}
+.btn-danger:hover:not(:disabled) {
+  @apply bg-red-50;
+}
+
+/* The single control a landing page has, sized for a page with nothing else on it. The height
+   goes back to the text inside it, there being nothing on that page to line it up with. */
+.btn-hero {
+  @apply h-auto rounded-[12px] px-10 py-3.5 text-lg;
+}
+
+/* Somewhere to go, or something to do, written as part of the text carrying it rather than as
+   a box beside it. A link and a button that posts a form both take this: what the reader is
+   looking at is a word they can press, and which of the two the server needs is not their
+   business. The colour is the caller's - red where it destroys something, the surrounding
+   text's where it does not.
+
+   Underlined until hovered, rather than the other way about, because a control the reader has
+   to sweep the pointer over to discover is a control they do not know is there. The offset is
+   the one `.crumbs`, `.notice` and `.explainer-panel` already set for the links inside them. */
+.link {
+  @apply underline underline-offset-2;
+}
+.link:hover {
+  @apply no-underline;
+}
+
+/* The cross that dismisses a dialog or drops a line from a form. The height is the caller's,
+   because one of them sits in a header bar and the other against a row of inputs. */
+.btn-dismiss {
+  @apply w-8 shrink-0 text-xl leading-none text-[#999] transition hover:text-[#666];
+}
+
+/* An entry in the sidebar, whether it navigates, opens a dialog or posts a form. Geometry only:
+   the colours say which entry is the page you are on, and they differ per entry. */
+.nav-item {
+  @apply shrink-0 rounded-[10px] px-3 py-2 text-left text-sm transition;
+}
+
+/* A box a form takes an answer from. The hairline border is what tells one from a button, whose
+   border is two pixels, and the pair of them is the whole vocabulary a page has for something to
+   press and something to fill in.
+
+   The width is the caller's - a form column is `w-full` and a figure beside a table is not - as
+   is what the answer is written in, `.money` or `font-mono` where the content asks for it. */
+.field {
+  @apply rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm;
+}
+.field:focus {
+  @apply border-[#999] ring-2 ring-[#999]/30 outline-none;
+}
+
+/* Computed rather than answered - a mikrorachunek is worked out from a NIP - so it is shown in
+   the shape of a field with nothing to type into. */
+.field:disabled {
+  @apply bg-[#fafafa] text-[#666];
+}
+
+/* A field that holds one line and a button are the same height, so a row carrying both is a row
+   rather than two rows a couple of pixels apart. Said outright because neither can be got there
+   by padding: the borders differ by a pixel each side, and a browser drawing the arrow on a
+   select forces `line-height: normal` inside it, which no author rule overrides. A `textarea`
+   is left out, its height being the number of rows it was asked for. */
+input.field,
+select.field {
+  @apply h-10;
+}
+
 /* Whatever holds an amount. The groups of an amount are parted by a thin space, which a line may
    break at, and `119 596.79` split across two lines is two numbers - so the element that holds
    one does not wrap. `test_money.py` fails the build on a template that prints an amount outside
@@ -82,6 +193,17 @@ button:disabled { cursor: not-allowed; }
 }
 .card-heading h2 {
   @apply text-[11px] uppercase tracking-wider text-[#999] font-semibold;
+}
+
+/* The bands a tax year falls into, above the group of cards belonging to each: what runs
+   alongside the year, and what settles it once the year is over. A card heading names one card,
+   so this is the larger of the two, and the rule carries the eye across the group it opens. */
+.section-heading {
+  @apply mt-8 mb-1 flex items-center gap-3 text-[13px] font-semibold text-[#666];
+}
+.section-heading::after {
+  @apply flex-1 border-t border-black/10;
+  content: "";
 }
 
 /* Why a card is the way it is, for the reader who wants to know and out of the way of the one

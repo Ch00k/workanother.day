@@ -10,21 +10,20 @@ rather than stretching to the row, and scrolls internally if it ever outgrows th
                 md:flex-col md:items-stretch md:overflow-visible md:px-3 md:py-6">
         {% for item in nav_items %}
         <a href="{{ item.url }}"
-           class="shrink-0 rounded-[10px] px-3 py-2 text-sm transition
-                  {% if item.active %}bg-[#333] text-white font-semibold{% else %}text-[#666] hover:bg-gray-100{% endif %}">
+           class="nav-item {% if item.active %}bg-[#333] text-white font-semibold{% else %}text-[#666] hover:bg-gray-100{% endif %}">
             {{ item.label }}
         </a>
         {% endfor %}
 
         <div class="flex flex-row items-center gap-1 md:flex-col md:items-stretch md:mt-3 md:border-t md:border-black/5 md:pt-3">
             <button data-opens="about-modal"
-                    class="shrink-0 rounded-[10px] px-3 py-2 text-sm text-[#666] text-left hover:bg-gray-100 transition bg-transparent border-none">
+                    class="nav-item text-[#666] hover:bg-gray-100">
                 About
             </button>
             <form method="post" action="{% url 'logout' %}" class="shrink-0 md:w-full">
                 {% csrf_token %}
                 <button type="submit"
-                        class="w-full rounded-[10px] px-3 py-2 text-sm text-[#666] text-left hover:bg-gray-100 transition">
+                        class="w-full nav-item text-[#666] hover:bg-gray-100">
                     Log out
                 </button>
             </form>

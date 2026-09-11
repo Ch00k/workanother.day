@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 from django.urls import reverse
 
-from wad.models import is_account_holder
+from wad.models import POLAND, is_account_holder
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -37,22 +37,27 @@ NAV_SECTIONS = (
         ),
     ),
     (
-        "Sellers",
-        "seller_list",
+        "Taxes",
+        "taxes",
         frozenset(
             {
-                "seller_list",
-                "seller_create",
-                "seller_edit",
-                "ewidencja",
+                "taxes",
                 "obligations",
+                "month",
+                "ewidencja",
                 "filing_list",
                 "filing_detail",
             }
         ),
     ),
+    (
+        "Sellers",
+        "seller_list",
+        frozenset({"seller_list", "seller_create", "seller_edit"}),
+    ),
     ("Buyers", "buyer_list", frozenset({"buyer_list", "buyer_create", "buyer_edit"})),
     ("Calendar sync", "calendar_sync", frozenset({"calendar_sync"})),
+    ("Contribution bases", "bases", frozenset({"bases", "contribution_bases"})),
 )
 
 
@@ -84,9 +89,20 @@ def navigation(request: HttpRequest) -> dict[str, list[NavItem]]:
 
     current = request.resolver_match.url_name if request.resolver_match else None
 
+    # Two sections are not offered to everyone. A ryczałt year is a Polish taxpayer's, so that
+    # one goes to a user who has one - an account whose sellers are all established elsewhere
+    # has no ewidencja to keep, and the section would lead nowhere it could act on. The
+    # announced bases are national and apply to every taxpayer on the instance, so entering
+    # them belongs to whoever runs it.
+    offered = {
+        "taxes": request.user.sellers.filter(country=POLAND).exists(),  # ty: ignore[unresolved-attribute]
+        "bases": request.user.is_staff,  # ty: ignore[unresolved-attribute]
+    }
+
     return {
         "nav_items": [
             NavItem(label=label, url=reverse(default_url_name), active=current in url_names)
             for label, default_url_name, url_names in NAV_SECTIONS
+            if offered.get(default_url_name, True)
         ]
     }

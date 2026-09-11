@@ -25,11 +25,11 @@
         {% endcomment %}
         <div class="flex flex-wrap gap-2 ml-auto">
             <a href="{% url 'export_calendar' pk=contract.pk %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+               class="btn btn-secondary">
                 Export .ics
             </a>
             <button data-clicks="import-file-{{ contract.pk }}"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                    class="btn btn-secondary">
                 Import .ics
             </button>
             <form id="import-form-{{ contract.pk }}" method="post" action="{% url 'import_calendar' pk=contract.pk %}" enctype="multipart/form-data" class="hidden">
@@ -38,12 +38,12 @@
             </form>
             {% if can_store_invoices %}
             <a href="{% url 'invoice_list' pk=contract.pk %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+               class="btn btn-secondary">
                 Invoices
             </a>
             {% endif %}
             <a href="{% url 'contract_edit' pk=contract.pk %}"
-               class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+               class="btn btn-secondary">
                 Edit
             </a>
         </div>
@@ -124,7 +124,7 @@
     <!-- Controls -->
     <div class="mt-5 flex flex-wrap gap-2.5 items-stretch">
         <select id="bulk-book-mode" name="mode"
-                class="rounded-[10px] border border-[#ddd] px-4 py-2 text-sm text-[#666] focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                class="btn btn-secondary">
             <option value="home">{{ contract.home_country }} holidays</option>
             <option value="client">{{ contract.client_country }} holidays</option>
             <option value="overlap" selected>Overlapping holidays</option>
@@ -133,7 +133,7 @@
         <button hx-post="{% url 'bulk_book' pk=contract.pk %}"
                 hx-swap="none"
                 hx-include="#bulk-book-mode"
-                class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                class="btn btn-primary">
             Book
         </button>
         {% comment %}
@@ -145,7 +145,7 @@
                 hx-swap="none"
                 hx-include="#bulk-book-mode"
                 hx-confirm="Clear the booked days in the selected range? Days already past are left alone."
-                class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50">
+                class="btn btn-danger">
             Clear
         </button>
         {% comment %}
@@ -158,13 +158,13 @@
                     data-loads="{% url 'compare_external_calendar' pk=contract.pk %}" data-into="#external-sync-content"
                     data-pending="Fetching external calendar..."
                     data-failed="Could not fetch the external calendar."
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
+                    class="btn btn-secondary">
                 External calendar comparison
             </button>
             {% endif %}
             <button data-opens="holiday-dialog"
                     data-loads="{% url 'holiday_comparison' pk=contract.pk %}" data-into="#holiday-comparison-content"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition hover:border-[#bbb] hover:bg-gray-100">
+                    class="btn btn-secondary">
                 Holiday comparison
             </button>
         </div>

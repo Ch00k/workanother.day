@@ -4,16 +4,7 @@
 
 {% block body %}
 <div class="page mt-6 mb-8">
-    <nav class="crumbs print:hidden">
-        <a href="{% url 'seller_list' %}">Sellers</a> /
-        <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
-        <span aria-current="page">Taxes {{ year }}</span>
-    </nav>
-
-    <h1 class="text-[28px] font-bold tracking-tight leading-tight">JPK_EWP {{ year }}</h1>
-    <div class="text-xs text-[#888] mt-1">{{ seller.name }}{% if seller.nip %} &middot; NIP {{ seller.nip }}{% endif %}</div>
-
-    {% include "wad/_tax_year_nav.html" %}
+    {% include "wad/_tax_year_heading.html" with heading="JPK_EWP" %}
 
     {% if missing_for_jpk %}
     <div class="notice mt-5">
@@ -63,7 +54,7 @@
                 {% for filing in filings %}
                 <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa]">
                     <td class="py-3 px-5">
-                        <a href="{% url 'filing_detail' pk=filing.pk %}" class="font-semibold underline hover:no-underline">
+                        <a href="{% url 'filing_detail' pk=filing.pk %}" class="link font-semibold">
                             {{ filing.produced_at|date:"j M Y, H:i" }}
                         </a>
                     </td>
@@ -97,7 +88,7 @@
                   {% if filings %}data-confirm="{{ year }} already has a file, so this one supersedes it as a correction. Generate it?"{% endif %}>
                 {% csrf_token %}
                 <button type="submit"
-                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                        class="btn btn-primary">
                     Generate
                 </button>
             </form>

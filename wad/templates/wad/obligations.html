@@ -1,19 +1,10 @@
 {% extends "wad/base.html" %}
 {% load explainer money wad_filters %}
-{% block title %}Due in {{ year }} - {{ seller.name }} - Work Another Day{% endblock %}
+{% block title %}Taxes {{ year }} - {{ seller.name }} - Work Another Day{% endblock %}
 
 {% block body %}
 <div class="page mt-6 mb-8">
-    <nav class="crumbs print:hidden">
-        <a href="{% url 'seller_list' %}">Sellers</a> /
-        <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
-        <span aria-current="page">Taxes {{ year }}</span>
-    </nav>
-
-    <h1 class="text-[28px] font-bold tracking-tight leading-tight">What falls due in {{ year }}</h1>
-    <div class="text-xs text-[#888] mt-1">{{ seller.name }}{% if seller.nip %} &middot; NIP {{ seller.nip }}{% endif %}</div>
-
-    {% include "wad/_tax_year_nav.html" %}
+    {% include "wad/_tax_year_heading.html" %}
 
     {% if holidays_stale %}
     <div class="notice mt-5">
@@ -29,9 +20,7 @@
     {% endcomment %}
     {% if unpublished_year %}
     <div class="notice mt-5">
-        Nobody has entered the bases ZUS published for {{ unpublished_year }}, so this year's
-        health contribution cannot be placed in a band. They are announced each January and go in
-        with <span class="money">manage.py health_contribution</span>.
+        {% include "wad/_missing_bases.html" with bases_year=unpublished_year %}
     </div>
     {% endif %}
 
@@ -51,10 +40,24 @@
     </div>
     {% else %}
 
-    {% if not schedule.rate %}
+    {% if schedule.mixed_rates %}
     <div class="notice mt-5">
         This year holds revenue at more than one ryczałt rate, so the base has to be apportioned
         between them under art. 11 ust. 3. Nothing here does that, so no tax figure is stated.
+    </div>
+    {% endif %}
+
+    {% comment %}
+    What the year is waiting on, which is what this page is opened for eleven months out of
+    twelve. A year with nothing outstanding says so, because the absence of the card is not
+    itself an answer.
+    {% endcomment %}
+    {% if schedule.next_due %}
+    {% include "wad/_next_due.html" with due=schedule.next_due %}
+    {% else %}
+    <div class="notice notice-neutral mt-5">
+        Every month of {{ year }} this application can state a figure for
+        has been recorded as paid. What the year still carries falls after it, below.
     </div>
     {% endif %}
 
@@ -92,64 +95,69 @@
                         <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Revenue</th>
                         <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Deducted</th>
                         <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Podstawa</th>
-                        {% if schedule.rate %}
-                        <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Ryczałt due</th>
+                        {% if not schedule.mixed_rates %}
+                        <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Ryczałt</th>
                         {% endif %}
-                        <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Paid</th>
+                        <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">ZUS social</th>
                         <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">ZUS health</th>
+                        <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Status</th>
                         <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Due by</th>
                     </tr>
                 </thead>
                 <tbody class="text-sm">
+                    {% comment %}
+                    The whole row opens the month it is about, where the transfers are stated
+                    and the payments recorded. It carries tabindex and a role so a keyboard
+                    reaches it and Enter opens it, a row being nothing a browser makes
+                    focusable by itself.
+                    {% endcomment %}
                     {% for month in schedule.months %}
-                    <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa]">
-                        <td class="py-3 px-5">{{ month.date|date:"F" }}</td>
+                    <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa] cursor-pointer" tabindex="0" role="link"
+                        data-opens-url="{% url 'month' pk=seller.pk year=month.year month=month.month %}">
+                        <td class="py-3 px-5 font-semibold">{{ month.date|date:"F" }}</td>
                         <td class="py-3 px-5 text-right money {% if month.revenue < 0 %}text-[#a33]{% endif %}">{{ month.revenue|money }}</td>
                         <td class="py-3 px-5 text-right money text-[#888]">{{ month.deducted|money }}</td>
-                        <td class="py-3 px-5 text-right money">{{ month.taxable|money }}</td>
-                        {% if schedule.rate %}
-                        <td class="py-3 px-5 text-right money font-semibold">{{ month.tax|money }}</td>
+                        {% comment %}
+                        The podstawa the month declares, which art. 63 § 1 rounds to whole
+                        złote - so it is not quite the two columns to its left subtracted, and
+                        it is what the ryczałt to its right was taken from. The month's own
+                        page states the unrounded sum beside it.
+                        {% endcomment %}
+                        <td class="py-3 px-5 text-right money">{{ month.base|money }}</td>
+                        {% if not schedule.mixed_rates %}
+                        <td class="py-3 px-5 text-right money">{{ month.tax|money }}</td>
                         {% endif %}
                         {% comment %}
-                        Recorded as paid, or the one press that records it. The figure is the
-                        month's own, so there is nothing to type: what the button says is that
-                        the transfer went, and the page keeps the figure it went for. The press
-                        that takes it off again is here rather than in a list of its own, this
-                        being where the month is stated to have been settled.
+                        The two halves of the DRA in two columns, because they are worked out
+                        from different things and deducted differently: the social half follows
+                        the regime the month falls in, art. 11 ust. 1 taking it whole, and the
+                        health one follows the band the year's revenue reaches, ust. 1a taking
+                        half of it. What one transfer comes to is their total, which the Pay
+                        dialog states.
+                        {% endcomment %}
+                        {% comment %}
+                        The figure alone. What it was worked out under - the regime, and the
+                        wakacje składkowe that can take four components off it - is on the
+                        month's own page, with everything else that acts on a month.
                         {% endcomment %}
                         <td class="py-3 px-5 text-right money">
-                            {% if month.paid %}
-                            {{ month.paid_on|date:"j M Y" }}
-                            {% comment %}
-                            The figure is stated only where it is no longer the figure the month
-                            owes, which is a correction having moved the month after the transfer
-                            went. Otherwise it is the amount due, already in the column beside.
-                            {% endcomment %}
-                            {% if month.paid != month.tax %}
-                            <div class="money text-xs text-[#a33] mt-0.5">paid {{ month.paid|money }}</div>
-                            {% endif %}
-                            <form method="post" class="mt-1"
-                                  action="{% url 'tax_payment_remove' pk=seller.pk year=month.year month=month.month %}"
-                                  data-confirm="Take {{ month.date|date:'F Y' }} off as paid?">
-                                {% csrf_token %}
-                                <button type="submit" class="text-xs text-red-600 hover:underline">Remove</button>
-                            </form>
-                            {% elif month.tax %}
-                            <button type="button" data-opens="pay-{{ month.date|date:'Y-m' }}"
-                                    class="text-xs text-blue-800 hover:underline">Pay</button>
-                            {% else %}
-                            <span class="text-[#bbb]">&mdash;</span>
-                            {% endif %}
+                            {% if month.social %}{{ month.social.total|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
                         </td>
                         <td class="py-3 px-5 text-right money">
                             {% if month.health %}{{ month.health|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
                         </td>
                         {% comment %}
-                        The date alone. What the transfer carries besides the amount - the okres
-                        above all, which names the month the tax is for rather than the month it
-                        is sent in - is stated in that month's own Pay dialog.
+                        Where the month stands, which is what the column is read down for: the
+                        months still to pay, and the ones past their date. What was recorded and
+                        what is left to record are on the month's own page.
                         {% endcomment %}
-                        <td class="py-3 px-5 text-[#666]">{{ month.due_on|date:"j M Y" }}</td>
+                        <td class="py-3 px-5">{% include "wad/_month_status.html" %}</td>
+                        {% comment %}
+                        The date alone. What the transfers carry besides the amounts - the okres
+                        above all, which names the month the tax is for rather than the month it
+                        is sent in - is stated on the month's page.
+                        {% endcomment %}
+                        <td class="py-3 px-5 text-[#666] whitespace-nowrap">{{ month.due_on|date:"j M Y" }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -158,12 +166,12 @@
                         <td class="py-3 px-5">{{ year }}</td>
                         <td class="py-3 px-5 text-right money">{{ schedule.revenue|money }}</td>
                         <td colspan="2"></td>
-                        {% if schedule.rate %}
+                        {% if not schedule.mixed_rates %}
                         <td class="py-3 px-5 text-right money">{{ schedule.tax|money }}</td>
                         {% endif %}
-                        <td class="py-3 px-5 text-right money">{{ schedule.paid|money }}</td>
+                        <td class="py-3 px-5 text-right money">{{ schedule.social_monthly|money }}</td>
                         <td class="py-3 px-5 text-right money">{{ schedule.health_monthly|money }}</td>
-                        <td></td>
+                        <td colspan="2"></td>
                     </tr>
                 </tfoot>
             </table>
@@ -171,73 +179,22 @@
     </div>
 
     {% comment %}
-    One dialog per month there is still a transfer to make for, each stating that month's own
-    transfer and carrying the press that records it. Rendered with the page rather than fetched:
-    every figure in them is one the page already has.
+    Where the revenue column comes from, beside the column rather than left to be guessed: the
+    register is the thing art. 15 requires to be kept, and these figures are read off it. A
+    control rather than a sentence, because it is somewhere to go and not a remark.
     {% endcomment %}
-    {% for month in schedule.months %}
-    {% if month.tax and not month.paid %}
-    {% with suffix=month.date|date:"Y-m" label=month.date|date:"F Y" %}
-    {% comment %}
-    The content is not given a scrolling box of its own, so the panel scrolls as one and the
-    press that confirms the payment is at the end of it rather than under a clip nothing says
-    is there.
-    {% endcomment %}
-    {% include "wad/_dialog.html" with dialog_id="pay-"|add:suffix dialog_title="Ryczałt for "|add:label content_template="wad/_ryczalt_payment.html" content_class="px-5 py-4" %}
-    {% endwith %}
-    {% endif %}
-    {% endfor %}
-
-    {% comment %}
-    Each transfer field by field, named as a bank's form names it. The ryczalt goes on a przelew
-    podatkowy, whose fields become the structured title stated last, so the title row is what to
-    write where a bank offers no such form. The okres is the only field that changes month to
-    month, which is why it is stated per month in the table above rather than here.
-    {% endcomment %}
-    <div class="card-heading">
-        <h2>How to pay</h2>
-    </div>
-    <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
-        <div class="px-5 py-4 border-b border-[#f5f5f5]">
-            <div class="text-sm font-semibold text-[#222]">Ryczałt &mdash; przelew podatkowy, one per month</div>
-            <div class="mt-2">{% include "wad/_ryczalt_transfer.html" %}</div>
-        </div>
-        <div class="px-5 py-4">
-            <div class="text-sm font-semibold text-[#222]">ZUS contributions &mdash; ordinary transfer, one per month</div>
-            <table class="w-full border-collapse text-sm mt-2">
-                <tr class="border-b border-[#eee]">
-                    <td class="py-2 text-[#888] align-top">Rachunek odbiorcy</td>
-                    <td class="py-2 text-right">
-                        {% if seller.zus_account %}
-                        <span class="money">{{ seller.zus_account|account }}</span>
-                        {% else %}
-                        <span class="text-[#bbb]">not entered</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                <tr class="border-b border-[#eee]">
-                    <td class="py-2 text-[#888] align-top">Odbiorca</td>
-                    <td class="py-2 text-right">Zakład Ubezpieczeń Społecznych</td>
-                </tr>
-                <tr class="border-b border-[#eee]">
-                    <td class="py-2 text-[#888] align-top">Kwota</td>
-                    <td class="py-2 text-right">
-                        The DRA total: social, health and the funds in one transfer
-                        <div class="text-xs text-[#999] mt-0.5">only the health part is computed here, in the column above</div>
-                    </td>
-                </tr>
-                <tr>
-                    <td class="py-2 text-[#888] align-top">Tytuł</td>
-                    <td class="py-2 text-right">
-                        <span class="money">składki</span>
-                        <div class="text-xs text-[#999] mt-0.5">no okres, no symbol, no NIP: the account identifies the payer</div>
-                    </td>
-                </tr>
-            </table>
-        </div>
+    <div class="mt-3 flex items-center gap-3 flex-wrap print:hidden">
+        <a href="{% url 'ewidencja' pk=seller.pk year=year %}"
+           class="btn btn-secondary">
+            Ewidencja przychodów
+        </a>
+        <span class="text-xs text-[#888]">
+            The register the revenue column is read from, entry by entry.
+        </span>
     </div>
 
-    <div class="mt-6 grid gap-6 lg:grid-cols-2">
+    <div class="section-heading">During the year</div>
+    <div class="grid gap-6 lg:grid-cols-2 items-start">
         {% comment %}
         The health contribution, which is where the scale hurts. The band follows revenue
         accumulated from the start of the year, and the annual settlement recomputes the whole
@@ -260,21 +217,24 @@
                 </p>
                 <p>
                     The bases are 60, 100 and 180 percent of the average wage in the fourth quarter
-                    of the year before, announced each January and fetched by nothing here. The
-                    wage goes in with <span class="money">manage.py health_contribution</span>,
-                    which works the three out from it.
+                    of the year before, announced each January and fetched by nothing here. They are
+                    national figures, one set a year for the whole instance, so entering the wage the
+                    three are worked out from belongs to whoever runs it.
                 </p>
                 {% endexplainer %}
             </div>
+            {% comment %}
+            A year with no bases has nothing to state, so what a card would hold is the notice
+            alone. It stands on its own instead: the card would be chrome around a sentence,
+            and a bordered box inside a bordered box reads as a figure somebody could go and
+            check.
+            {% endcomment %}
+            {% if not schedule.brackets %}
+            <div class="notice mt-2">
+                {% include "wad/_missing_bases.html" with bases_year=year %}
+            </div>
+            {% else %}
             <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
-                {% if not schedule.brackets %}
-                <div class="notice">
-                    Nobody has entered the bases ZUS published for {{ year }}, so the contribution
-                    cannot be placed in a band. They are 60, 100 and 180 percent of the average wage
-                    in the fourth quarter of the year before, announced each January, and the wage
-                    goes in with <span class="money">manage.py health_contribution</span>.
-                </div>
-                {% else %}
                 <table class="w-full border-collapse text-sm">
                     <tr class="border-b border-[#eee]">
                         <td class="py-2 text-[#888]">Revenue the band is read from</td>
@@ -293,7 +253,7 @@
                     </tr>
                     {% if schedule.next_bracket %}
                     <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">Next threshold, <span class="money">{{ schedule.next_bracket.threshold|money:0 }}</span></td>
+                        <td class="py-2 text-[#888]">Next threshold, <span class="money">{{ schedule.next_bracket.threshold|money }}</span></td>
                         <td class="py-2 text-right money">
                             {% if schedule.to_next_threshold > 0 %}{{ schedule.to_next_threshold|money }} to go{% else %}crossed{% endif %}
                         </td>
@@ -310,133 +270,350 @@
                         </td>
                     </tr>
                 </table>
-                {% endif %}
             </div>
-        </div>
-
-        <div>
-            <div class="card-heading">
-                <h2>After the year</h2>
-            </div>
-            <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
-                {% for deadline in schedule.deadlines %}
-                <div class="px-5 py-4 {% if not forloop.last %}border-b border-[#f5f5f5]{% endif %}">
-                    <div class="flex items-baseline justify-between gap-3">
-                        <div class="text-sm font-semibold text-[#222]">{{ deadline.what }}</div>
-                        <div class="money text-sm text-[#666] whitespace-nowrap">{{ deadline.on|date:"j M Y" }}</div>
-                    </div>
-                    {% if deadline.amount is not None %}
-                    <div class="money text-sm mt-1">{{ deadline.amount|money }} PLN</div>
-                    {% endif %}
-                    <div class="text-xs text-[#999] mt-1">{{ deadline.note }}</div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-
-    <div class="mt-6 grid gap-6 lg:grid-cols-2">
-        {% comment %}
-        What was done about the year, beside what it owes. A tax payment is not a deduction, so
-        nothing above moves when one is entered - what it changes is the balance the return
-        settles, which is the year's tax less the ryczałt paid for its months.
-        {% endcomment %}
-        <div>
-            <div class="card-heading">
-                <h2>Ryczałt for {{ year }}</h2>
-                {% explainer "ryczalt-paid-help" %}
-                <p>
-                    What each month was marked paid at is in the table above, beside what that month
-                    owes. Marking a month keeps the figure it owed at the time, so a correction that
-                    later moves the month leaves the payment where it was and the two can be seen to
-                    disagree.
-                </p>
-                <p>
-                    A payment is not a deduction, so nothing the year owes moves when one is
-                    recorded. What it changes is the balance the return settles, which is the year's
-                    own figure &mdash; taken over the whole year rather than the twelve monthly ones
-                    added up &mdash; less the ryczałt paid for its months. A negative balance is an
-                    overpayment, which the return claims back.
-                </p>
-                <p>
-                    Nothing is filed with a payment: the year's are declared afterwards, in PIT-28.
-                </p>
-                {% endexplainer %}
-            </div>
-            <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
-                {% if schedule.annual_tax is None %}
-                <div class="px-5 py-4 text-sm text-[#666]">
-                    This year holds revenue at more than one ryczałt rate, so it states no annual
-                    figure and no balance for the return to settle.
-                </div>
-                {% else %}
-                <div class="px-5 py-4">
-                    <table class="w-full border-collapse text-sm">
-                        <tr class="border-b border-[#eee]">
-                            <td class="py-2 text-[#888]">Ryczałt for the year</td>
-                            <td class="py-2 text-right money">{{ schedule.annual_tax|money }}</td>
-                        </tr>
-                        <tr class="border-b border-[#eee]">
-                            <td class="py-2 text-[#888]">Recorded as paid</td>
-                            <td class="py-2 text-right money">{{ schedule.paid|money }}</td>
-                        </tr>
-                        <tr>
-                            <td class="py-2 font-semibold">Left for the return to settle</td>
-                            <td class="py-2 text-right money font-semibold {% if schedule.balance > 0 %}text-[#a33]{% endif %}">
-                                {{ schedule.balance|money }}
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-                {% endif %}
-            </div>
+            {% endif %}
         </div>
 
         {% comment %}
-        The return, which is a date and a UPO. Nothing here produces the document, so a copy of
-        it would be somebody else's; what is worth keeping is that it went.
+        The RWS falls inside the year rather than after it, and it is about the contributions
+        rather than the tax, so it stands with the health card rather than with the dates in the
+        spring. Absent where the year already holds a granted month, and where no month of it
+        can be claimed at all.
         {% endcomment %}
+        {% if schedule.holiday_application %}
         <div>
             <div class="card-heading">
-                <h2>PIT-28 for {{ year }}</h2>
-                {% explainer "pit-28-help" %}
-                <p>
-                    Nothing here files the return. It is completed and sent in e-Urząd Skarbowy from
-                    the figures on this page and the register beside it, and the UPO that comes back
-                    is the receipt worth keeping.
-                </p>
-                <p>
-                    KAS holds the same record, so where the two disagree KAS is right. What is kept
-                    here is that the return went, and when.
-                </p>
-                <p>
-                    It is a separate submission from the year's JPK_EWP, sharing its deadline.
-                </p>
-                {% endexplainer %}
+                <h2>Wakacje składkowe</h2>
             </div>
             <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
-                <form method="post" action="{% url 'tax_return_record' pk=seller.pk year=year %}" class="grid gap-4">
-                    {% csrf_token %}
-                    <div>
-                        <label for="filed_on" class="block text-sm font-medium text-[#666] mb-1">Filed on</label>
-                        <input type="date" id="filed_on" name="filed_on" max="{{ today|date:'Y-m-d' }}"
-                               value="{{ tax_return.filed_on|date:'Y-m-d' }}"
-                               class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
-                        <div class="text-xs text-[#999] mt-1">Clearing the date takes the record off again.</div>
+                {% include "wad/_deadline.html" with deadline=schedule.holiday_application %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% comment %}
+    Two columns read down rather than four cards read across: what the year comes to on one
+    side, and what is submitted about it on the other.
+    {% endcomment %}
+    <div class="section-heading">After the year</div>
+    <div class="grid gap-6 lg:grid-cols-2 items-start">
+        <div class="grid gap-6 content-start">
+            <div>
+                <div class="card-heading">
+                    <h2>Dates</h2>
+                </div>
+                <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
+                    {% for deadline in schedule.deadlines %}
+                    <div class="px-5 py-4 {% if not forloop.last %}border-b border-[#f5f5f5]{% endif %}">
+                        {% include "wad/_deadline.html" %}
+                        {% comment %}
+                        The settlement is the one of the three this application both works out
+                        and records: the return and the file are recorded where they are
+                        produced, in the cards below and on the year's JPK_EWP page, and this
+                        list reads their dates back rather than offering a second way in.
+
+                        A settlement that comes out a refund is not offered a press. It is
+                        money claimed back rather than sent, and the claim is made in the DRA.
+                        {% endcomment %}
+                        {% if deadline.kind == "settlement" %}
+                        {% if deadline.is_settled %}
+                        <form method="post" action="{% url 'settlement_remove' pk=seller.pk year=year %}" class="mt-3"
+                              data-confirm="Take the {{ year }} settlement off as paid? It goes back to standing open.">
+                            {% csrf_token %}
+                            <button type="submit" class="link text-xs text-red-600">Remove payment</button>
+                        </form>
+                        {% elif schedule.settlement_payable %}
+                        <form method="post" action="{% url 'settlement_record' pk=seller.pk year=year %}" class="mt-3"
+                              data-confirm="Record the {{ year }} settlement as paid? It goes in at the figure stated here, dated today.">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-secondary">
+                                I have paid this
+                            </button>
+                        </form>
+                        {% endif %}
+                        {% endif %}
                     </div>
-                    <div>
-                        <label for="return_upo" class="block text-sm font-medium text-[#666] mb-1">UPO</label>
-                        <textarea id="return_upo" name="upo" rows="4" spellcheck="false"
-                                  placeholder="Paste the Urzędowe Poświadczenie Odbioru here"
-                                  class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm money focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">{{ tax_return.upo }}</textarea>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {% comment %}
+            The year as the return takes it, from the revenue down to what is left to send:
+            the whole computation in one card, so the figure a return is filled in from is not
+            assembled out of two pages. The register it is read off is a click away under the
+            month table.
+            {% endcomment %}
+            <div>
+                <div class="card-heading">
+                    <h2>PIT-28 for {{ year }}</h2>
+                    {% explainer "pit-28-figures-help" %}
+                    <p>
+                        Art. 11 ust. 1 deducts social contributions paid and art. 11 ust. 1a half the
+                        health contribution paid, both on a cash basis, so what a year deducts is what
+                        was paid during it &mdash; the transfers below, whichever month each settles.
+                    </p>
+                    <p>
+                        The base and the tax are each rounded to whole złote under art. 63 &sect; 1
+                        Ordynacji podatkowej. This is the year's own figure, taken over the whole of it
+                        rather than the twelve monthly ones added up, and the two legitimately disagree:
+                        a month whose deductions outrun its revenue cannot carry the excess forward and
+                        the year can.
+                    </p>
+                    <p>
+                        A payment is not a deduction, so nothing above moves when one is recorded. What
+                        it changes is the balance the return settles: the year's tax less the ryczałt
+                        paid for its months. A negative balance is an overpayment, which the return
+                        claims back.
+                    </p>
+                    <p>Figures to check against, not a return.</p>
+                    {% endexplainer %}
+                </div>
+                <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
+                    {% comment %}
+                    Written as the sum it is, an operator to a line: what the column does to
+                    the figure above it is the thing a reader is checking, and a word for it
+                    ("less") says the same in a way that cannot be read down. The rule under a
+                    line is where the running figure is struck, which is what the operators
+                    below it then work on.
+
+                    The operators stand against the figures rather than against their names,
+                    which is where they act: the amounts are one column and the operators are
+                    the sum being done to it. They are marked aria-hidden because read aloud in
+                    sequence they are noise, the labels already saying what each line is.
+                    {% endcomment %}
+                    <div class="px-5 py-4">
+                        <table class="w-full border-collapse text-sm">
+                            <tr>
+                                {% comment %}
+                                The labels take the slack, so the operator and the figures each
+                                take only the width they need and the operators end up against
+                                the figures rather than a column away from them.
+                                {% endcomment %}
+                                <td class="py-2 w-full text-[#888]">Przychód</td>
+                                <td class="py-2 pr-5"></td>
+                                <td class="py-2 w-px text-right money whitespace-nowrap">{{ schedule.register.revenue|money }}</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 text-[#888]">Social contributions paid</td>
+                                <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">&minus;</td>
+                                <td class="py-2 w-px text-right money whitespace-nowrap">{{ schedule.register.social_paid|money }}</td>
+                            </tr>
+                            {% comment %}
+                            The halved figure, because the column has to add up: the whole one
+                            is what was paid and is stated under it as the working.
+                            {% endcomment %}
+                            <tr>
+                                <td class="py-2 text-[#888]">
+                                    Health contribution paid, at half
+                                    <div class="text-xs text-[#999] mt-0.5">
+                                        <span class="money">{{ schedule.register.health_paid|money }}</span> &divide; 2,
+                                        art. 11 ust. 1a
+                                    </div>
+                                </td>
+                                <td class="py-2 pr-5 text-right text-[#bbb] align-top" aria-hidden="true">&minus;</td>
+                                <td class="py-2 w-px text-right money align-top whitespace-nowrap">{{ schedule.register.health_deduction|money }}</td>
+                            </tr>
+                            {% comment %}
+                            The rounded figure, for the reason the health row states a halved
+                            one: what stands in the column is what the next line acts on. The
+                            sum the subtractions came to is the working beneath it, so both the
+                            rounding and what was rounded stay checkable.
+                            {% endcomment %}
+                            <tr class="border-t border-[#ddd]">
+                                <td class="py-2 font-semibold">
+                                    Podstawa
+                                    <div class="text-xs font-normal text-[#999] mt-0.5">
+                                        <span class="money">{{ schedule.register.taxable|money }}</span> to whole
+                                        złote, art. 63 &sect; 1
+                                    </div>
+                                </td>
+                                <td class="py-2 pr-5 text-right text-[#bbb] align-top" aria-hidden="true">=</td>
+                                <td class="py-2 w-px text-right money font-semibold align-top whitespace-nowrap">{{ schedule.register.base|money }}</td>
+                            </tr>
+                            {% if schedule.annual_tax is not None %}
+                            <tr>
+                                <td class="py-2 text-[#888]">Ryczałt rate</td>
+                                <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">&times;</td>
+                                <td class="py-2 w-px text-right whitespace-nowrap">{{ schedule.rate|floatformat:"-2" }}%</td>
+                            </tr>
+                            <tr class="border-t border-[#ddd]">
+                                <td class="py-2 font-semibold">Ryczałt</td>
+                                <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">=</td>
+                                <td class="py-2 w-px text-right money font-semibold whitespace-nowrap">{{ schedule.annual_tax|money }}</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2 text-[#888]">Recorded as paid</td>
+                                <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">&minus;</td>
+                                <td class="py-2 w-px text-right money whitespace-nowrap">{{ schedule.paid|money }}</td>
+                            </tr>
+                            <tr class="border-t border-[#ddd]">
+                                <td class="py-2 font-semibold">Left for the return to settle</td>
+                                <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">=</td>
+                                <td class="py-2 w-px text-right money font-semibold whitespace-nowrap {% if schedule.balance > 0 %}text-[#a33]{% endif %}">
+                                    {{ schedule.balance|money }}
+                                </td>
+                            </tr>
+                            {% endif %}
+                        </table>
                     </div>
-                    <div>
-                        <button type="submit"
-                                class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
-                            Save
-                        </button>
+                    {% if schedule.annual_tax is None %}
+                    <div class="px-5 pb-4">
+                        <div class="notice">
+                            This year holds revenue at more than one ryczałt rate, so the base has to be
+                            apportioned between them under art. 11 ust. 3. Nothing here does that, so no
+                            tax figure and no balance is stated.
+                        </div>
                     </div>
-                </form>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% comment %}
+            The transfers the two deduction lines above are made of, which is what answers a
+            year that deducts a surprising amount. Read-only: every one of them is recorded
+            where it is made, a month's on the month's page and the settlement with the dates
+            above, and there is no other kind to enter.
+            {% endcomment %}
+            <div>
+                <div class="card-heading">
+                    <h2>ZUS paid in {{ year }}</h2>
+                    {% explainer "zus-paid-help" %}
+                    <p>
+                        Every contribution payment recorded in this year, by the day it was made. Art.
+                        11 ust. 1 and ust. 1a are both cash-basis, so this is the year that deducts them
+                        whichever month each settles &mdash; a January payment for December is deducted
+                        here and settles the December before.
+                    </p>
+                    <p>
+                        A month's pair is recorded on the month's own page and the annual health
+                        settlement with the dates above, so there is nothing to enter here. Taking one
+                        off is done where it was put on.
+                    </p>
+                    {% endexplainer %}
+                </div>
+                <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden">
+                    {% if schedule.contributions_paid %}
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="border-b border-[#eee]">
+                                <th class="text-left py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Paid</th>
+                                <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Social</th>
+                                <th class="text-right py-3 px-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Health</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-sm">
+                            {% for payment in schedule.contributions_paid %}
+                            <tr class="border-b border-[#f5f5f5]">
+                                <td class="py-3 px-5">
+                                    {{ payment.paid_on|date:"j M Y" }}
+                                    {% if payment.covers %}
+                                    <div class="text-xs text-[#888] mt-0.5">settles {{ payment.covers|date:"F Y" }}</div>
+                                    {% elif payment.settles_year %}
+                                    <div class="text-xs text-[#888] mt-0.5">settles the {{ payment.settles_year }} health settlement</div>
+                                    {% endif %}
+                                </td>
+                                <td class="py-3 px-5 text-right money">{{ payment.social|money }}</td>
+                                <td class="py-3 px-5 text-right money">{{ payment.health|money }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="border-t border-[#eee] bg-[#fafafa] text-sm font-semibold">
+                                <td class="py-3 px-5">{{ year }}</td>
+                                <td class="py-3 px-5 text-right money">{{ schedule.register.social_paid|money }}</td>
+                                <td class="py-3 px-5 text-right money">{{ schedule.register.health_paid|money }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    {% else %}
+                    <div class="px-5 py-8 text-sm text-[#666]">
+                        Nothing recorded as paid to ZUS in {{ year }}, so the year deducts nothing.
+                        A month's contributions are recorded on the month's own page.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="grid gap-6 content-start">
+            {% comment %}
+            The return, which is a date and a UPO. Nothing here produces the document, so a copy of
+            it would be somebody else's; what is worth keeping is that it went.
+            {% endcomment %}
+            <div>
+                <div class="card-heading">
+                    <h2>PIT-28 filed</h2>
+                    {% explainer "pit-28-filed-help" %}
+                    <p>
+                        Nothing here files the return. It is completed and sent in e-Urząd Skarbowy from
+                        the figures beside this card and the register they are read off, and the UPO that
+                        comes back is the receipt worth keeping.
+                    </p>
+                    <p>
+                        KAS holds the same record, so where the two disagree KAS is right. What is kept
+                        here is that the return went, and when.
+                    </p>
+                    <p>
+                        It is a separate submission from the year's JPK_EWP, sharing its deadline.
+                    </p>
+                    {% endexplainer %}
+                </div>
+                <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+                    <form method="post" action="{% url 'tax_return_record' pk=seller.pk year=year %}" class="grid gap-4">
+                        {% csrf_token %}
+                        <div>
+                            <label for="filed_on" class="block text-sm font-medium text-[#666] mb-1">Filed on</label>
+                            <input type="date" id="filed_on" name="filed_on" max="{{ today|date:'Y-m-d' }}"
+                                   value="{{ tax_return.filed_on|date:'Y-m-d' }}"
+                                   class="w-full field">
+                            <div class="text-xs text-[#999] mt-1">Clearing the date takes the record off again.</div>
+                        </div>
+                        <div>
+                            <label for="return_upo" class="block text-sm font-medium text-[#666] mb-1">UPO</label>
+                            <textarea id="return_upo" name="upo" rows="4" spellcheck="false"
+                                      placeholder="Paste the Urzędowe Poświadczenie Odbioru here"
+                                      class="w-full field money">{{ tax_return.upo }}</textarea>
+                        </div>
+                        <div>
+                            <button type="submit"
+                                    class="btn btn-primary">
+                                Save
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            {% comment %}
+            The other submission the spring takes, standing beside the return that shares its
+            deadline. What each file holds and what became of it is on the list; what belongs here
+            is whether the year has one and whether it went.
+            {% endcomment %}
+            <div>
+                <div class="card-heading">
+                    <h2>JPK_EWP for {{ year }}</h2>
+                </div>
+                <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+                    <div class="text-sm text-[#666]">
+                        {% comment %} Newest first, so the file that stands for the year is the first. {% endcomment %}
+                        {% if filings %}
+                        {{ filings|length }} file{{ filings|length|pluralize }} produced for {{ year }}.
+                        {% if filings.0.is_filed %}
+                        The last of them was filed {{ filings.0.filed_on|date:"j F Y" }}.
+                        {% else %}
+                        The last of them has not been filed.
+                        {% endif %}
+                        {% else %}
+                        Nothing produced for {{ year }} yet. The file is generated from the register
+                        and filed separately from PIT-28, on the same deadline.
+                        {% endif %}
+                    </div>
+                    <a href="{% url 'filing_list' pk=seller.pk year=year %}"
+                       class="inline-block mt-4 btn btn-secondary">
+                        {% if filings %}Open the files{% else %}Produce the file{% endif %}
+                    </a>
+                </div>
             </div>
         </div>
     </div>

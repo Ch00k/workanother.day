@@ -1,0 +1,20 @@
+{% comment %}
+Where a month stands, in one word. Written once because the year's table and the month's own
+page both say it, and two copies would come to disagree about what "settled" means.
+
+Settled is every transfer the month states a figure for having been recorded; part paid is
+some of them, which is what the manual contribution form or a forgotten transfer leaves. A
+month with nothing this application can state a figure for is not due anything here, and says
+so rather than showing a deadline it cannot put an amount against.
+{% endcomment %}
+{% if month.is_settled %}
+<span class="rounded-[6px] bg-green-100 text-green-800 px-2 py-0.5 text-xs font-semibold">Settled</span>
+{% elif month.settled_on %}
+<span class="rounded-[6px] bg-amber-100 text-amber-800 px-2 py-0.5 text-xs font-semibold">Part paid</span>
+{% elif not month.is_payable %}
+<span class="rounded-[6px] bg-[#f5f5f5] text-[#666] px-2 py-0.5 text-xs font-semibold">Nothing to pay</span>
+{% elif month.due_on < today %}
+<span class="rounded-[6px] bg-red-100 text-red-800 px-2 py-0.5 text-xs font-semibold">Overdue</span>
+{% else %}
+<span class="rounded-[6px] bg-[#f5f5f5] text-[#666] px-2 py-0.5 text-xs font-semibold">Due</span>
+{% endif %}

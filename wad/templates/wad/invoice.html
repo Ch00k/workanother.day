@@ -61,17 +61,17 @@
             <div class="sm:col-span-2">
                 <label for="from_name" class="block text-sm font-medium text-[#666] mb-1">Business / legal name <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="from_name" name="from_name" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
             </div>
             <div class="sm:col-span-2">
                 <label for="from_address" class="block text-sm font-medium text-[#666] mb-1">Address (one line per row) <span class="text-red-600" aria-hidden="true">*</span></label>
                 <textarea id="from_address" name="from_address" rows="3" required
-                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+                          class="w-full field"></textarea>
             </div>
             <div class="sm:col-span-2">
                 <label for="from_tax_ids" class="block text-sm font-medium text-[#666] mb-1">Tax IDs (one per row)</label>
                 <textarea id="from_tax_ids" name="from_tax_ids" rows="2" placeholder="KVK: 12345678&#10;BTW-ID: NL000000000B01"
-                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+                          class="w-full field"></textarea>
             </div>
             {% endif %}
 
@@ -91,17 +91,17 @@
             <div class="sm:col-span-2">
                 <label for="to_name" class="block text-sm font-medium text-[#666] mb-1">Client name <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="to_name" name="to_name" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
             </div>
             <div class="sm:col-span-2">
                 <label for="to_address" class="block text-sm font-medium text-[#666] mb-1">Client address (one line per row) <span class="text-red-600" aria-hidden="true">*</span></label>
                 <textarea id="to_address" name="to_address" rows="3" required
-                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+                          class="w-full field"></textarea>
             </div>
             <div class="sm:col-span-2">
                 <label for="to_tax_ids" class="block text-sm font-medium text-[#666] mb-1">Client tax IDs (one per row)</label>
                 <textarea id="to_tax_ids" name="to_tax_ids" rows="2"
-                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+                          class="w-full field"></textarea>
             </div>
             {% endif %}
 
@@ -109,31 +109,31 @@
             <div>
                 <label for="invoice_number" class="block text-sm font-medium text-[#666] mb-1">Invoice number <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="invoice_number" name="invoice_number" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
                 <div class="text-xs text-[#999] mt-1">Taken from the numbers already used this month. Saving under a number that exists updates that invoice instead of raising another.</div>
             </div>
             <div>
                 <label for="currency" class="block text-sm font-medium text-[#666] mb-1">Currency <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="currency" name="currency" maxlength="3" required placeholder="EUR"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
             </div>
             <div class="sm:col-span-2 grid gap-4 sm:grid-cols-3">
                 <div>
                     <label for="issue_date" class="block text-sm font-medium text-[#666] mb-1">Issue date <span class="text-red-600" aria-hidden="true">*</span></label>
                     <input type="date" id="issue_date" name="issue_date" required
-                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                           class="w-full field">
                     <div class="text-xs text-[#999] mt-1">Must be today. KSeF treats an invoice dated earlier as issued offline.</div>
                 </div>
                 <div>
                     <label for="payment_terms" class="block text-sm font-medium text-[#666] mb-1">Payment terms (days)</label>
                     <input type="number" inputmode="numeric" id="payment_terms" name="payment_terms" min="0" step="1" placeholder="30"
-                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                           class="w-full field">
                     <div class="text-xs text-[#999] mt-1">Days allowed to pay. The due date follows from it.</div>
                 </div>
                 <div>
                     <label for="due_date" class="block text-sm font-medium text-[#666] mb-1">Due date <span class="text-red-600" aria-hidden="true">*</span></label>
                     <input type="date" id="due_date" name="due_date" required
-                           class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                           class="w-full field">
                     <div class="text-xs text-[#999] mt-1">Worked out from the two beside it. Override here if it differs.</div>
                 </div>
             </div>
@@ -147,7 +147,7 @@
                 </div>
                 <div class="space-y-3" id="line-items"></div>
                 <button type="button" id="add-line-button"
-                        class="mt-3 text-sm text-[#666] underline hover:no-underline bg-transparent border-none p-0">
+                        class="mt-3 link text-sm text-[#666]">
                     + Add line
                 </button>
             </div>
@@ -158,20 +158,20 @@
                         <label class="block sm:flex-[66] min-w-0">
                             <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Description</span>
                             <input type="text" data-line="description" required
-                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                                   class="w-full field">
                         </label>
                         <label class="block sm:flex-[17]">
                             <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Qty</span>
                             <input type="number" inputmode="decimal" data-line="days" required min="0" step="0.5"
-                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                                   class="w-full field">
                         </label>
                         <label class="block sm:flex-[17]">
                             <span class="block text-sm font-medium text-[#666] mb-1 sm:hidden">Price</span>
                             <input type="number" inputmode="decimal" data-line="rate" required min="0" step="any"
-                                   class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                                   class="w-full field">
                         </label>
                     </div>
-                    <button type="button" class="remove-line-button text-[#999] hover:text-[#666] text-xl leading-none h-11 w-8 bg-transparent border-none p-0 shrink-0" aria-label="Remove line">&times;</button>
+                    <button type="button" class="remove-line-button btn-dismiss h-11" aria-label="Remove line">&times;</button>
                 </div>
             </template>
 
@@ -179,13 +179,13 @@
             <div>
                 <label for="vat_rate" class="block text-sm font-medium text-[#666] mb-1">VAT rate (%)</label>
                 <input type="text" inputmode="decimal" id="vat_rate" name="vat_rate" pattern="^\s*\d+(\.\d+)?\s*$"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
                 <div class="text-xs text-[#999] mt-1">Stays at 0 for work taxed in the client's country, which is the only sale a stored invoice covers.</div>
             </div>
             <div class="sm:col-span-2">
                 <label for="vat_note" class="block text-sm font-medium text-[#666] mb-1">VAT note</label>
                 <textarea id="vat_note" name="vat_note" rows="2" maxlength="{{ max_note_length }}"
-                          class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]"></textarea>
+                          class="w-full field"></textarea>
                 <div class="text-xs text-[#999] mt-1">Optional, up to {{ max_note_length }} characters. The reverse-charge annotation is printed on its own; this is anything you want to add beneath it.</div>
             </div>
 
@@ -193,30 +193,30 @@
             <div class="sm:col-span-2">
                 <label for="account_holder" class="block text-sm font-medium text-[#666] mb-1">Account holder <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="account_holder" name="account_holder" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
             </div>
             <div>
                 <label for="iban" class="block text-sm font-medium text-[#666] mb-1">IBAN <span class="text-red-600" aria-hidden="true">*</span></label>
                 <input type="text" id="iban" name="iban" required
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
             </div>
             <div>
                 <label for="bic" class="block text-sm font-medium text-[#666] mb-1">BIC / SWIFT</label>
                 <input type="text" id="bic" name="bic"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
             </div>
             <div class="sm:col-span-2">
                 <label for="reference" class="block text-sm font-medium text-[#666] mb-1">Payment reference (defaults to invoice number)</label>
                 <input type="text" id="reference" name="reference"
-                       class="w-full rounded-[10px] border border-[#ddd] px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#999]/30 focus:border-[#999]">
+                       class="w-full field">
             </div>
 
             <div class="sm:col-span-2 flex gap-3 items-center mt-2">
                 <button type="submit"
-                        class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+                        class="btn btn-primary">
                     Preview invoice
                 </button>
-                <a href="{% url 'calendar' pk=contract.pk %}" class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">Cancel</a>
+                <a href="{% url 'calendar' pk=contract.pk %}" class="btn btn-secondary">Cancel</a>
             </div>
         </form>
     </div>
@@ -258,17 +258,17 @@
             {% endcomment %}
             {% if can_store_invoices %}
             <button type="button" id="save-invoice-button"
-                    class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                    class="btn btn-primary">
                 Save invoice
             </button>
             {% endif %}
             <button type="button" id="edit-button"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                    class="btn btn-secondary">
                 Edit
             </button>
             {% if not can_store_invoices %}
             <button type="button" data-prints
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                    class="btn btn-secondary">
                 Download PDF
             </button>
             {% else %}
@@ -278,7 +278,7 @@
             {% endcomment %}
             <span title="Save the invoice to download it as a PDF.">
                 <button type="button" disabled
-                        class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] transition disabled:opacity-40">
+                        class="btn btn-secondary">
                     Download PDF
                 </button>
             </span>
@@ -335,7 +335,7 @@
             {% endcomment %}
             <button type="button" id="ksef-send-button"
                     data-confirm="Send this invoice to KSeF ({{ ksef_environment }})? It is stored as it stands, and an invoice KSeF accepts is issued and cannot be changed or deleted afterwards.{% if ksef_environment == 'PRODUCTION' %} This one has legal effect.{% endif %}"
-                    class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition disabled:opacity-40">
+                    class="btn btn-primary">
                 Send
             </button>
         </div>
