@@ -1,19 +1,30 @@
 import datetime
+import re
 
 import pytest
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
+from wad.calendar_utils import today_in_poland
 from wad.ical import ImportError as ICalImportError
 from wad.ical import (
     export_time_off,
-    export_user_time_off,
+    export_user_calendar,
     import_time_off,
     parse_external_time_off,
     parse_time_off,
 )
-from wad.models import CalendarToken, Contract, Guest, TimeOff, generate_calendar_token
+from wad.models import (
+    CalendarToken,
+    Contract,
+    ContributionHoliday,
+    Guest,
+    Seller,
+    TimeOff,
+    generate_calendar_token,
+)
+from wad.tests.clock import today_is
 
 
 class ExportTimeOffTests(TestCase):
@@ -439,12 +450,12 @@ class ExportUserTimeOffTests(TestCase):
     def test_includes_entries_from_all_contracts(self) -> None:
         TimeOff.objects.create(contract=self.contract1, date="2026-03-05", hours=8)
         TimeOff.objects.create(contract=self.contract2, date="2026-06-01", hours=4)
-        result = export_user_time_off(self.user)
+        result = export_user_calendar(self.user)
         assert "Acme - Time Off (8h)" in result
         assert "Beta Corp - Time Off (4h)" in result
 
     def test_empty_when_no_time_off(self) -> None:
-        result = export_user_time_off(self.user)
+        result = export_user_calendar(self.user)
         assert "BEGIN:VEVENT" not in result
 
     def test_excludes_other_users(self) -> None:
@@ -460,9 +471,94 @@ class ExportUserTimeOffTests(TestCase):
         )
         TimeOff.objects.create(contract=other_contract, date="2026-03-05", hours=8)
         TimeOff.objects.create(contract=self.contract1, date="2026-06-01", hours=8)
-        result = export_user_time_off(self.user)
+        result = export_user_calendar(self.user)
         assert "Secret" not in result
         assert "Acme" in result
+
+
+class ExportDeadlineTests(TestCase):
+    """The dates a year carries, in the feed: what a page states has to be gone and looked at,
+    and these are the ones that come round once a year.
+
+    Read on a named day. Which years the feed covers and which wakacje application is still
+    open both follow the clock, and a test reading the same clock the code does would say
+    something different every month.
+    """
+
+    def setUp(self) -> None:
+        self.today = datetime.date(today_in_poland().year, 5, 15)
+        self.user = User.objects.create_user(username="taxpayer")
+        self.seller = Seller.objects.create(
+            user=self.user,
+            name="AY Software Services",
+            address="ul. Przykladowa 1",
+            country="PL",
+            nip="5213870274",
+            business_started_on=datetime.date(today_in_poland().year - 3, 1, 1),
+        )
+
+    def _exported(self) -> str:
+        """The feed, unfolded: the format splits a long line and a reader puts it back."""
+        with today_is(self.today):
+            return export_user_calendar(self.user).replace("\r\n ", "")
+
+    def test_the_years_own_dates_are_events(self) -> None:
+        """The return, the file that goes with it and the health settlement, each named for
+        the taxpayer whose they are."""
+        last_year = self.today.year - 1
+
+        result = self._exported()
+
+        assert f"AY Software Services - PIT-28 for {last_year}" in result
+        assert f"AY Software Services - JPK_EWP for {last_year}" in result
+        assert "Annual health contribution settlement" in result
+
+    def test_the_wakacje_application_is_an_event(self) -> None:
+        """The one date that has to be met inside the year rather than after it: filed during
+        one particular month and not considered at any other time, so the month named is the
+        earliest still open on the day the feed is read."""
+        result = self._exported()
+
+        assert f"Wakacje składkowe application for June {self.today.year}" in result
+        assert "eZUS" in result
+
+    def test_a_year_already_over_carries_no_application(self) -> None:
+        """Last year's months cannot be applied for now, and a date already past is not one
+        to put in anybody's calendar."""
+        assert f"application for February {self.today.year - 1}" not in self._exported()
+
+    def test_a_granted_month_takes_the_application_off_the_feed(self) -> None:
+        """One a calendar year, so the year has nothing left to apply for."""
+        ContributionHoliday.objects.create(seller=self.seller, month=datetime.date(self.today.year, 3, 1))
+
+        assert "Wakacje składkowe application" not in self._exported()
+
+    def test_each_date_keeps_one_identity(self) -> None:
+        """A deadline is computed rather than stored, so the same date exported again has to
+        be the same event: a UID built from the taxpayer and what the date is for."""
+        unfolded = self._exported()
+
+        assert f"UID:{self.seller.pk}-pit-28-for-{self.today.year - 1}@workanother.day" in unfolded
+        assert unfolded.count("BEGIN:VEVENT") == len(set(re.findall(r"UID:(\S+)", unfolded)))
+
+    def test_another_users_taxpayer_is_not_in_it(self) -> None:
+        stranger = User.objects.create_user(username="stranger")
+        Seller.objects.create(
+            user=stranger,
+            name="Secret Software",
+            address="ul. Tajna 2",
+            country="PL",
+            business_started_on=datetime.date(today_in_poland().year - 1, 1, 1),
+        )
+
+        assert "Secret Software" not in self._exported()
+
+    def test_a_taxpayer_with_no_start_date_carries_no_dates(self) -> None:
+        """No month falls in a regime, so the year states nothing for the feed to publish."""
+        self.seller.business_started_on = None
+        self.seller.save()
+
+        assert "Wakacje składkowe application" not in self._exported()
 
 
 class CalendarFeedTests(TestCase):

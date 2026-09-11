@@ -1,0 +1,261 @@
+{% extends "wad/base.html" %}
+{% load explainer money %}
+{% block title %}{{ month.date|date:"F Y" }} - {{ seller.name }} - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="page mt-6 mb-8">
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'seller_list' %}">Sellers</a> /
+        <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
+        <a href="{% url 'obligations' pk=seller.pk year=year %}">Taxes {{ year }}</a> /
+        <span aria-current="page">{{ month.date|date:"F" }}</span>
+    </nav>
+
+    <div class="flex items-center justify-between flex-wrap gap-3">
+        <div>
+            <h1 class="text-[28px] font-bold tracking-tight leading-tight">{{ month.date|date:"F Y" }}</h1>
+            <div class="text-xs text-[#888] mt-1">
+                {{ seller.name }} &middot; due {{ month.due_on|date:"j F Y" }}
+                {% comment %}
+                Settled is every transfer recorded; where only one of them is, the day is the
+                day that one was recorded and says so, the month still owing the other.
+                {% endcomment %}
+                {% if month.is_settled %}&middot; settled {{ month.settled_on|date:"j F Y" }}
+                {% elif month.settled_on %}&middot; last recorded {{ month.settled_on|date:"j F Y" }}{% endif %}
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            {% include "wad/_month_status.html" %}
+            {% comment %}
+            One press for everything the month still owes, and one that takes back everything
+            recorded for it. Both act on the month rather than on a transfer: the month is what
+            a taxpayer settles, and the two transfers are made in the same sitting.
+            {% endcomment %}
+            {% if month.is_payable %}
+            {% comment %}
+            Asked about first, because what it records is that money left an account: a press
+            made before the transfer was actually sent leaves a month reading as settled that
+            nobody has paid, and the figures it keeps are the ones stated beside it.
+            {% endcomment %}
+            <form method="post" action="{% url 'payments_record' pk=seller.pk year=month.year month=month.month %}"
+                  data-confirm="Record {{ month.date|date:'F Y' }} as paid? Every transfer stated on this page goes in at the figure beside it, dated today.">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-primary">
+                    I have paid these
+                </button>
+            </form>
+            {% endif %}
+            {% if month.settled_on %}
+            <form method="post" action="{% url 'payments_remove' pk=seller.pk year=month.year month=month.month %}"
+                  data-confirm="Take {{ month.date|date:'F Y' }} off as paid? Everything recorded for it goes, of both kinds.">
+                {% csrf_token %}
+                <button type="submit"
+                        class="btn btn-danger">
+                    Remove payments
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="mt-5 grid gap-6 lg:grid-cols-2">
+        <div>
+            <div class="card-heading">
+                <h2>What the month owes</h2>
+                {% explainer "month-owes-help" %}
+                <p>
+                    Both fall due on the 20th of the month after this one, moved to the next working
+                    day where that is a Saturday or a day off. The ryczałt is on this month's
+                    revenue less the contributions art. 11 allows against it; the contributions are
+                    on a base that follows the regime, and neither of them is what was paid.
+                </p>
+                <p>
+                    Recording the payments keeps these figures as they stand now. A correction that
+                    later moves the month leaves the payment where it was, and the two are shown
+                    side by side for the disagreement to be seen.
+                </p>
+                {% endexplainer %}
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+                <table class="w-full border-collapse text-sm">
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Revenue</td>
+                        <td class="py-2 text-right money">{{ month.revenue|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Contributions deducted</td>
+                        <td class="py-2 text-right money text-[#888]">{{ month.deducted|money }}</td>
+                    </tr>
+                    {% comment %}
+                    The rounded figure, because it is the one the month declares and the one
+                    the ryczałt below was taken from. What revenue less the deduction came to
+                    is the working beneath it, so the subtraction above stays checkable.
+                    {% endcomment %}
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">
+                            Podstawa
+                            <div class="text-xs text-[#999] mt-0.5">
+                                <span class="money">{{ month.taxable|money }}</span> to whole złote, art. 63 &sect; 1
+                            </div>
+                        </td>
+                        <td class="py-2 text-right money align-top">{{ month.base|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 font-semibold">Ryczałt</td>
+                        <td class="py-2 text-right money font-semibold">
+                            {% if month.tax is not None %}{{ month.tax|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% comment %}
+                    The social components one by one: they are what a DRA is checked against,
+                    and the total on its own says nothing about which of them moved.
+                    {% endcomment %}
+                    {% if month.social %}
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Emerytalne</td>
+                        <td class="py-2 text-right money">{{ month.social.pension|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Rentowe</td>
+                        <td class="py-2 text-right money">{{ month.social.disability|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Wypadkowe</td>
+                        <td class="py-2 text-right money">{{ month.social.accident|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Chorobowe</td>
+                        <td class="py-2 text-right money">{{ month.social.sickness|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">FP + FS</td>
+                        <td class="py-2 text-right money">{{ month.social.funds|money }}</td>
+                    </tr>
+                    {% endif %}
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">Zdrowotne</td>
+                        <td class="py-2 text-right money">
+                            {% if month.health %}{{ month.health|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 font-semibold">Składki</td>
+                        <td class="py-2 text-right money font-semibold">
+                            {% if month.dra_total is not None %}{{ month.dra_total|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
+                        </td>
+                    </tr>
+                </table>
+                {% for obligation in month.obligations %}
+                {% if obligation.amount is None %}
+                <div class="notice mt-3">No {{ obligation.kind.label }} figure. {{ obligation.reason }}</div>
+                {% endif %}
+                {% endfor %}
+            </div>
+
+            {% comment %}
+            The regime the social half was worked out under, and the relief that can take four
+            of its components off. Recorded against the month claimed, because the relief is
+            one month a calendar year and this is that month.
+            {% endcomment %}
+            {% if month.social %}
+            <div class="card-heading">
+                <h2>Contribution regime</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+                <table class="w-full border-collapse text-sm">
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 text-[#888]">This month</td>
+                        <td class="py-2 text-right">
+                            {{ month.social.regime.label }}
+                            {% if month.social.exempt %}<div class="text-xs text-[#999] mt-0.5">wakacje składkowe granted</div>{% endif %}
+                        </td>
+                    </tr>
+                    <tr {% if month.social.regime != "ulga" %}class="border-b border-[#eee]"{% endif %}>
+                        <td class="py-2 text-[#888]">Base</td>
+                        <td class="py-2 text-right money">{{ month.social.base|money }}</td>
+                    </tr>
+                    {% if month.social.regime != "ulga" %}
+                    <tr>
+                        <td class="py-2 text-[#888]">Wakacje składkowe</td>
+                        <td class="py-2 text-right">
+                            <form method="post" class="inline"
+                                  action="{% if month.social.exempt %}{% url 'contribution_holiday_remove' pk=seller.pk year=month.year month=month.month %}{% else %}{% url 'contribution_holiday_record' pk=seller.pk year=month.year month=month.month %}{% endif %}">
+                                {% csrf_token %}
+                                <button type="submit" class="link text-blue-800">
+                                    {% if month.social.exempt %}take this month off it{% else %}claim it for this month{% endif %}
+                                </button>
+                            </form>
+                            <div class="text-xs text-[#999] mt-0.5">
+                                Art. 17a: one month a calendar year, on an application ZUS grants. The
+                                state pays the pension, disability, accident and sickness
+                                contributions; the health one is not covered.
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                </table>
+            </div>
+            {% endif %}
+        </div>
+
+        {% comment %}
+        Each transfer field by field, named as a bank's form names it. The ryczałt goes on a
+        przelew podatkowy whose fields become the structured title stated last; the składki
+        transfer carries no okres and no symbol, the account identifying the payer.
+        {% endcomment %}
+        <div>
+            <div class="card-heading">
+                <h2>How to pay</h2>
+            </div>
+            {% comment %}
+            Only the transfers there are. A month that billed nothing owes no ryczałt, and a
+            transfer of nothing is not one to make: stating its account and its okres beside a
+            zero would be an instruction to do something.
+            {% endcomment %}
+            <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden divide-y divide-[#f5f5f5]">
+                {% if month.tax %}
+                <div class="px-5 py-4">
+                    <div class="flex items-baseline justify-between gap-3">
+                        <div class="text-sm font-semibold text-[#222]">Urząd Skarbowy &mdash; ryczałt</div>
+                        {% if month.paid_on %}
+                        <div class="text-xs text-[#888]">recorded {{ month.paid_on|date:"j M Y" }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mt-2">{% include "wad/_ryczalt_transfer.html" %}</div>
+                </div>
+                {% endif %}
+                {% if month.dra_total %}
+                <div class="px-5 py-4">
+                    <div class="flex items-baseline justify-between gap-3">
+                        <div class="text-sm font-semibold text-[#222]">Zakład Ubezpieczeń Społecznych &mdash; składki</div>
+                        {% if month.contributions_paid_on %}
+                        <div class="text-xs text-[#888]">recorded {{ month.contributions_paid_on|date:"j M Y" }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mt-2">{% include "wad/_zus_transfer.html" %}</div>
+                </div>
+                {% endif %}
+                {% if not month.tax and not month.dra_total %}
+                <div class="px-5 py-4 text-sm text-[#666]">
+                    Nothing to transfer for this month.
+                </div>
+                {% endif %}
+            </div>
+
+            {% comment %}
+            What was recorded against this month, which is stated only where it is no longer
+            what the month owes: a correction moved the month after the transfer went.
+            {% endcomment %}
+            {% for obligation in month.obligations %}
+            {% if obligation.is_settled and obligation.paid != obligation.amount %}
+            <div class="notice mt-3">
+                The {{ obligation.kind.label }} recorded for this month is
+                <span class="money">{{ obligation.paid|money }}</span>, which is no longer what it owes.
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

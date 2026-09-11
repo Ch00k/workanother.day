@@ -6,7 +6,7 @@
     <div class="flex items-center justify-between flex-wrap gap-3">
         <h1 class="text-[28px] font-bold tracking-tight leading-tight">{{ title }}</h1>
         <a href="{{ create_url }}"
-           class="rounded-[10px] bg-[#333] text-white border-2 border-transparent px-4 py-2 text-sm font-semibold hover:opacity-90 transition">
+           class="btn btn-primary">
             Add
         </a>
     </div>
@@ -36,7 +36,7 @@
             {% endcomment %}
             {% if party.taxes_url %}
             <div class="mt-auto pt-3 flex justify-end">
-                <a class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition"
+                <a class="btn btn-secondary"
                    href="{{ party.taxes_url }}">
                     Taxes
                 </a>

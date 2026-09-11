@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-from wad.calendar_utils import is_weekend
-from wad.models import Contract, TimeOff
+from wad import obligations
+from wad.calendar_utils import is_weekend, today_in_poland
+from wad.models import POLAND, Contract, Holiday, Seller, TimeOff
 
 MAX_LINE_OCTETS = 75
 
@@ -96,8 +97,14 @@ def export_time_off(contract: Contract, time_off_entries: list[TimeOff]) -> str:
     return _calendar(contract.name, events)
 
 
-def export_user_time_off(user: User) -> str:
-    """Generate an iCalendar (.ics) file with all time-off across a user's contracts."""
+def export_user_calendar(user: User) -> str:
+    """Generate an iCalendar (.ics) file with a user's time off and the dates their years carry.
+
+    Two kinds of entry, and the second is the reason this feed is worth subscribing to: a date
+    computed on a page has to be gone and looked at, and the ones that matter most are annual -
+    the return, the file that goes with it, the health settlement, and the RWS that has to be
+    filed during one particular month or not at all.
+    """
     entries = TimeOff.objects.filter(contract__user=user).select_related("contract").order_by("date")
     events = [
         line
@@ -105,7 +112,65 @@ def export_user_time_off(user: User) -> str:
         for line in _entry_to_vevent(entry, f"{entry.contract.name} - Time Off ({entry.hours}h)")
     ]
 
-    return _calendar("Work Another Day", events)
+    return _calendar("Work Another Day", events + _deadline_events(user))
+
+
+def _deadline_events(user: User) -> list[str]:
+    """Every dated obligation of the user's taxpayers, for the year running and the one before.
+
+    Two years, because a year's own dates fall in the spring after it: this year's page is
+    what the RWS is read from, and last year's is what the return and the settlement are.
+
+    The holidays are read from what has already been fetched rather than refreshed. A calendar
+    client polls this feed on its own schedule, and a poll is no reason to go and ask
+    date.nager.at anything; a deadline that should have moved off a public holiday nobody has
+    fetched yet is a day early, which is the safe direction.
+    """
+    today = today_in_poland()
+    years = (today.year - 1, today.year)
+    holidays = {
+        holiday.date for holiday in Holiday.objects.filter(country_code=POLAND, year__in=[*years, years[-1] + 1])
+    }
+
+    dated = []
+    for seller in Seller.objects.filter(user=user):
+        for year in years:
+            schedule = obligations.schedule(seller, year, holidays, today=today)
+            dated.extend(
+                (seller, deadline)
+                for deadline in (*schedule.deadlines, schedule.holiday_application)
+                if deadline is not None
+            )
+
+    return [
+        line
+        for seller, deadline in sorted(dated, key=lambda pair: pair[1].on)
+        for line in _deadline_to_vevent(seller, deadline)
+    ]
+
+
+def _deadline_to_vevent(seller: Seller, deadline: obligations.Deadline) -> list[str]:
+    """One dated obligation as an all-day event.
+
+    A deadline is computed rather than stored, so its identity is what it is for rather than a
+    row: the same date exported again is the same event in the reader's calendar, and a figure
+    that has moved since updates it in place instead of arriving twice.
+    """
+    stated = f"{deadline.amount} PLN. " if deadline.amount is not None else ""
+
+    return [
+        "BEGIN:VEVENT",
+        f"UID:{seller.pk}-{_slug(deadline.what)}@workanother.day",
+        f"DTSTART;VALUE=DATE:{deadline.on.strftime('%Y%m%d')}",
+        f"SUMMARY:{escape(f'{seller.name} - {deadline.what}')}",
+        f"DESCRIPTION:{escape(stated + deadline.note)}",
+        "END:VEVENT",
+    ]
+
+
+def _slug(what: str) -> str:
+    """What a deadline is, as something a UID can carry."""
+    return re.sub(r"[^a-z0-9]+", "-", what.lower()).strip("-")
 
 
 class ImportError(Exception):  # noqa: A001

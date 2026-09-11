@@ -41,18 +41,18 @@ class MoneyTests(TestCase):
         assert money(D("1234.05")).endswith(".05")
 
     def test_the_decimals_are_always_there(self) -> None:
-        """A column where some rows carry them and some do not does not read as a column."""
+        """A column where some rows carry them and some do not does not read as a column.
+
+        There is no way to ask for fewer. A figure the statute rounds to whole złote - the
+        ryczałt under art. 63 § 1, the revenue thresholds art. 81 ust. 2e states - is a whole
+        number already, and printing its two zeros states it rather than inventing anything.
+        """
         assert money(D(4727)) == f"4{GAP}727.00"
         assert money(D("0")) == "0.00"
-
-    def test_a_whole_figure_can_ask_for_no_decimals(self) -> None:
-        """Art. 63 § 1 rounds the tax to whole złote, so stating two of them would be inventing."""
-        assert money(D("4727.49"), 0) == f"4{GAP}727"
-        assert money(D("300000"), 0) == f"300{GAP}000"
+        assert money(D("300000")) == f"300{GAP}000.00"
 
     def test_halves_round_up(self) -> None:
         assert money(D("8532.145")) == f"8{GAP}532.15"
-        assert money(D("4727.50"), 0) == f"4{GAP}728"
 
     def test_a_negative_amount_keeps_its_sign(self) -> None:
         """A negative exchange difference reduces revenue, and reads as one that does."""

@@ -7,20 +7,22 @@
 
     <div class="mt-5 rounded-[14px] bg-white p-5 shadow-sm border border-black/5">
         <p class="text-sm text-[#666] mb-4">
-            Subscribe to your time-off calendar from any calendar app. The feed covers every contract
-            and updates as you book days off.
+            Subscribe to your calendar from any calendar app. The feed covers every contract's days
+            off and updates as you book them, and it carries the dates your taxpayers' years carry:
+            PIT-28, the JPK_EWP that goes with it, the annual health settlement, and the wakacje
+            składkowe application, which has to go in during one particular month or not at all.
         </p>
         {% if calendar_url %}
         <div class="flex items-center gap-4 flex-wrap">
-            <a href="{{ calendar_url }}" class="text-sm text-[#666] underline underline-offset-2 break-all hover:text-[#333] transition">{{ calendar_url }}</a>
+            <a href="{{ calendar_url }}" class="link text-sm text-[#666] break-all hover:text-[#333] transition">{{ calendar_url }}</a>
             <button data-copies="{{ calendar_url }}"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition shrink-0">
+                    class="btn btn-secondary shrink-0">
                 Copy
             </button>
             <form method="post" action="{% url 'reset_calendar_token' %}" class="inline">
                 {% csrf_token %}
                 <button type="submit"
-                        class="rounded-[10px] border-2 border-red-600 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 transition">
+                        class="btn btn-danger">
                     Reset URL
                 </button>
             </form>
@@ -33,7 +35,7 @@
         <form method="post" action="{% url 'create_calendar_token' %}">
             {% csrf_token %}
             <button type="submit"
-                    class="rounded-[10px] border-2 border-[#ddd] px-4 py-2 text-sm text-[#666] hover:border-[#bbb] hover:bg-gray-100 transition">
+                    class="btn btn-secondary">
                 Generate subscription URL
             </button>
         </form>
