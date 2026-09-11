@@ -3,9 +3,8 @@ The contribution transfer, field by field as a bank's form names them. An ordina
 rather than a przelew podatkowy: it carries no okres and no symbol, the account being issued
 to the payer and identifying them by itself.
 
-Written once and included twice, the way the ryczalt one is: on the year's page, where the
-amount belongs to no month in particular, and inside a month's own dialog, where it is that
-month's. `month` is what tells the two apart.
+Included from a month's page, and only where that month states a DRA total: a transfer of an
+amount nobody could work out is not one to make.
 {% endcomment %}
 {% load money wad_filters %}
 <table class="w-full border-collapse text-sm">
@@ -26,7 +25,6 @@ month's. `month` is what tells the two apart.
     <tr class="border-b border-[#eee]">
         <td class="py-2 text-[#888] align-top">Kwota</td>
         <td class="py-2 text-right">
-            {% if month.dra_total is not None %}
             <span class="money font-semibold">{{ month.dra_total|money }}</span> PLN
             {% comment %}
             The one transfer covers the whole DRA, so what it is made of is stated under it:
@@ -43,23 +41,19 @@ month's. `month` is what tells the two apart.
             </div>
             {% if month.social.exempt %}
             <div class="text-xs text-[#999] mt-0.5">
-                wakacje składkowe: the state pays the four the relief covers, so only the funds
-                and the health contribution are transferred
+                wakacje składkowe: the state pays everything the relief covers, so only the
+                health contribution is transferred
             </div>
-            {% endif %}
-            {% else %}
-            The DRA total for the month, from the table above
             {% endif %}
         </td>
     </tr>
-    <tr {% if month %}class="border-b border-[#eee]"{% endif %}>
+    <tr class="border-b border-[#eee]">
         <td class="py-2 text-[#888] align-top">Tytuł</td>
         <td class="py-2 text-right">
             <span class="money">składki</span>
             <div class="text-xs text-[#999] mt-0.5">no okres, no symbol, no NIP: the account identifies the payer</div>
         </td>
     </tr>
-    {% if month %}
     <tr>
         <td class="py-2 text-[#888] align-top">Termin</td>
         <td class="py-2 text-right">
@@ -67,5 +61,4 @@ month's. `month` is what tells the two apart.
             <div class="text-xs text-[#999] mt-0.5">art. 47 ust. 1 pkt 4: the same day as the ryczałt</div>
         </td>
     </tr>
-    {% endif %}
 </table>

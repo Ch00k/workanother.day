@@ -116,10 +116,16 @@ def export_user_calendar(user: User) -> str:
 
 
 def _deadline_events(user: User) -> list[str]:
-    """Every dated obligation of the user's taxpayers, for the year running and the one before.
+    """Every dated obligation of the user's Polish taxpayers, for the year running and the one
+    before.
 
     Two years, because a year's own dates fall in the spring after it: this year's page is
     what the RWS is read from, and last year's is what the return and the settlement are.
+
+    Polish taxpayers only, and only years they carry months in. PIT-28, JPK_EWP and the health
+    settlement are a Polish ryczałt year's dates: a seller established elsewhere keeps no
+    ewidencja and is offered no Taxes section either, and a year the business did not exist in
+    has no return to file.
 
     The holidays are read from what has already been fetched rather than refreshed. A calendar
     client polls this feed on its own schedule, and a poll is no reason to go and ask
@@ -133,9 +139,12 @@ def _deadline_events(user: User) -> list[str]:
     }
 
     dated = []
-    for seller in Seller.objects.filter(user=user):
+    for seller in Seller.objects.filter(user=user, country=POLAND):
         for year in years:
             schedule = obligations.schedule(seller, year, holidays, today=today)
+            if not schedule.months:
+                continue
+
             dated.extend(
                 (seller, deadline)
                 for deadline in (*schedule.deadlines, schedule.holiday_application)

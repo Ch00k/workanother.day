@@ -716,7 +716,11 @@ of the year at once, so no month settles it and no month's page states it. The p
 date puts it in at the figure worked out, as a month's press does, and it deducts by the day it
 was paid — a settlement for one year paid the following May is deducted from the year it left
 the account in. A settlement coming out a refund is offered no press: money claimed back is not
-a payment, and the claim goes in the DRA.
+a payment, and the claim goes in the DRA. Neither is a year that has not ended: the band it
+settles at follows revenue right through December, the DRA carrying it is the one for the
+following April, and half of anything recorded early would be deducted from the wrong year. The
+provision is still stated during the year — that is what it is for — it is simply not yet a
+payment.
 
 The three bases move every January with the wage they are taken from, so they are data rather
 than constants — and copies of them disagree, since figures from a reform that never took
@@ -792,8 +796,8 @@ untouched, a month ceasing to state what it owes rather than ceasing to have bee
 
 **Wakacje składkowe** is the one thing here recorded rather than derived, being a choice ZUS
 grants or refuses: art. 17a frees one chosen calendar month a year of the payer's own pension,
-disability, accident and sickness contributions, the state paying them instead. It is claimed
-against the month on that month's page.
+disability, accident and sickness contributions and of FP and FS, the state paying all of them.
+It is claimed against the month on that month's page.
 
 Nothing here files the RWS — ZUS offers no filing interface a sole trader can reach — but the
 date it has to go in by is worked out and stated, because it is the one deadline that cannot be
@@ -803,13 +807,19 @@ one those insurances were owed for, which no ulga na start month is. So the earl
 year can claim is the third after its first insured month, and the year's page states the last
 day to ask for it with what the relief would be worth.
 
-The month named is the earliest one **still** open: an application month already over is not a
-deadline, so a year read in September offers October rather than the February it could once
-have had, and a year with no application month left offers nothing. It goes off the page once
-the year holds a granted month, there being one a calendar year. The base is not reduced, the health
-contribution is not covered and the funds are left standing, so a granted month still owes
-those. A month under ulga na start cannot be claimed — art. 17a ust. 1 pkt 4 asks for the
-insurances the relief leaves unpaid — and a year already holding one says which month has it.
+The months a year can offer are the ones whose application falls inside it, which is February
+to the January on the other side of it: January's own application went in last December and
+belongs to the year before's page. The month named is the earliest of them **still** open — an
+application month already over is not a deadline, so a year read in September offers October
+rather than the February it could once have had, and a year read after it has ended offers
+nothing. A year already holding a granted month has none of its own left and offers the January
+after it, that one falling in a year that holds none.
+
+The base is not reduced and the health contribution is not covered, so a granted month owes
+that and nothing else. A month under ulga na start cannot be claimed — art. 17a ust. 1 pkt 4
+asks for the insurances the relief leaves unpaid — nor can one whose own application month
+falls too early to satisfy it, which is the same test the deadline is worked out from; and a
+year already holding one says which month has it.
 
 The **ZUS due** column states the whole DRA total, the social components and the health
 contribution in one figure because one transfer settles all of it, with the health part and the

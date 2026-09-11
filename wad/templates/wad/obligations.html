@@ -106,15 +106,18 @@
                 </thead>
                 <tbody class="text-sm">
                     {% comment %}
-                    The whole row opens the month it is about, where the transfers are stated
-                    and the payments recorded. It carries tabindex and a role so a keyboard
-                    reaches it and Enter opens it, a row being nothing a browser makes
-                    focusable by itself.
+                    The month's name is a link to its page, where the transfers are stated and
+                    the payments recorded, and a click anywhere in the row follows it. The link
+                    is what a keyboard and a screen reader use; the row is a convenience for a
+                    mouse, and stays a row of the table so its cells keep their headers.
                     {% endcomment %}
                     {% for month in schedule.months %}
-                    <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa] cursor-pointer" tabindex="0" role="link"
+                    <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa] cursor-pointer"
                         data-opens-url="{% url 'month' pk=seller.pk year=month.year month=month.month %}">
-                        <td class="py-3 px-5 font-semibold">{{ month.date|date:"F" }}</td>
+                        <td class="py-3 px-5 font-semibold">
+                            <a href="{% url 'month' pk=seller.pk year=month.year month=month.month %}"
+                               class="link">{{ month.date|date:"F" }}</a>
+                        </td>
                         <td class="py-3 px-5 text-right money {% if month.revenue < 0 %}text-[#a33]{% endif %}">{{ month.revenue|money }}</td>
                         <td class="py-3 px-5 text-right money text-[#888]">{{ month.deducted|money }}</td>
                         {% comment %}

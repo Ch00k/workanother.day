@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from wad import contributions, ewidencja
 from wad.calendar_utils import is_weekend, today_in_poland
 from wad.ewidencja import GROSZ, PERCENT
-from wad.models import ContributionPayment, HealthContributionYear, Seller, SocialContributionYear, TaxPayment
+from wad.models import ContributionPayment, HealthContributionYear, Seller, TaxPayment
 
 if TYPE_CHECKING:
     from collections.abc import Container, Iterable
@@ -317,6 +317,10 @@ class Schedule:
 
     seller: Seller
     year: int
+    # The day the year is being read on, which is what decides the two things here that run
+    # out rather than standing: the wakacje application still worth stating, and whether the
+    # year is over enough for its health settlement to be a payment.
+    today: datetime.date
     months: tuple[Month, ...]
     # Empty where nobody has entered the year's published bases, in which case no health
     # figure is stated anywhere rather than one being invented.
@@ -466,11 +470,15 @@ class Schedule:
     def settlement_payable(self) -> bool:
         """Whether the annual health settlement is a payment this application can state.
 
+        Not before the year has ended. The band the year settles at follows revenue right
+        through December, so a provision worked out inside the year is a figure that can still
+        move, and the DRA it is declared in is the one for the following April.
+
         A year nobody could place in a band states no figure at all. A settlement coming out
         negative or nil is not a payment either: a refund is money claimed back rather than
         sent, and it has to be claimed in the DRA, which nothing here does.
         """
-        return self.bracket is not None and self.health_provision > ZERO
+        return self.year < self.today.year and self.bracket is not None and self.health_provision > ZERO
 
 
 def schedule(
@@ -482,9 +490,10 @@ def schedule(
 ) -> Schedule:
     """Build a taxpayer's year of obligations.
 
-    `today` decides one thing only: which wakacje składkowe application is still worth
-    stating, that being the one date here that can run out during the year rather than at the
-    end of it. It is a parameter so a caller can name the day, the pages doing so through
+    `today` decides the two things here that turn on the day rather than on the year: which
+    wakacje składkowe application is still worth stating, that being the one date here that can
+    run out during the year, and whether the year is over enough for its health settlement to
+    be a payment. It is a parameter so a caller can name the day, the pages doing so through
     their own clock.
 
     Revenue comes from the register, so the two agree by construction: an invoice enters both
@@ -494,6 +503,8 @@ def schedule(
     Where they start is `_first_month`, and it is what the health settlement counts months
     from.
     """
+    day = today or today_in_poland()
+
     register = ewidencja.register(seller, year)
     rates = register.rates
 
@@ -502,7 +513,11 @@ def schedule(
     settled, settled_on = _tax_paid(seller, year)
     contributed, contributed_on = _contributions_settled(seller, year)
     brackets = brackets_for(year)
-    wages = SocialContributionYear.objects.filter(year=year).exists()
+
+    # Read once for the whole loop below: neither the year's wages nor the months ZUS granted
+    # move between its months, and asking per month is a query a month for one row and one
+    # small table - which the calendar feed then pays for a schedule at a time.
+    published = contributions.Year.read(seller, year)
 
     first = _first_month(seller, year)
 
@@ -538,7 +553,7 @@ def schedule(
         cumulative += earned - social.get(month, ZERO)
         band = _band(brackets, cumulative, reached=band)
 
-        owed = contributions.social(seller, year, month)
+        owed = contributions.social(seller, year, month, published)
 
         months.append(
             Month(
@@ -560,7 +575,7 @@ def schedule(
                     datetime.date(year, month, 1),
                     owed=owed,
                     bases=bool(brackets),
-                    wages=wages,
+                    wages=published.announced is not None,
                 ),
                 due_on=working_day(_payment_date(year, month), holidays),
             )
@@ -572,6 +587,7 @@ def schedule(
     built = Schedule(
         seller=seller,
         year=year,
+        today=day,
         months=tuple(months),
         brackets=brackets,
         rate=rate,
@@ -586,7 +602,7 @@ def schedule(
     return dataclasses.replace(
         built,
         deadlines=_deadlines(built, holidays),
-        holiday_application=_holiday_application(seller, built, today or today_in_poland()),
+        holiday_application=_holiday_application(seller, built, published),
     )
 
 
@@ -666,54 +682,89 @@ def _deadlines(built: Schedule, holidays: Container[datetime.date]) -> tuple[Dea
     )
 
 
-def _holiday_application(seller: Seller, built: Schedule, today: datetime.date) -> Deadline | None:
-    """The last day the RWS for this year's earliest claimable month can be filed.
+def _holiday_application(seller: Seller, built: Schedule, published: contributions.Year) -> Deadline | None:
+    """The last day an RWS filed during this year can go in, and the month it claims.
 
     Art. 17a: one calendar month a year is free of the payer's own pension, disability,
-    accident and sickness contributions, the state paying them instead, on an application ZUS
-    grants. It is filed **during the month before the month claimed** and at no other time,
-    and ust. 1 pkt 4 asks that the month before the application was one those insurances were
-    owed for - which no ulga na start month is. So the earliest month a year can claim is the
-    third one after its first insured month, and this is the last day to ask for it.
+    accident and sickness contributions and of FP and FS, the state paying all of them, on an
+    application ZUS grants. It is filed **during the month before the month claimed** and at
+    no other time, and ust. 1 pkt 4 asks that the month before the application was one those
+    insurances were owed for - which no ulga na start month is. So the earliest month a year
+    can claim is the third one after its first insured month, and this is the last day to ask
+    for it.
 
-    The month named is the earliest one that can **still** be applied for, because an
-    application month already over is not a deadline: a year being read in September offers
-    October, and a year whose months have all gone offers nothing at all. A later month than
-    the earliest is claimed the same way, by applying during the month before it, which the
-    note says.
+    The months on offer are the ones whose application falls inside this year, which is
+    February to January of the year after: January's own application went in last December and
+    belongs to the year before's page, and next January's goes in this December and belongs to
+    this one. The month named is the earliest of them that can **still** be applied for,
+    because an application month already over is not a deadline: a year being read in September
+    offers October, and a year whose application months have all gone offers nothing at all. A
+    later month than the earliest is claimed the same way, by applying during the month before
+    it, which the note says.
 
-    Nothing, too, where the year already holds a granted month, one being the limit.
+    Nothing, too, for a month whose own calendar year already holds a granted one, one a year
+    being the limit.
     """
-    if seller.contribution_holidays.filter(month__year=built.year).exists():  # ty: ignore[unresolved-attribute]
-        return None
+    granted = {
+        month.year
+        for month in seller.contribution_holidays.filter(  # ty: ignore[unresolved-attribute]
+            month__year__in=(built.year, built.year + 1)
+        ).values_list("month", flat=True)
+    }
 
     claimed = next(
-        (month for month in built.months if _is_claimable(seller, month) and month.date - DAY >= today),
+        (
+            month
+            for month in _application_months(built)
+            if month.year not in granted and is_claimable(seller, month) and month - DAY >= built.today
+        ),
         None,
     )
     if claimed is None:
         return None
 
+    # The year already read, where the month claimed falls in it. The January after it is the
+    # one case that has to go and look, its wages and its granted months being a year further on.
+    owed = contributions.social(
+        seller,
+        claimed.year,
+        claimed.month,
+        published if claimed.year == built.year else None,
+    )
+
     return Deadline(
         # The last day of the month before it, and not moved off a weekend: the RWS goes in
         # through eZUS, which is not an office with opening hours.
-        on=claimed.date - DAY,
-        what=f"Wakacje składkowe application for {claimed.date:%B %Y}",
+        on=claimed - DAY,
+        what=f"Wakacje składkowe application for {claimed:%B %Y}",
         note=(
             "One calendar month a year, art. 17a: the state pays the pension, disability, accident and "
-            "sickness contributions for it, the health one is not covered and the base is not reduced. "
-            f"The RWS goes in through eZUS during {_application_month(claimed.date):%B %Y} and at no other "
-            "time; a later month is claimed by applying during the month before it. The amount is what the "
-            "relief takes off that month, which is why it is negative. Nothing here files it - record the "
-            "month once ZUS has granted it."
+            "sickness contributions and FP and FS for it, the health one is not covered and the base is "
+            f"not reduced. The RWS goes in through eZUS during {_application_month(claimed):%B %Y} and at "
+            "no other time; a later month is claimed by applying during the month before it. The amount is "
+            "what the relief takes off that month, which is why it is negative. Nothing here files it - "
+            "record the month once ZUS has granted it."
         ),
         # Negative: the month's social contributions are what stops going out, not what does.
-        amount=-claimed.social.total if claimed.social else None,
+        amount=-owed.total if owed else None,
     )
 
 
-def _is_claimable(seller: Seller, month: Month) -> bool:
-    """Whether a month can be the one claimed, the application falling inside the same year.
+def _application_months(built: Schedule) -> tuple[datetime.date, ...]:
+    """The months an RWS filed during this year can claim, earliest first.
+
+    The year's own months from February, and January of the year after: a month is claimed by
+    applying during the month before it, so those are the claims whose application month falls
+    inside this year.
+    """
+    return (
+        *(month.date for month in built.months if month.month > 1),
+        datetime.date(built.year + 1, 1, 1),
+    )
+
+
+def is_claimable(seller: Seller, claimed: datetime.date) -> bool:
+    """Whether a month can be the one wakacje składkowe is claimed for.
 
     Two months have to be insured for it: the month itself, a granted month being one that
     would otherwise owe the contributions, and the month before the application, which is
@@ -723,12 +774,9 @@ def _is_claimable(seller: Seller, month: Month) -> bool:
     a year whose wages nobody has entered yet still has a month it can apply for, and the
     deadline states no amount rather than no date.
     """
-    if month.month < 2:
-        return False
-
     regimes = (
-        contributions.regime_on(seller, month.date),
-        contributions.regime_on(seller, _shifted(month.date, -2)),
+        contributions.regime_on(seller, claimed),
+        contributions.regime_on(seller, _shifted(claimed, -2)),
     )
 
     return all(regime is not None and regime is not contributions.Regime.ULGA for regime in regimes)

@@ -527,11 +527,15 @@ class ExportDeadlineTests(TestCase):
         to put in anybody's calendar."""
         assert f"application for February {self.today.year - 1}" not in self._exported()
 
-    def test_a_granted_month_takes_the_application_off_the_feed(self) -> None:
-        """One a calendar year, so the year has nothing left to apply for."""
+    def test_a_granted_month_leaves_only_the_january_after_it(self) -> None:
+        """One a calendar year, so none of this year's own months is left to apply for. What
+        remains is the January on the other side of it, applied for during December."""
         ContributionHoliday.objects.create(seller=self.seller, month=datetime.date(self.today.year, 3, 1))
 
-        assert "Wakacje składkowe application" not in self._exported()
+        result = self._exported()
+
+        assert f"application for June {self.today.year}" not in result
+        assert f"Wakacje składkowe application for January {self.today.year + 1}" in result
 
     def test_each_date_keeps_one_identity(self) -> None:
         """A deadline is computed rather than stored, so the same date exported again has to
@@ -554,11 +558,30 @@ class ExportDeadlineTests(TestCase):
         assert "Secret Software" not in self._exported()
 
     def test_a_taxpayer_with_no_start_date_carries_no_dates(self) -> None:
-        """No month falls in a regime, so the year states nothing for the feed to publish."""
+        """No month falls in a regime, so the year holds none, and a year the business is not
+        known to have existed in has no return to file and no settlement to pay."""
         self.seller.business_started_on = None
         self.seller.save()
 
-        assert "Wakacje składkowe application" not in self._exported()
+        result = self._exported()
+
+        assert "Wakacje składkowe application" not in result
+        assert "PIT-28" not in result
+        assert "JPK_EWP" not in result
+        assert "Annual health contribution settlement" not in result
+
+    def test_a_taxpayer_established_elsewhere_carries_no_polish_dates(self) -> None:
+        """PIT-28, JPK_EWP and the health settlement are a Polish ryczałt year's. A seller
+        established elsewhere keeps no ewidencja and is offered no Taxes section either, so a
+        feed reminding them to file one would be the only place the application said otherwise."""
+        Seller.objects.create(
+            user=self.user,
+            name="AY Software Services BV",
+            address="Keizersgracht 1, Amsterdam",
+            country="NL",
+        )
+
+        assert "AY Software Services BV" not in self._exported()
 
 
 class CalendarFeedTests(TestCase):

@@ -250,9 +250,9 @@ class ContributionHoliday(models.Model):
     """A month ZUS granted wakacje składkowe for, art. 17a ustawy o sus.
 
     On application, one calendar month a year is free of the payer's own pension, disability,
-    accident and sickness contributions, the state paying them instead. The base is not
-    pro-rated - it stays the lowest one applicable to the payer - and the health contribution
-    is not covered, so a granted month still owes it in full.
+    accident and sickness contributions and of FP and FS, the state paying all of them. The
+    base is not pro-rated - it stays the lowest one applicable to the payer - and the health
+    contribution is not covered, so a granted month still owes it in full.
 
     Dated rather than derived, unlike everything on the seller: which month is claimed is a
     choice made in an application ZUS grants or refuses, and no rule produces it. One a year is
