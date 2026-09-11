@@ -2487,24 +2487,27 @@ def payments_record(request: HttpRequest, pk: str, year: int, month: int) -> Htt
 
     A month with nothing to state a figure for is refused, and so is one where everything
     payable is already recorded. A month with one of the two recorded is neither: the missing
-    one is recorded and the press succeeds. The refusals are checks here rather than
-    constraints on the tables, so two submissions racing each other can both get past them.
+    one is recorded and the press succeeds. What is already recorded is read and the rows
+    written inside one transaction, which on this database begins by taking the write lock, so
+    a second submission arriving while the first is in flight waits for it and then sees what
+    it wrote - rather than both reading an unpaid month and recording it twice.
     """
     seller = _owned_seller(request, pk)
 
-    # Without holidays, which shift the due dates and bear on no figure: what is wanted here
-    # are the month's amounts.
-    schedule = obligations.schedule(seller, year, set())
+    with transaction.atomic():
+        # Without holidays, which shift the due dates and bear on no figure: what is wanted
+        # here are the month's amounts.
+        schedule = obligations.schedule(seller, year, set())
 
-    due = next((each for each in schedule.months if each.month == month), None)
-    if due is None or not any(obligation.amount for obligation in due.obligations):
-        return HttpResponse("Nothing is due for that month.", status=400)
+        due = next((each for each in schedule.months if each.month == month), None)
+        if due is None or not any(obligation.amount for obligation in due.obligations):
+            return HttpResponse("Nothing is due for that month.", status=400)
 
-    payable = [obligation for obligation in due.obligations if obligation.is_payable]
-    if not payable:
-        return HttpResponse("That month is already recorded as paid.", status=409)
+        payable = [obligation for obligation in due.obligations if obligation.is_payable]
+        if not payable:
+            return HttpResponse("That month is already recorded as paid.", status=409)
 
-    _record_payments(seller, due, payable)
+        _record_payments(seller, due, payable)
 
     return redirect("month", pk=seller.pk, year=year, month=month)
 
@@ -2543,9 +2546,11 @@ def contribution_holiday_record(request: HttpRequest, pk: str, year: int, month:
     sickness contributions, which the state pays instead; the health contribution is not
     covered and the base is not reduced.
 
-    Two refusals. A month under ulga na start cannot be claimed, ust. 1 pkt 4 requiring the
-    payer to have been subject to those insurances in the month before the application. And
-    one month a calendar year is the limit, so a year that already holds one says which.
+    Two refusals, and they are the ones the deadline is worked out from: a month has to be one
+    art. 17a can be claimed for at all, which `obligations.is_claimable` decides for both, and
+    one month a calendar year is the limit, so a year that already holds one says which. The
+    year is read and the row written inside one transaction, so two presses racing each other
+    cannot leave the year holding two.
     """
     seller = _owned_seller(request, pk)
 
@@ -2554,22 +2559,23 @@ def contribution_holiday_record(request: HttpRequest, pk: str, year: int, month:
     except ValueError:
         return HttpResponse("There is no such month.", status=400)
 
-    regime = contributions.regime_on(seller, granted)
-    if regime is None:
+    if contributions.regime_on(seller, granted) is None:
         return HttpResponse("The business had not started by that month.", status=400)
 
-    if regime is contributions.Regime.ULGA:
+    if not obligations.is_claimable(seller, granted):
         return HttpResponse(
-            "Wakacje składkowe cannot be claimed for a month under ulga na start: art. 17a ust. 1 pkt 4 "
-            "asks for the insurances the relief leaves unpaid.",
+            "Wakacje składkowe cannot be claimed for that month: art. 17a ust. 1 pkt 4 asks that the payer "
+            "was subject to those insurances in the month before the application, which is two months "
+            "before the month claimed, and no ulga na start month is.",
             status=400,
         )
 
-    claimed = seller.contribution_holidays.filter(month__year=year).exclude(month=granted).first()  # ty: ignore[unresolved-attribute]
-    if claimed is not None:
-        return HttpResponse(f"{claimed.month:%B %Y} already holds this year's wakacje składkowe.", status=409)
+    with transaction.atomic():
+        claimed = seller.contribution_holidays.filter(month__year=year).exclude(month=granted).first()  # ty: ignore[unresolved-attribute]
+        if claimed is not None:
+            return HttpResponse(f"{claimed.month:%B %Y} already holds this year's wakacje składkowe.", status=409)
 
-    ContributionHoliday.objects.get_or_create(seller=seller, month=granted)
+        ContributionHoliday.objects.get_or_create(seller=seller, month=granted)
 
     return redirect("month", pk=seller.pk, year=year, month=month)
 
@@ -2788,26 +2794,31 @@ def settlement_record(request: HttpRequest, pk: str, year: int) -> HttpResponse:
     it settles.
 
     A settlement that comes out a refund is refused: money claimed back is not a payment, and
-    the claim is made in the DRA rather than here.
+    the claim is made in the DRA rather than here. So is a year that has not ended - the band
+    it settles at follows revenue to December, the DRA carrying it is the one for the following
+    April, and half of what went in here would be deducted from the wrong year besides.
     """
     seller = _owned_seller(request, pk)
 
-    # Without holidays, which shift the date and bear on no figure: what is wanted is the
-    # provision.
-    schedule = obligations.schedule(seller, year, set())
+    paid_on = today_in_poland()
 
-    if not schedule.settlement_payable:
-        return HttpResponse("There is no settlement to pay for that year.", status=400)
+    with transaction.atomic():
+        # Without holidays, which shift the date and bear on no figure: what is wanted is the
+        # provision, and whether the year is over enough for it to be one.
+        schedule = obligations.schedule(seller, year, set(), today=paid_on)
 
-    if seller.contribution_payments.filter(settles_year=year).exists():  # ty: ignore[unresolved-attribute]
-        return HttpResponse("That settlement is already recorded as paid.", status=409)
+        if not schedule.settlement_payable:
+            return HttpResponse("There is no settlement to pay for that year.", status=400)
 
-    ContributionPayment.objects.create(
-        seller=seller,
-        settles_year=year,
-        paid_on=today_in_poland(),
-        health=schedule.health_provision,
-    )
+        if seller.contribution_payments.filter(settles_year=year).exists():  # ty: ignore[unresolved-attribute]
+            return HttpResponse("That settlement is already recorded as paid.", status=409)
+
+        ContributionPayment.objects.create(
+            seller=seller,
+            settles_year=year,
+            paid_on=paid_on,
+            health=schedule.health_provision,
+        )
 
     return redirect("obligations", pk=seller.pk, year=year)
 

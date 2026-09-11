@@ -14,6 +14,8 @@ from unittest import TestCase as PlainTestCase
 
 import pytest
 from django.contrib.auth.models import User
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
 
 from wad import contributions, nrb, obligations
@@ -575,20 +577,39 @@ class DeadlineStateTests(ScheduleTestCase):
 
 
 class SettlementPayableTests(ScheduleTestCase):
-    """Whether the settlement is a payment this application can state a press for."""
+    """Whether the settlement is a payment this application can state a press for.
+
+    Read in the May after the year, which is when it falls due. A year still running is the
+    case below: the band follows revenue to December, so its provision is not a figure to pay.
+    """
+
+    def _settlement(self) -> obligations.Schedule:
+        return self._schedule(today=datetime.date(YEAR + 1, 5, 1))
 
     def test_a_settlement_that_charges_something_is_payable(self) -> None:
         self._issued(1)
         self._issued(2)
 
-        assert self._schedule().settlement_payable
+        assert self._settlement().settlement_payable
+
+    def test_a_year_that_has_not_ended_is_not_payable(self) -> None:
+        """The provision is worked out all the same - it is what the crossing already costs -
+        but it is not a payment: December's revenue can still move the band, and the DRA that
+        declares it is the one for the April after."""
+        self._issued(1)
+        self._issued(2)
+
+        schedule = self._schedule(today=datetime.date(YEAR, 12, 31))
+
+        assert schedule.health_provision > 0
+        assert not schedule.settlement_payable
 
     def test_a_settlement_coming_out_a_refund_is_not_a_payment(self) -> None:
         """Money claimed back is claimed in the DRA rather than sent, so there is nothing to record."""
         self._issued(1)
         self._paid_zus(datetime.date(YEAR, 2, 10), social="200000.00")
 
-        schedule = self._schedule()
+        schedule = self._settlement()
 
         assert schedule.health_provision <= 0
         assert not schedule.settlement_payable
@@ -597,7 +618,30 @@ class SettlementPayableTests(ScheduleTestCase):
         HealthContributionYear.objects.all().delete()
         self._issued(3)
 
-        assert not self._schedule().settlement_payable
+        assert not self._settlement().settlement_payable
+
+
+class ScheduleQueryTests(ScheduleTestCase):
+    """What a schedule costs to build, which is worth holding down for one caller in particular.
+
+    The calendar feed builds one per taxpayer per year for two years, on a poll no person asked
+    for and an endpoint a calendar client hits on its own schedule. Anything read once a month
+    inside the loop is paid twelve times over there for a row that never changes.
+    """
+
+    def test_the_years_wages_and_granted_months_are_read_once_for_the_whole_year(self) -> None:
+        """Both are year-wide: the announced wages are one row and the granted months at most
+        one. Read per month, a twelve-month schedule pays twenty-four queries for them."""
+        self._issued(3)
+
+        with CaptureQueriesContext(connection) as captured:
+            schedule = self._schedule()
+
+        statements = [query["sql"].lower() for query in captured.captured_queries]
+        assert len(schedule.months) == 12
+        assert sum("socialcontributionyear" in sql for sql in statements) == 1
+        # The months of the year, and then the years a claim could still fall in.
+        assert sum("contributionholiday" in sql for sql in statements) == 2
 
 
 class ContributionDueTests(ScheduleTestCase):
@@ -1022,11 +1066,31 @@ class HolidayApplicationTests(ScheduleTestCase):
 
         assert self._schedule().holiday_application is None
 
-    def test_a_year_that_already_holds_a_granted_month_states_no_date(self) -> None:
-        """One a calendar year, so there is nothing left to apply for."""
+    def test_a_year_that_already_holds_a_granted_month_skips_to_the_next_year_s(self) -> None:
+        """One a calendar year, so none of this year's months is left to apply for. The January
+        after it falls in a year holding none, and its application still goes in this December."""
         ContributionHoliday.objects.create(seller=self.seller, month=datetime.date(YEAR, 3, 1))
 
-        assert self._schedule().holiday_application is None
+        application = self._schedule().holiday_application
+
+        assert application is not None
+        assert application.on == datetime.date(YEAR, 12, 31)
+        assert f"for January {YEAR + 1}" in application.what
+
+    def test_a_january_is_claimed_by_applying_during_the_december_before_it(self) -> None:
+        """Art. 17a ust. 1 pkt 4 tests the month before the application, which for a January
+        claim is November - so a continuously insured taxpayer can have January, and the only
+        window for asking falls in the year before it."""
+        application = self._schedule(today=datetime.date(YEAR, 12, 1)).holiday_application
+
+        assert application is not None
+        assert application.on == datetime.date(YEAR, 12, 31)
+        assert f"for January {YEAR + 1}" in application.what
+
+    def test_a_year_already_over_has_no_application_month_left(self) -> None:
+        """Every month it could have claimed was applied for during it, so a year read after
+        it states no date at all."""
+        assert self._schedule(today=datetime.date(YEAR + 1, 2, 1)).holiday_application is None
 
     def test_the_date_is_not_moved_off_a_weekend(self) -> None:
         """Art. 12 § 5 moves a term ending at an office; the RWS goes in through eZUS, which
@@ -1290,17 +1354,30 @@ class HolidayApplicationPageTests(PageTestCase):
         self.assertContains(response, "Wakacje składkowe application for October")
         self.assertNotContains(response, "application for February")
 
-    def test_a_year_with_no_application_month_left_states_nothing(self) -> None:
-        """December's is filed during November, so a year read in December offers nothing:
-        a date already past is not a deadline."""
+    def test_a_year_read_in_december_offers_the_january_after_it(self) -> None:
+        """December's own application went in during November, but January's goes in during
+        December: the last claim a year can carry is the January on the other side of it."""
         with today_is(datetime.date(YEAR, 12, 1)):
+            response = self._page()
+
+        self.assertContains(response, f"Wakacje składkowe application for January {YEAR + 1}")
+
+    def test_a_year_already_over_states_nothing(self) -> None:
+        """Every application month it carries has gone, and a date already past is not a
+        deadline."""
+        with today_is(datetime.date(YEAR + 1, 2, 1)):
             self.assertNotContains(self._page(), "Wakacje składkowe application")
 
-    def test_a_year_that_already_holds_a_granted_month_states_nothing(self) -> None:
+    def test_a_year_that_already_holds_a_granted_month_states_none_of_its_own(self) -> None:
+        """One a calendar year, so what is left is the January after it, which falls in a year
+        holding none."""
         ContributionHoliday.objects.create(seller=self.seller, month=datetime.date(YEAR, 3, 1))
 
         with today_is(datetime.date(YEAR, 1, 5)):
-            self.assertNotContains(self._page(), "Wakacje składkowe application")
+            response = self._page()
+
+        self.assertNotContains(response, f"application for February {YEAR}")
+        self.assertContains(response, f"Wakacje składkowe application for January {YEAR + 1}")
 
 
 class ContributionColumnTests(PageTestCase):
@@ -1349,12 +1426,13 @@ class ContributionColumnTests(PageTestCase):
         self.assertContains(response, money(LOWER_AMOUNT * 12))
 
     def test_a_granted_month_shows_what_is_left_of_the_social_half(self) -> None:
-        """Four of its components have fallen away, which the month's page explains."""
+        """The whole of it has fallen away, the state paying the four insurances and the two
+        funds alike, which the month's page explains. Only the health half is still owed."""
         ContributionHoliday.objects.create(seller=self.seller, month=datetime.date(YEAR, 3, 1))
 
         response = self._page()
 
-        self.assertContains(response, money(D("138.47")))
+        self.assertContains(response, money(D("0.00")))
         self.assertContains(self._month_page(3), "wakacje składkowe")
 
     def test_the_column_carries_no_control_of_its_own(self) -> None:
@@ -1381,13 +1459,23 @@ class MonthPageTests(PageTestCase):
     """The month's own page, which is where a month is read in full and acted on."""
 
     def test_a_row_opens_the_month_it_is_about(self) -> None:
-        """The whole row, and reachable by keyboard: it is focusable and says it is a link."""
+        """The month's name is a real link, which is what a keyboard follows, and the row
+        carries the same destination for a mouse to click anywhere in."""
         self._issued(3)
 
         response = self._page()
 
         self.assertContains(response, f'data-opens-url="{self._month_url(3)}"')
-        self.assertContains(response, 'tabindex="0" role="link"')
+        self.assertContains(response, f'<a href="{self._month_url(3)}"')
+
+    def test_a_row_stays_a_row_of_the_table(self) -> None:
+        """Overriding the implicit role of a `tr` takes its cells out of the table for a
+        screen reader, and the Status, Ryczałt and ZUS columns are what the table is for."""
+        self._issued(3)
+
+        response = self._page()
+
+        self.assertNotContains(response, 'role="link"')
 
     def test_the_month_states_what_it_owes_and_what_it_is_worked_out_from(self) -> None:
         self._issued(3)
@@ -2008,7 +2096,8 @@ class AnnualFigureTests(PageTestCase):
         )
 
     def test_a_granted_month_is_recorded_and_falls_away(self) -> None:
-        """The four contributions the state pays go, the funds and the health one stay."""
+        """The whole social half goes, FP and FS with the four insurances, and the health
+        contribution is all the month still owes."""
         response = self._claim(3)
 
         self.assertRedirects(response, self._month_url(3))
@@ -2017,7 +2106,22 @@ class AnnualFigureTests(PageTestCase):
         march = self._month(3)
         assert march.social is not None
         assert march.social.exempt
-        assert march.dra_total == march.social.funds + LOWER_AMOUNT
+        assert march.social.total == D(0)
+        assert march.dra_total == LOWER_AMOUNT
+
+    def test_a_month_the_deadline_cannot_offer_is_refused(self) -> None:
+        """One predicate for the date and for the press. Started in January under ulga na
+        start through June, July is the first insured month and September the first claimable
+        one: August is insured itself but the month before its application is not."""
+        self.seller.business_started_on = datetime.date(YEAR, 1, 1)
+        self.seller.ulga_na_start = True
+        self.seller.save()
+
+        response = self._claim(8)
+
+        assert response.status_code == 400
+        assert not ContributionHoliday.objects.exists()
+        assert obligations.is_claimable(self.seller, datetime.date(YEAR, 9, 1))
 
     def test_a_month_under_ulga_na_start_is_refused(self) -> None:
         """Art. 17a ust. 1 pkt 4 asks for the insurances the relief leaves unpaid."""
@@ -2137,6 +2241,18 @@ class SettlementRecordTests(PageTestCase):
 
         assert self._record_settlement().status_code == 409
         assert ContributionPayment.objects.filter(settles_year=YEAR).count() == 1
+
+    def test_a_year_that_has_not_ended_cannot_be_settled(self) -> None:
+        """The band the year settles at follows revenue to December, so a provision recorded
+        inside the year is a figure that can still move - and it would go in against a DRA for
+        an April that has not arrived, with half of it deducted from the wrong year."""
+        self._payable_year()
+
+        with today_is(datetime.date(YEAR, 9, 11)):
+            response = self._record_settlement()
+
+        assert response.status_code == 400
+        assert not ContributionPayment.objects.filter(settles_year=YEAR).exists()
 
     def test_a_settlement_that_comes_out_a_refund_has_nothing_to_record(self) -> None:
         self._issued(1)

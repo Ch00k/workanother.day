@@ -41,15 +41,16 @@
             </thead>
             <tbody class="text-sm">
                 {% comment %}
-                The whole row opens the invoice, as a month's row opens the month. It carries
-                tabindex and a role so a keyboard reaches it and Enter opens it, a row being
-                nothing a browser makes focusable by itself.
+                The number is a link to the invoice, as a month's name is to the month, and a
+                click anywhere in the row follows it. The link is what a keyboard and a screen
+                reader use; the row is a convenience for a mouse.
                 {% endcomment %}
                 {% for invoice in invoices %}
-                <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa] cursor-pointer" tabindex="0" role="link"
+                <tr class="border-b border-[#f5f5f5] hover:bg-[#fafafa] cursor-pointer"
                     data-opens-url="{% url 'invoice_detail' pk=invoice.pk %}">
                     <td class="py-3 px-5">
-                        <span class="font-semibold">{{ invoice.number }}</span>
+                        <a href="{% url 'invoice_detail' pk=invoice.pk %}"
+                           class="link font-semibold">{{ invoice.number }}</a>
                         {% comment %}
                         A correction says what it corrects rather than only carrying KOR in its
                         number, because which invoice it belongs to is the thing being looked for.

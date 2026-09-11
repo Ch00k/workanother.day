@@ -231,12 +231,40 @@ class Social:
         return self.pension + self.disability + self.accident + self.sickness + self.funds
 
 
-def social(seller: Seller, year: int, month: int) -> Social | None:
+@dataclasses.dataclass(frozen=True)
+class Year:
+    """The two year-wide facts every month of a year is worked out from.
+
+    Read once and handed to `social`, because a caller working out a whole year works out
+    twelve months and neither of these moves between them: the wages are one row and the
+    granted months a handful at most.
+    """
+
+    # The wages the year's bases follow, or nothing where nobody has entered them.
+    announced: SocialContributionYear | None
+    # The first of every month ZUS granted wakacje składkowe for, one a year being the limit.
+    granted: frozenset[datetime.date]
+
+    @classmethod
+    def read(cls, seller: Seller, year: int) -> Year:
+        """Read a year as it bears on one taxpayer's months."""
+        return cls(
+            announced=SocialContributionYear.objects.filter(year=year).first(),
+            granted=frozenset(
+                seller.contribution_holidays.filter(month__year=year).values_list("month", flat=True)  # ty: ignore[unresolved-attribute]
+            ),
+        )
+
+
+def social(seller: Seller, year: int, month: int, published: Year | None = None) -> Social | None:
     """What the month's social contributions come to, or nothing where they cannot be worked out.
 
     Nothing where the business had not started by the month, where nobody has entered the
     wages the year's bases come from, or where the month is one art. 18 ust. 9 charges on part
     of a base - see `_is_partial`.
+
+    `published` is the year read once, for a caller asking about several of its months. One is
+    read here where none is given.
     """
     first = datetime.date(year, month, 1)
 
@@ -259,25 +287,26 @@ def social(seller: Seller, year: int, month: int) -> Social | None:
             exempt=False,
         )
 
-    announced = SocialContributionYear.objects.filter(year=year).first()
+    if published is None:
+        published = Year.read(seller, year)
+
+    announced = published.announced
     if announced is None or _is_partial(seller, first):
         return None
 
     base = announced.preferential_base_in(first) if regime is Regime.PREFERENTIAL else announced.full_base
-    exempt = seller.contribution_holidays.filter(month=first).exists()  # ty: ignore[unresolved-attribute]
+    exempt = first in published.granted
 
-    # Art. 17a names pension, disability, accident and chorobowe, and leaves the funds
-    # standing. They are not owed on a base below the minimum wage in any case, which is every
-    # base a granted month can currently carry.
-    funds = contribution(base, FUNDS_RATE) if base >= announced.minimum_wage_in(first) else ZERO
-
+    # Art. 17a ust. 1 frees the month of the four insurances and of FP and FS alike, the state
+    # paying all of them; only the health contribution is left for the payer to transfer.
     if exempt:
-        pension = disability = accident = sickness = ZERO
+        pension = disability = accident = sickness = funds = ZERO
     else:
         pension = contribution(base, PENSION_RATE)
         disability = contribution(base, DISABILITY_RATE)
         accident = contribution(base, seller.accident_rate)
         sickness = contribution(base, SICKNESS_RATE) if seller.chorobowe else ZERO
+        funds = contribution(base, FUNDS_RATE) if base >= announced.minimum_wage_in(first) else ZERO
 
     return Social(
         regime=regime,

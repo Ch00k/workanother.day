@@ -78,9 +78,10 @@
             return;
         }
 
-        // A row that stands for a link: the whole of it opens what it names. Anything inside
-        // it that acts on its own - a link, a button, a form - is left to do so, and a
-        // selection being dragged out of the row is not a click on it.
+        // A row whose first cell holds a link: a click anywhere in it follows that link, as a
+        // mouse convenience over the link itself. Anything inside it that acts on its own - a
+        // link, a button, a form - is left to do so, and a selection being dragged out of the
+        // row is not a click on it.
         const row = event.target.closest('[data-opens-url]');
         if (row && !event.target.closest('a, button, input, label, form') && !window.getSelection().toString()) {
             window.location.assign(row.dataset.opensUrl);
@@ -108,17 +109,6 @@
             });
         }
         byId(opener.dataset.opens).showModal();
-    });
-
-    // Enter opens a row the same way a click on it does, which is what makes a row reachable
-    // by keyboard: it is focusable and says it is a link, so it has to act like one.
-    document.addEventListener('keydown', event => {
-        if (event.key !== 'Enter') return;
-
-        const row = event.target.closest('[data-opens-url]');
-        if (row && event.target === row) {
-            window.location.assign(row.dataset.opensUrl);
-        }
     });
 
     // Escape puts the reader back on the mark they opened, which is where they were.

@@ -362,13 +362,14 @@ class HolidayTests(ContributionTestCase):
         assert owed.regime is Regime.FULL
         assert owed.base == FULL_BASE
 
-    def test_the_funds_stand(self) -> None:
-        """Art. 17a names the four insurances and says nothing about the funds."""
+    def test_the_funds_fall_away_with_them(self) -> None:
+        """Art. 17a ust. 1 frees the month of FP and FS alongside the four insurances, so the
+        social half of a granted month comes to nothing and only the health one is transferred."""
         owed = self._social(2026, 9)
 
         assert owed is not None
-        assert owed.funds == D("138.47")
-        assert owed.total == D("138.47")
+        assert owed.funds == D("0")
+        assert owed.total == D("0")
 
     def test_another_month_is_unaffected(self) -> None:
         owed = self._social(2026, 10)
