@@ -171,7 +171,7 @@
     </div>
 
     <!-- Legend -->
-    <div class="mt-3.5 flex flex-wrap gap-4 text-xs text-[#888]">
+    <div class="calendar-column mt-3.5 flex flex-wrap gap-4 text-xs text-[#888]">
         <div class="flex items-center gap-1.5">
             <div class="w-3.5 h-3.5 rounded bg-home-holiday"></div>
             <span>{{ contract.home_country }} holiday</span>
@@ -212,7 +212,7 @@
 
     <!-- Calendar grid -->
     {% partialdef calendar-grid inline %}
-    <div id="calendar-grid" class="mt-5 grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-4">
+    <div id="calendar-grid" class="calendar-column mt-5 grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-4">
         {% for month in months %}
         <div class="rounded-[14px] bg-white p-4 shadow-sm border border-black/5">
             <div class="flex justify-between items-baseline mb-3">

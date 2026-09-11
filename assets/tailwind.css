@@ -170,6 +170,15 @@ select.field {
   @apply mx-auto w-full max-w-[1200px] px-4;
 }
 
+/* The column the months and the key to them sit in, narrower than the page around them and
+   centred in it. A day cell is a fixed 36px and there are seven of them, so a month card comes
+   to 296px however much room it is given: three across with the 16px gap between them is 920,
+   and anything wider only pads the cards out and pushes the weeks away from each other. Below
+   that the cap stops binding and the grid falls to two cards and then to one. */
+.calendar-column {
+  @apply mx-auto w-full max-w-[920px];
+}
+
 /* Every card's heading sits on a row of its own above the card, and the row is the same height
    whether or not it carries an explainer mark: the mark is taller than the label it sits beside,
    and headings at two different heights read as two kinds of card. The row is what carries
