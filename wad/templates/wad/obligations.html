@@ -240,35 +240,65 @@
             <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
                 <table class="w-full border-collapse text-sm">
                     <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">Revenue the band is read from</td>
-                        <td class="py-2 text-right money">{{ schedule.bracket_revenue|money }}</td>
+                        <td class="py-2 w-full text-[#888]">Revenue the band is read from</td>
+                        <td class="py-2 w-px text-right money whitespace-nowrap">{{ schedule.bracket_revenue|money }}</td>
                     </tr>
                     <tr class="border-b border-[#eee]">
                         <td class="py-2 text-[#888]">Band</td>
-                        <td class="py-2 text-right">
+                        <td class="py-2 w-px text-right whitespace-nowrap">
                             {{ schedule.bracket.share }}% of the average wage
                             <div class="text-xs text-[#999] money mt-0.5">base {{ schedule.bracket.base|money }}</div>
                         </td>
                     </tr>
                     <tr class="border-b border-[#eee]">
                         <td class="py-2 text-[#888]">Monthly</td>
-                        <td class="py-2 text-right money font-semibold">{{ schedule.bracket.amount|money }}</td>
+                        <td class="py-2 w-px text-right money font-semibold whitespace-nowrap">{{ schedule.bracket.amount|money }}</td>
                     </tr>
                     {% if schedule.next_bracket %}
                     <tr class="border-b border-[#eee]">
                         <td class="py-2 text-[#888]">Next threshold, <span class="money">{{ schedule.next_bracket.threshold|money }}</span></td>
-                        <td class="py-2 text-right money">
+                        <td class="py-2 w-px text-right money whitespace-nowrap">
                             {% if schedule.to_next_threshold > 0 %}{{ schedule.to_next_threshold|money }} to go{% else %}crossed{% endif %}
                         </td>
                     </tr>
                     <tr class="border-b border-[#eee]">
                         <td class="py-2 text-[#888]">Crossing it steps the monthly amount to</td>
-                        <td class="py-2 text-right money">{{ schedule.next_bracket.amount|money }}</td>
+                        <td class="py-2 w-px text-right money whitespace-nowrap">{{ schedule.next_bracket.amount|money }}</td>
                     </tr>
                     {% endif %}
+                </table>
+
+                {% comment %}
+                The settlement written as the subtraction it is: the year at the band it ended
+                in, less what its months were charged at whichever band applied at the time. A
+                lump sum next May is a figure somebody will want to see the two sides of, and
+                the provision on its own says nothing about which of them made it.
+
+                A table of its own rather than more rows above, the two halves being different
+                things: the band and the thresholds are where the year stands, and this is the
+                sum that falls due for it.
+                {% endcomment %}
+                <table class="w-full border-collapse text-sm mt-3">
                     <tr>
+                        <td class="py-2 w-full text-[#888]">
+                            The year at this band
+                            <div class="text-xs text-[#999] mt-0.5">
+                                {{ schedule.months|length }} insured months &times;
+                                <span class="money">{{ schedule.bracket.amount|money }}</span>
+                            </div>
+                        </td>
+                        <td class="py-2 pr-5"></td>
+                        <td class="py-2 w-px text-right money align-top whitespace-nowrap">{{ schedule.health_settled|money }}</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 text-[#888]">Charged month by month</td>
+                        <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">&minus;</td>
+                        <td class="py-2 w-px text-right money whitespace-nowrap">{{ schedule.health_monthly|money }}</td>
+                    </tr>
+                    <tr class="border-t border-[#ddd]">
                         <td class="py-2 font-semibold">Provision for the settlement</td>
-                        <td class="py-2 text-right money font-semibold {% if schedule.health_provision > 0 %}text-[#a33]{% endif %}">
+                        <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">=</td>
+                        <td class="py-2 w-px text-right money font-semibold whitespace-nowrap {% if schedule.health_provision > 0 %}text-[#a33]{% endif %}">
                             {{ schedule.health_provision|money }}
                         </td>
                     </tr>
@@ -435,11 +465,18 @@
                                 <td class="py-2 w-px text-right money font-semibold align-top whitespace-nowrap">{{ schedule.register.base|money }}</td>
                             </tr>
                             {% if schedule.annual_tax is not None %}
+                            {% comment %}
+                            A year that billed nothing holds no rate either, and owes nothing
+                            whatever rate its first invoice would have carried. The line is left
+                            off rather than printing a percent sign with nothing before it.
+                            {% endcomment %}
+                            {% if schedule.rate is not None %}
                             <tr>
                                 <td class="py-2 text-[#888]">Ryczałt rate</td>
                                 <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">&times;</td>
                                 <td class="py-2 w-px text-right whitespace-nowrap">{{ schedule.rate|floatformat:"-2" }}%</td>
                             </tr>
+                            {% endif %}
                             <tr class="border-t border-[#ddd]">
                                 <td class="py-2 font-semibold">Ryczałt</td>
                                 <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">=</td>

@@ -65,6 +65,17 @@ def is_account_holder(user: object) -> bool:
     return bool(getattr(user, "is_authenticated", False)) and not hasattr(user, "guest")
 
 
+def has_polish_seller(user: object) -> bool:
+    """Whether this user keeps a taxpayer established in Poland.
+
+    What the tax pages, the glossary behind them and their sections in the sidebar are for.
+    An account whose sellers are all established elsewhere owes none of it, so none of it is
+    offered - and here rather than in each of those, so that what is navigable and what may be
+    opened agree.
+    """
+    return is_account_holder(user) and Seller.objects.filter(user=user, country=POLAND).exists()
+
+
 class Guest(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="guest")
     created_at = models.DateTimeField(auto_now_add=True)

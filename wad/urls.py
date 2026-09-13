@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     path("", views.index, name="index"),
+    path("glossary/", views.glossary_view, name="glossary"),  # ty: ignore[no-matching-overload]
     path("login/", views.login_view, name="login"),
     path("logout/", views.logout_view, name="logout"),
     path("save-account/", views.save_account, name="save_account"),  # ty: ignore[no-matching-overload]

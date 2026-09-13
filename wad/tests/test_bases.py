@@ -127,8 +127,8 @@ class SocialBasesTests(BasesTestCase):
 
         response = self._page()
 
-        self.assertContains(response, "preferencyjne składki")
-        self.assertContains(response, "pełne składki")
+        self.assertContains(response, "Preferencyjne składki")
+        self.assertContains(response, "Pełne składki")
         self.assertContains(response, "281.44")
 
     def test_a_stepped_year_states_both_stretches(self) -> None:
@@ -139,12 +139,68 @@ class SocialBasesTests(BasesTestCase):
         self.assertContains(response, "to June")
         self.assertContains(response, "from July")
 
-    def test_the_preferential_base_says_the_funds_are_not_owed(self) -> None:
-        """They join at the minimum wage, and a zero beside them reads as an amount that came
-        out zero rather than as a contribution the base does not carry."""
+    def test_every_component_is_stated_against_the_rate_that_charged_it(self) -> None:
+        """The five differ by rate alone, all of them percentages of the base above them, and a
+        line nobody can multiply out is a line nobody can check."""
         self._social("4806.00", "9420.00")
 
-        self.assertContains(self._page(), "not owed")
+        response = self._page()
+
+        self.assertContains(response, "19.52%")
+        self.assertContains(response, "8.00%")
+        self.assertContains(response, "1.67%")
+
+    def test_each_base_states_both_of_the_figures_published_for_it(self) -> None:
+        """Chorobowe is elected rather than owed, and both totals are published: 420.86 without
+        it and 456.18 with for the preferential base, 1 788.29 and 1 926.76 for the full one,
+        which is what a payer holds the card against."""
+        self._social("4806.00", "9420.00")
+
+        response = self._page()
+
+        self.assertContains(response, money(D("456.18")))
+        self.assertContains(response, money(D("420.86")))
+        self.assertContains(response, money(D("1926.76")))
+        self.assertContains(response, money(D("1788.29")))
+
+    def test_both_figures_are_struck_lines_of_the_one_column(self) -> None:
+        """The figure without chorobowe is a line of the sum rather than a note beside another
+        one: it is the same column struck one line short, and chorobowe comes after it."""
+        self._social("4806.00", "9420.00")
+
+        self.assertContains(self._page(), "Bez chorobowego")
+
+    def test_chorobowe_is_struck_onto_the_subtotal_that_leaves_it_out(self) -> None:
+        """A subtotal cannot leave out a line above it, so the one line the payer elects comes
+        after the figure everybody on the base owes rather than in its place on a DRA."""
+        self._social("4806.00", "9420.00")
+
+        body = self._page().content.decode()
+
+        assert body.index("Bez chorobowego") < body.index("Chorobowe")
+
+    def test_the_line_that_opens_the_sum_carries_no_operator(self) -> None:
+        """Emerytalne opens it, and a plus on it would read as adding it to the base above."""
+        self._social("4806.00", "9420.00")
+
+        body = self._page().content.decode()
+        opening = body[body.index("Emerytalne") : body.index("Rentowe")]
+
+        assert "+" not in opening
+
+    def test_the_total_is_named_as_the_social_half_it_is(self) -> None:
+        """A transfer covers the health contribution too, and that one is charged on a base
+        following the taxpayer's own revenue rather than on anything announced here."""
+        self._social("4806.00", "9420.00")
+
+        self.assertContains(self._page(), "Społeczne")
+
+    def test_the_preferential_base_says_why_the_funds_are_not_owed(self) -> None:
+        """They join at the minimum wage, and a zero against 2.45 percent reads as an amount
+        that came out zero rather than as a contribution the base does not carry."""
+        self._social("4806.00", "9420.00")
+
+        self.assertContains(self._page(), "below the minimum wage they are owed from")
 
     def test_a_wage_that_is_not_a_number_is_refused(self) -> None:
         assert self._social("the minimum", "9420.00").status_code == 400
