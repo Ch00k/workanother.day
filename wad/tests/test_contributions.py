@@ -37,6 +37,11 @@ def month(year: int, number: int) -> datetime.date:
     return datetime.date(year, number, 1)
 
 
+def component(owed: contributions.Social, label: str) -> contributions.Component:
+    """One line of a month by its label, a page reading them in order rather than by name."""
+    return next(part for part in owed.components if part.label == label)
+
+
 class ContributionTestCase(TestCase):
     """A Polish sole trader whose reliefs and start date each test states for itself."""
 
@@ -309,6 +314,74 @@ class FundsThresholdTests(ContributionTestCase):
         assert (june.funds, july.funds) == (D("138.47"), D("0"))
 
 
+class ComponentTests(ContributionTestCase):
+    """The month written out line by line, each against the rate that charged it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        self._wages()
+
+    def _owed(self) -> contributions.Social:
+        owed = self._social(2026, 9)
+
+        assert owed is not None
+
+        return owed
+
+    def test_every_line_states_the_percentage_it_was_struck_at(self) -> None:
+        """The rate is what makes the amount checkable: the five differ by rate alone, all of
+        them percentages of the one base."""
+        self._elects(chorobowe=True)
+
+        owed = self._owed()
+
+        assert [(part.label, part.rate) for part in owed.components] == [
+            ("Emerytalne", D("19.52")),
+            ("Rentowe", D("8.00")),
+            ("Wypadkowe", D("1.67")),
+            ("Chorobowe", D("2.45")),
+            ("FP + FS", D("2.45")),
+        ]
+
+    def test_every_line_is_its_rate_applied_to_the_base(self) -> None:
+        """Which is the sum a reader does to check one, so the two have to agree."""
+        self._elects(chorobowe=True)
+
+        owed = self._owed()
+
+        assert all(
+            part.rate is not None and part.amount == contributions.contribution(owed.base, part.rate)
+            for part in owed.components
+        )
+
+    def test_wypadkowe_carries_the_rate_the_payer_was_assigned(self) -> None:
+        self._elects(accident_rate=D("3.33"))
+
+        part = component(self._owed(), "Wypadkowe")
+
+        assert (part.rate, part.amount) == (D("3.33"), D("188.21"))
+
+    def test_chorobowe_not_elected_states_the_rule_rather_than_a_rate(self) -> None:
+        """A zero against 2.45 percent reads as a base of nothing, which is not why it is zero."""
+        part = component(self._owed(), "Chorobowe")
+
+        assert (part.rate, part.amount) == (None, D("0"))
+        assert "not elected" in part.note
+
+    def test_the_funds_below_the_minimum_wage_state_the_rule(self) -> None:
+        """The preferential base is 30 percent of that wage, so it never reaches them."""
+        self._elects(preferential_contributions=True)
+
+        part = component(self._owed(), "FP + FS")
+
+        assert (part.rate, part.amount) == (None, D("0"))
+        assert "minimum wage" in part.note
+
+    def test_a_month_that_charges_them_states_no_reason_not_to(self) -> None:
+        assert self._owed().not_charged == ""
+
+
 class UlgaTests(ContributionTestCase):
     """The six months that owe no social contributions at all."""
 
@@ -326,6 +399,14 @@ class UlgaTests(ContributionTestCase):
         assert owed.regime is Regime.ULGA
         assert (owed.base, owed.total) == (D("0"), D("0"))
         assert not owed.exempt
+
+    def test_the_month_states_why_it_charges_nothing(self) -> None:
+        """There is no base here for a line of components to be percentages of, so the reason
+        stands in their place."""
+        owed = self._social(2026, 9)
+
+        assert owed is not None
+        assert "ulga na start" in owed.not_charged
 
     def test_a_year_whose_wages_nobody_entered_is_still_zero(self) -> None:
         """The relief needs no base, so there is nothing about the year left to know."""
@@ -370,6 +451,14 @@ class HolidayTests(ContributionTestCase):
         assert owed is not None
         assert owed.funds == D("0")
         assert owed.total == D("0")
+
+    def test_the_month_states_who_pays_them_instead(self) -> None:
+        """The base stands and charges nothing, so a line of components at zero against their
+        rates would read as arithmetic that does not work out."""
+        owed = self._social(2026, 9)
+
+        assert owed is not None
+        assert "wakacje składkowe" in owed.not_charged
 
     def test_another_month_is_unaffected(self) -> None:
         owed = self._social(2026, 10)
