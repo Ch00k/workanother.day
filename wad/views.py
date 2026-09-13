@@ -36,7 +36,7 @@ from wad.calendar_utils import (
 from wad.countries import COUNTRIES, country_name
 from wad.documents import RenderError, document_context, invoice_pdf, verification_url
 from wad.ical import ImportError as ICalImportError
-from wad.ical import export_time_off, export_user_calendar, import_time_off
+from wad.ical import Reminders, export_time_off, export_user_calendar, import_time_off
 from wad.invoicing import (
     fill_gaps,
     next_number,
@@ -64,6 +64,7 @@ from wad.middleware import create_guest_user
 from wad.models import (
     DEFAULT_ACCIDENT_RATE,
     POLAND,
+    REMINDER_CHOICES,
     RYCZALT_RATE,
     AccountToken,
     Buyer,
@@ -458,13 +459,22 @@ def logout_view(request: HttpRequest) -> HttpResponse:
 
 def calendar_feed(request: HttpRequest, token: str) -> HttpResponse:  # noqa: ARG001
     cal_token = get_object_or_404(CalendarToken, token=token)
-    ics_content = export_user_calendar(cal_token.user)
+    ics_content = export_user_calendar(
+        cal_token.user,
+        time_off=cal_token.includes_time_off,
+        deadlines=cal_token.includes_deadlines,
+        reminders=Reminders(
+            time_off=cal_token.time_off_reminder_days,
+            monthly=cal_token.monthly_reminder_days,
+            annual=cal_token.annual_reminder_days,
+        ),
+    )
     return HttpResponse(ics_content, content_type="text/calendar; charset=utf-8")
 
 
 @require_GET  # ty: ignore[invalid-argument-type]
 def calendar_sync(request: HttpRequest) -> HttpResponse:
-    """Show the subscription URL for this user's time-off calendar."""
+    """Show the subscription URL for this user's calendar, and what it carries."""
     if not _is_account_holder(request):
         raise Http404
 
@@ -473,7 +483,11 @@ def calendar_sync(request: HttpRequest) -> HttpResponse:
         request.build_absolute_uri(reverse("calendar_feed", kwargs={"token": cal_token.token})) if cal_token else None
     )
 
-    return render(request, "wad/calendar_sync.html", {"calendar_url": calendar_url})
+    return render(
+        request,
+        "wad/calendar_sync.html",
+        {"calendar_url": calendar_url, "calendar_token": cal_token, "reminder_choices": REMINDER_CHOICES},
+    )
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
@@ -488,12 +502,49 @@ def create_calendar_token(request: HttpRequest) -> HttpResponse:
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
-def reset_calendar_token(request: HttpRequest) -> HttpResponse:
+def save_calendar_contents(request: HttpRequest) -> HttpResponse:
+    """Choose which of the two kinds of date the subscription URL carries, and how far ahead
+    each of them is announced.
+
+    An unticked checkbox is not submitted at all, so what arrives names the kinds to carry and
+    the absence of a name is the kind to leave out.
+    """
     if not _is_account_holder(request):
         return redirect("contract_list")
 
-    CalendarToken.objects.filter(user=request.user).delete()
-    CalendarToken.objects.create(user=request.user, token=generate_calendar_token())
+    CalendarToken.objects.filter(user=request.user).update(
+        includes_time_off="time_off" in request.POST,
+        includes_deadlines="deadlines" in request.POST,
+        time_off_reminder_days=_reminder_days(request.POST.getlist("time_off_reminder")),
+        monthly_reminder_days=_reminder_days(request.POST.getlist("monthly_reminder")),
+        annual_reminder_days=_reminder_days(request.POST.getlist("annual_reminder")),
+    )
+
+    return redirect("calendar_sync")
+
+
+# The lead times the page offers, keyed by what its boxes post.
+REMINDER_DAYS = {str(days): days for days, _ in REMINDER_CHOICES}
+
+
+def _reminder_days(submitted: list[str]) -> list[int]:
+    """The lead times a date is announced at, read off the boxes ticked for it.
+
+    Anything that is not one of the choices offered is dropped rather than saved: a box arrives
+    as whatever was posted, and an alarm is not something to invent a lead time for. What comes
+    back is the set that was chosen, in order, rather than the order a browser sent it in.
+    """
+    return sorted({REMINDER_DAYS[value] for value in submitted if value in REMINDER_DAYS})
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def reset_calendar_token(request: HttpRequest) -> HttpResponse:
+    """Issue a new URL, leaving what it carries as it was: the choice is about the calendar
+    rather than about the credential that reaches it."""
+    if not _is_account_holder(request):
+        return redirect("contract_list")
+
+    CalendarToken.objects.update_or_create(user=request.user, defaults={"token": generate_calendar_token()})
 
     return redirect("calendar_sync")
 

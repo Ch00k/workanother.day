@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import re
 import uuid
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import decimal
+    from collections.abc import Sequence
+
     from django.contrib.auth.models import User
 
 from wad import obligations
@@ -74,7 +78,7 @@ def _calendar(name: str, events: list[str]) -> str:
     return "\r\n".join(_fold(line) for line in lines) + "\r\n"
 
 
-def _entry_to_vevent(entry: TimeOff, summary: str) -> list[str]:
+def _entry_to_vevent(entry: TimeOff, summary: str, reminders: Sequence[int], today: datetime.date) -> list[str]:
     date = entry.date if isinstance(entry.date, datetime.date) else datetime.date.fromisoformat(str(entry.date))
     return [
         "BEGIN:VEVENT",
@@ -82,42 +86,86 @@ def _entry_to_vevent(entry: TimeOff, summary: str) -> list[str]:
         f"DTSTART;VALUE=DATE:{date.strftime('%Y%m%d')}",
         f"SUMMARY:{escape(summary)}",
         f"X-WAD-HOURS:{entry.hours}",
+        # A day off is a day to be at nothing, so there is never anything left to act on and
+        # never a reason to leave the alarm off beyond the reader not having asked for one.
+        *_alarms(summary, reminders, date, today, outstanding=True),
         "END:VEVENT",
     ]
 
 
 def export_time_off(contract: Contract, time_off_entries: list[TimeOff]) -> str:
-    """Generate an iCalendar (.ics) file from a contract's time-off entries."""
+    """Generate an iCalendar (.ics) file from a contract's time-off entries.
+
+    No alarms. This is a file downloaded to be kept or carried to another application, and an
+    alarm is a thing a subscription does to the calendar it is read into.
+    """
     events = [
         line
         for entry in sorted(time_off_entries, key=lambda e: e.date)
-        for line in _entry_to_vevent(entry, f"Time Off ({entry.hours}h)")
+        for line in _entry_to_vevent(entry, f"Time Off ({entry.hours}h)", (), today_in_poland())
     ]
 
     return _calendar(contract.name, events)
 
 
-def export_user_calendar(user: User) -> str:
+@dataclasses.dataclass(frozen=True)
+class Reminders:
+    """How many days before a date its alarms go off, a list of lead times per kind of date.
+
+    More than one to a date is the point of a list: a fortnight out to plan around it and again
+    the morning it is due. Empty is no alarm, which is what a subscription carries until its
+    reader asks for one.
+    """
+
+    time_off: Sequence[int] = ()
+    monthly: Sequence[int] = ()
+    annual: Sequence[int] = ()
+
+
+def export_user_calendar(user: User, *, time_off: bool, deadlines: bool, reminders: Reminders) -> str:
     """Generate an iCalendar (.ics) file with a user's time off and the dates their years carry.
 
     Two kinds of entry, and the second is the reason this feed is worth subscribing to: a date
-    computed on a page has to be gone and looked at, and the ones that matter most are annual -
-    the return, the file that goes with it, the health settlement, and the RWS that has to be
-    filed during one particular month or not at all.
+    computed on a page has to be gone and looked at. The ryczałt and the składki fall due every
+    month, and the return, the file that goes with it, the health settlement and the RWS come
+    round once a year, the RWS during one particular month or not at all.
+
+    Which of the two the reader asked for is theirs to say, the days off and the dates going to
+    different calendars as often as to the same one. Asking for neither is a calendar with
+    nothing in it, which the format allows and a client subscribed to it reads as everything
+    having been cancelled.
+
+    The reminders are days before a date, counted separately for the days off, for what a month
+    owes and for what a year carries, and nothing for no reminder at all.
     """
+    today = today_in_poland()
+    events = _time_off_events(user, reminders.time_off, today) if time_off else []
+
+    if deadlines:
+        events += _deadline_events(user, today, monthly=reminders.monthly, annual=reminders.annual)
+
+    return _calendar("Work Another Day", events)
+
+
+def _time_off_events(user: User, reminders: Sequence[int], today: datetime.date) -> list[str]:
+    """Every day off booked against the user's contracts, named for the contract it was booked
+    against."""
     entries = TimeOff.objects.filter(contract__user=user).select_related("contract").order_by("date")
-    events = [
+
+    return [
         line
         for entry in entries
-        for line in _entry_to_vevent(entry, f"{entry.contract.name} - Time Off ({entry.hours}h)")
+        for line in _entry_to_vevent(entry, f"{entry.contract.name} - Time Off ({entry.hours}h)", reminders, today)
     ]
 
-    return _calendar("Work Another Day", events + _deadline_events(user))
 
-
-def _deadline_events(user: User) -> list[str]:
+def _deadline_events(user: User, today: datetime.date, *, monthly: Sequence[int], annual: Sequence[int]) -> list[str]:
     """Every dated obligation of the user's Polish taxpayers, for the year running and the one
     before.
+
+    Both what a year carries and what each of its months does. The monthly pair is what a
+    subscription is read for eleven months out of twelve: the annual dates come round once and
+    leave the calendar saying nothing from one spring to the next.
 
     Two years, because a year's own dates fall in the spring after it: this year's page is
     what the RWS is read from, and last year's is what the return and the settlement are.
@@ -132,13 +180,12 @@ def _deadline_events(user: User) -> list[str]:
     date.nager.at anything; a deadline that should have moved off a public holiday nobody has
     fetched yet is a day early, which is the safe direction.
     """
-    today = today_in_poland()
     years = (today.year - 1, today.year)
     holidays = {
         holiday.date for holiday in Holiday.objects.filter(country_code=POLAND, year__in=[*years, years[-1] + 1])
     }
 
-    dated = []
+    dated: list[tuple[datetime.date, list[str]]] = []
     for seller in Seller.objects.filter(user=user, country=POLAND):
         for year in years:
             schedule = obligations.schedule(seller, year, holidays, today=today)
@@ -146,35 +193,162 @@ def _deadline_events(user: User) -> list[str]:
                 continue
 
             dated.extend(
-                (seller, deadline)
+                (deadline.on, _deadline_to_vevent(seller, deadline, annual, today))
                 for deadline in (*schedule.deadlines, schedule.holiday_application)
                 if deadline is not None
             )
+            dated.extend((month.due_on, _month_to_vevent(seller, month, monthly, today)) for month in schedule.months)
 
-    return [
-        line
-        for seller, deadline in sorted(dated, key=lambda pair: pair[1].on)
-        for line in _deadline_to_vevent(seller, deadline)
-    ]
+    return [line for _, event in sorted(dated, key=lambda pair: pair[0]) for line in event]
 
 
-def _deadline_to_vevent(seller: Seller, deadline: obligations.Deadline) -> list[str]:
+def _deadline_to_vevent(
+    seller: Seller,
+    deadline: obligations.Deadline,
+    reminders: Sequence[int],
+    today: datetime.date,
+) -> list[str]:
     """One dated obligation as an all-day event.
 
     A deadline is computed rather than stored, so its identity is what it is for rather than a
     row: the same date exported again is the same event in the reader's calendar, and a figure
     that has moved since updates it in place instead of arriving twice.
     """
-    stated = f"{deadline.amount} PLN. " if deadline.amount is not None else ""
+    stated = f"{_money(deadline.amount)}. " if deadline.amount is not None else ""
+    what = f"{seller.name} - {deadline.what}"
 
     return [
         "BEGIN:VEVENT",
         f"UID:{seller.pk}-{_slug(deadline.what)}@workanother.day",
         f"DTSTART;VALUE=DATE:{deadline.on.strftime('%Y%m%d')}",
-        f"SUMMARY:{escape(f'{seller.name} - {deadline.what}')}",
+        f"SUMMARY:{escape(what)}",
         f"DESCRIPTION:{escape(stated + deadline.note)}",
+        *_alarms(what, reminders, deadline.on, today, outstanding=not deadline.is_settled),
         "END:VEVENT",
     ]
+
+
+def _month_to_vevent(
+    seller: Seller,
+    month: obligations.Month,
+    reminders: Sequence[int],
+    today: datetime.date,
+) -> list[str]:
+    """What a month owes, as one all-day event on the day it falls due.
+
+    One event rather than two. The month is the unit settled: both transfers fall on the same
+    day and are made in one sitting from the month's own page, which is where the account
+    numbers and the okres each one carries are stated.
+
+    Identified by the month it settles, so a figure that moves as invoices or payments are
+    entered updates the event already in the reader's calendar instead of arriving beside it.
+    """
+    what = f"{seller.name} - ryczałt and składki for {month.date:%B %Y}"
+
+    return [
+        "BEGIN:VEVENT",
+        f"UID:{seller.pk}-{month.year}-{month.month:02d}@workanother.day",
+        f"DTSTART;VALUE=DATE:{month.due_on.strftime('%Y%m%d')}",
+        f"SUMMARY:{escape(what)}",
+        f"DESCRIPTION:{escape(_month_note(month))}",
+        *_alarms(what, reminders, month.due_on, today, outstanding=month.is_payable),
+        "END:VEVENT",
+    ]
+
+
+def _month_note(month: obligations.Month) -> str:
+    """Each of the month's transfers with the payee it goes to, and no total.
+
+    The ryczałt goes to the Urząd Skarbowy and the składki to ZUS, so a figure covering both is
+    one nobody sends. A transfer whose figure could not be worked out says why instead, in the
+    words the month's own page uses.
+    """
+    stated = [
+        f"{obligation.kind.label} {_money(obligation.amount)} to {obligation.kind.payee}"
+        if obligation.amount is not None
+        else f"{obligation.kind.label}: {obligation.reason}"
+        for obligation in month.obligations
+    ]
+
+    return ". ".join(stated) + ". Both are made from the month's page, which states each transfer in full."
+
+
+# What hour of the morning an alarm goes off at. A deadline is something to be met during a
+# working day, and one announced at midnight is read hours later with the day already started.
+REMINDER_HOUR = 9
+
+HOURS_IN_A_DAY = 24
+
+
+def _alarms(
+    what: str,
+    lead_times: Sequence[int],
+    on: datetime.date,
+    today: datetime.date,
+    *,
+    outstanding: bool,
+) -> list[str]:
+    """An alarm on an all-day event for each lead time, at nine on the morning it names.
+
+    None at all unless the event still has something to act on. A date met early is the ordinary
+    case rather than the exception - a transfer made on the 5th against the 20th, a return filed
+    in February against April - and an alarm for it fires while the deadline is still ahead,
+    which is to say it fires. The event stays either way: what the month came to is worth having
+    in the calendar after it is paid, and only the alarm is noise.
+
+    None either for a morning already gone. The feed carries two years, so most of what is in it
+    is behind the reader on the day they subscribe, and a client that keeps past-dated alarms
+    hands them the lot at once - turning a reminder on would answer with a burst of notifications
+    about deadlines long met. A lead time whose morning is still ahead survives; the rest are
+    left off, and come back on their own as later dates come round.
+
+    Nearest last, so a reader opening the event finds them in the order they will arrive.
+    """
+    if not outstanding:
+        return []
+
+    days = sorted({lead for lead in set(lead_times) if on - datetime.timedelta(days=lead) >= today}, reverse=True)
+
+    return [line for lead in days for line in _alarm(what, lead)]
+
+
+def _alarm(what: str, days_before: int) -> list[str]:
+    """One alarm, `days_before` days ahead of the event at nine in the morning.
+
+    The event starts at local midnight, so the trigger runs back from there: whole days first and
+    then the fifteen hours that land on nine the previous morning. The days are written as days
+    rather than folded into the hours because RFC 5545 3.3.6 counts a day component in calendar
+    days and an hour component in exact hours - an all-hours trigger spanning the October or
+    March changeover would go off at eight or ten. The fifteen hours are safe: they run from nine
+    in the morning to midnight, and the European changeovers happen in the small hours.
+    """
+    if days_before == 0:
+        return _valarm(what, f"PT{REMINDER_HOUR}H")
+
+    hours = HOURS_IN_A_DAY - REMINDER_HOUR
+    days = days_before - 1
+
+    return _valarm(what, f"-PT{hours}H" if days == 0 else f"-P{days}DT{hours}H")
+
+
+def _valarm(what: str, trigger: str) -> list[str]:
+    return [
+        "BEGIN:VALARM",
+        "ACTION:DISPLAY",
+        f"TRIGGER:{trigger}",
+        f"DESCRIPTION:{escape(what)}",
+        "END:VALARM",
+    ]
+
+
+def _money(amount: decimal.Decimal) -> str:
+    """An amount as this feed writes one: to the grosz, and named in the currency it is owed in.
+
+    Ungrouped, unlike everywhere the application shows an amount on a page. A description is
+    read in somebody else's calendar client and as often as not copied out of it into a transfer
+    form, and a figure with gaps in it is one that has to be cleaned up before it can be pasted.
+    """
+    return f"{amount:.2f} PLN"
 
 
 def _slug(what: str) -> str:
