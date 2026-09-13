@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 from django.urls import reverse
 
-from wad.models import POLAND, is_account_holder
+from wad.models import has_polish_seller, is_account_holder
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -58,6 +58,7 @@ NAV_SECTIONS = (
     ("Buyers", "buyer_list", frozenset({"buyer_list", "buyer_create", "buyer_edit"})),
     ("Calendar sync", "calendar_sync", frozenset({"calendar_sync"})),
     ("Contribution bases", "bases", frozenset({"bases", "contribution_bases"})),
+    ("Glossary", "glossary", frozenset({"glossary"})),
 )
 
 
@@ -89,13 +90,15 @@ def navigation(request: HttpRequest) -> dict[str, list[NavItem]]:
 
     current = request.resolver_match.url_name if request.resolver_match else None
 
-    # Two sections are not offered to everyone. A ryczałt year is a Polish taxpayer's, so that
+    # Three sections are not offered to everyone. A ryczałt year is a Polish taxpayer's, so that
     # one goes to a user who has one - an account whose sellers are all established elsewhere
-    # has no ewidencja to keep, and the section would lead nowhere it could act on. The
-    # announced bases are national and apply to every taxpayer on the instance, so entering
-    # them belongs to whoever runs it.
+    # has no ewidencja to keep, and the section would lead nowhere it could act on. The glossary
+    # goes with it, being the words those pages are written in. The announced bases are national
+    # and apply to every taxpayer on the instance, so entering them belongs to whoever runs it.
+    polish_taxpayer = has_polish_seller(request.user)
     offered = {
-        "taxes": request.user.sellers.filter(country=POLAND).exists(),  # ty: ignore[unresolved-attribute]
+        "taxes": polish_taxpayer,
+        "glossary": polish_taxpayer,
         "bases": request.user.is_staff,  # ty: ignore[unresolved-attribute]
     }
 

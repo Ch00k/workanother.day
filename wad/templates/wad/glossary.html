@@ -1,0 +1,41 @@
+{% extends "wad/base.html" %}
+{% block title %}Glossary - Work Another Day{% endblock %}
+
+{% block body %}
+<div class="page mt-6 mb-8">
+    <h1 class="text-[28px] font-bold tracking-tight leading-tight">Glossary</h1>
+    <div class="text-xs text-[#888] mt-1">
+        What the Polish words and letters on these pages stand for
+    </div>
+
+    <p class="mt-5 text-sm text-[#666] max-w-[70ch]">
+        Each entry gives the name in Polish and says what the thing is. The Polish is kept
+        because it is what a bank's form, a ZUS wizard and the Ministry's own pages call it, and
+        what you would have to search for; a few of the shorter names decipher into nothing at
+        all, and those say so.
+    </p>
+
+    {% for section in sections %}
+    <div class="section-heading">{{ section.title }}</div>
+    <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 px-5">
+        <dl>
+            {% for term in section.terms %}
+            {% comment %}
+            Two columns from sm: up, the term against the sentence explaining it, and one
+            column below that, where a fixed term column would leave neither enough room.
+            {% endcomment %}
+            <div class="border-b border-[#eee] last:border-b-0 py-3 sm:grid sm:grid-cols-[16rem_1fr] sm:gap-6">
+                <dt>
+                    <span class="text-sm font-semibold text-[#333]">{{ term.term }}</span>
+                    {% if term.polish %}
+                    <div class="text-xs text-[#888] mt-0.5">{{ term.polish }}</div>
+                    {% endif %}
+                </dt>
+                <dd class="text-sm text-[#666] leading-relaxed mt-1 sm:mt-0">{{ term.meaning }}</dd>
+            </div>
+            {% endfor %}
+        </dl>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
