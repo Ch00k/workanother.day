@@ -1,0 +1,21 @@
+{% comment %}
+When one kind of date is announced. Written once because the kinds are chosen the same way and
+differ only in what they are called.
+
+A box to a lead time rather than a list to pick one from: a date is worth announcing more than
+once, a fortnight out to plan around it and again the morning it is due. None ticked is no alarm,
+which needs no option of its own - an unticked box posts nothing, so the absence of every value
+is the absence of every alarm.
+{% endcomment %}
+<div>
+    <div class="text-sm text-[#666]">{{ label }}</div>
+    <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
+        {% for days, choice in reminder_choices %}
+        <label class="flex items-center gap-1.5 text-xs text-[#666]">
+            <input type="checkbox" id="{{ name }}-{{ days }}" name="{{ name }}" value="{{ days }}"
+                   {% if days in selected %}checked{% endif %}>
+            {{ choice }}
+        </label>
+        {% endfor %}
+    </div>
+</div>
