@@ -155,9 +155,9 @@
                 </p>
                 <p>
                     Check the full base against what ZUS publishes and the preferential one against
-                    biznes.gov.pl. Wypadkowe is stated at {{ accident_rate|floatformat:"-2" }}%, the
-                    rate for a payer reporting at most nine insured; a taxpayer assigned another rate
-                    carries it on the taxpayer.
+                    biznes.gov.pl. The wypadkowe rate stated beside the figures is the one for a
+                    payer reporting at most nine insured; a taxpayer assigned another rate carries
+                    it on the taxpayer.
                 </p>
                 {% endexplainer %}
             </div>
@@ -165,36 +165,53 @@
                 {% if announced_bases %}
                 <div class="px-5 pt-4 grid gap-4">
                     {% for announced in announced_bases %}
+                    {% comment %}
+                    Written as the sum it is, in the shape the tax pages state theirs: the base
+                    it is all struck from, each component against the rate that struck it, and
+                    what they come to. What this card is for is checking the figures against the
+                    published ones, and a line nobody can multiply out is a line nobody can
+                    check.
+                    {% endcomment %}
                     <table class="w-full border-collapse text-sm">
-                        <tr class="border-b border-[#eee]">
-                            <td class="py-2 font-semibold">{{ announced.regime.label }}{{ announced.stretch }}</td>
-                            <td class="py-2 text-right money font-semibold">{{ announced.base|money }}</td>
-                        </tr>
-                        <tr class="border-b border-[#eee]">
-                            <td class="py-2 text-[#888]">Emerytalne</td>
-                            <td class="py-2 text-right money">{{ announced.pension|money }}</td>
-                        </tr>
-                        <tr class="border-b border-[#eee]">
-                            <td class="py-2 text-[#888]">Rentowe</td>
-                            <td class="py-2 text-right money">{{ announced.disability|money }}</td>
-                        </tr>
-                        <tr class="border-b border-[#eee]">
-                            <td class="py-2 text-[#888]">Wypadkowe</td>
-                            <td class="py-2 text-right money">{{ announced.accident|money }}</td>
-                        </tr>
-                        <tr class="border-b border-[#eee]">
-                            <td class="py-2 text-[#888]">Chorobowe</td>
-                            <td class="py-2 text-right money">{{ announced.sickness|money }}</td>
+                        <tr>
+                            {% comment %}
+                            Capitalised here and nowhere the term runs in prose: the label is
+                            written to drop into a sentence, which is what the seller form does
+                            with it, and this is a heading.
+                            {% endcomment %}
+                            <td class="py-2 w-full font-semibold">{{ announced.regime.label|capfirst }}{{ announced.stretch }}</td>
+                            <td class="py-2 pr-5"></td>
+                            <td class="py-2 w-px text-right money font-semibold whitespace-nowrap">{{ announced.base|money }}</td>
                         </tr>
                         {% comment %}
-                        Stated as not owed rather than as nothing: the funds join at the minimum
-                        wage, and a zero beside them reads as an amount that came out zero.
+                        The column is struck twice because both figures are published, chorobowe
+                        being elected rather than owed: what everyone on the base pays, and what
+                        it comes to once the one voluntary contribution is added. So chorobowe
+                        comes last here rather than in its place on a DRA - a subtotal cannot
+                        leave out a line above it.
                         {% endcomment %}
-                        <tr>
-                            <td class="py-2 text-[#888]">FP + FS</td>
-                            <td class="py-2 text-right money">
-                                {% if announced.funds is not None %}{{ announced.funds|money }}{% else %}<span class="text-[#bbb]">not owed</span>{% endif %}
-                            </td>
+                        {% for part in announced.owed %}
+                        {% include "wad/_contribution_line.html" with first=forloop.first %}
+                        {% endfor %}
+                        <tr class="border-t border-[#ddd]">
+                            <td class="py-2 font-semibold">Bez chorobowego</td>
+                            <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">=</td>
+                            <td class="py-2 w-px text-right money font-semibold whitespace-nowrap">{{ announced.without_sickness|money }}</td>
+                        </tr>
+                        {% for part in announced.elected %}
+                        {% include "wad/_contribution_line.html" with first=False %}
+                        {% endfor %}
+                        {% comment %}
+                        Named as the month's page names the same line, and for the reason that
+                        page has to name it: this is the social half and not a month's transfer.
+                        The health contribution is charged on a base of its own that follows a
+                        taxpayer's accumulated revenue, so it is no function of an announced wage
+                        and cannot be struck into a national figure at all.
+                        {% endcomment %}
+                        <tr class="border-t border-[#ddd]">
+                            <td class="py-2 font-semibold">Społeczne</td>
+                            <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">=</td>
+                            <td class="py-2 w-px text-right money font-semibold whitespace-nowrap">{{ announced.total|money }}</td>
                         </tr>
                     </table>
                     {% endfor %}

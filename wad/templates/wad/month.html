@@ -68,7 +68,13 @@
                     Both fall due on the 20th of the month after this one, moved to the next working
                     day where that is a Saturday or a day off. The ryczałt is on this month's
                     revenue less the contributions art. 11 allows against it; the contributions are
-                    on a base that follows the regime, and neither of them is what was paid.
+                    each a percentage of a base that follows the regime, and neither of them is what
+                    was paid.
+                </p>
+                <p>
+                    The base and the ryczałt are each rounded to whole złote under art. 63 &sect; 1
+                    Ordynacji podatkowej, and every contribution to the grosz. What each line was
+                    struck from stands beside it, so the whole of both sums can be checked.
                 </p>
                 <p>
                     Recording the payments keeps these figures as they stand now. A correction that
@@ -77,71 +83,141 @@
                 </p>
                 {% endexplainer %}
             </div>
+            {% comment %}
+            The two transfers written as the sums they are, in the shape the year's PIT-28 card
+            states its own: an operator to a line, standing against the figures rather than
+            against their names, because that is where it acts. They are marked aria-hidden
+            because read aloud in sequence they are noise, the labels already saying what each
+            line is. The rule under a line is where the running figure is struck.
+
+            Two tables rather than one, the two being separate transfers to separate payees.
+            The labels take the slack in both, so the operator and the figures each take only
+            the width they need and the two sums end flush at the same right edge.
+            {% endcomment %}
             <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+                <div class="text-[11px] uppercase tracking-wider text-[#999] font-semibold">Ryczałt</div>
                 <table class="w-full border-collapse text-sm">
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">Revenue</td>
-                        <td class="py-2 text-right money">{{ month.revenue|money }}</td>
+                    <tr>
+                        <td class="py-2 w-full text-[#888]">Przychód</td>
+                        <td class="py-2 pr-5"></td>
+                        <td class="py-2 w-px text-right money whitespace-nowrap">{{ month.revenue|money }}</td>
                     </tr>
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">Contributions deducted</td>
-                        <td class="py-2 text-right money text-[#888]">{{ month.deducted|money }}</td>
+                    <tr>
+                        <td class="py-2 text-[#888]">Contributions paid, deducted</td>
+                        <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">&minus;</td>
+                        <td class="py-2 w-px text-right money whitespace-nowrap">{{ month.deducted|money }}</td>
                     </tr>
                     {% comment %}
                     The rounded figure, because it is the one the month declares and the one
                     the ryczałt below was taken from. What revenue less the deduction came to
                     is the working beneath it, so the subtraction above stays checkable.
                     {% endcomment %}
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">
+                    <tr class="border-t border-[#ddd]">
+                        <td class="py-2 font-semibold">
                             Podstawa
-                            <div class="text-xs text-[#999] mt-0.5">
+                            <div class="text-xs font-normal text-[#999] mt-0.5">
                                 <span class="money">{{ month.taxable|money }}</span> to whole złote, art. 63 &sect; 1
                             </div>
                         </td>
-                        <td class="py-2 text-right money align-top">{{ month.base|money }}</td>
-                    </tr>
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 font-semibold">Ryczałt</td>
-                        <td class="py-2 text-right money font-semibold">
-                            {% if month.tax is not None %}{{ month.tax|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
-                        </td>
+                        <td class="py-2 pr-5 text-right text-[#bbb] align-top" aria-hidden="true">=</td>
+                        <td class="py-2 w-px text-right money font-semibold align-top whitespace-nowrap">{{ month.base|money }}</td>
                     </tr>
                     {% comment %}
-                    The social components one by one: they are what a DRA is checked against,
-                    and the total on its own says nothing about which of them moved.
+                    A month whose year holds several ryczałt rates states neither, art. 11 ust. 3
+                    wanting the deductions apportioned between them first. The notice under the
+                    card says so, so the two lines are left off rather than printed against a
+                    dash.
                     {% endcomment %}
-                    {% if month.social %}
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">Emerytalne</td>
-                        <td class="py-2 text-right money">{{ month.social.pension|money }}</td>
-                    </tr>
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">Rentowe</td>
-                        <td class="py-2 text-right money">{{ month.social.disability|money }}</td>
-                    </tr>
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">Wypadkowe</td>
-                        <td class="py-2 text-right money">{{ month.social.accident|money }}</td>
-                    </tr>
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">Chorobowe</td>
-                        <td class="py-2 text-right money">{{ month.social.sickness|money }}</td>
-                    </tr>
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">FP + FS</td>
-                        <td class="py-2 text-right money">{{ month.social.funds|money }}</td>
+                    {% if month.tax is not None %}
+                    {% comment %}
+                    A year that billed nothing holds no rate either, and every month of it owes
+                    nothing whatever rate its first invoice would have carried. The line is left
+                    off rather than printing a percent sign with nothing before it.
+                    {% endcomment %}
+                    {% if schedule.rate is not None %}
+                    <tr>
+                        <td class="py-2 text-[#888]">Ryczałt rate</td>
+                        <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">&times;</td>
+                        <td class="py-2 w-px text-right whitespace-nowrap">{{ schedule.rate|floatformat:"-2" }}%</td>
                     </tr>
                     {% endif %}
-                    <tr class="border-b border-[#eee]">
-                        <td class="py-2 text-[#888]">Zdrowotne</td>
-                        <td class="py-2 text-right money">
+                    <tr class="border-t border-[#ddd]">
+                        <td class="py-2 font-semibold">Ryczałt</td>
+                        <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">=</td>
+                        <td class="py-2 w-px text-right money font-semibold whitespace-nowrap">{{ month.tax|money }}</td>
+                    </tr>
+                    {% endif %}
+                </table>
+
+                <div class="mt-5 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Składki</div>
+                <table class="w-full border-collapse text-sm">
+                    {% if month.social %}
+                    {% comment %}
+                    The base heads the card because that is where its arithmetic starts: every
+                    social component below is that percentage of it, and the regime it follows
+                    is what decides which base the month is charged on. It stands in the label
+                    and outside the money column, the components being struck from it rather
+                    than added to it, and the rule under it closes it off from the sum.
+
+                    Stated for a month of wakacje składkowe too: the base stands there and the
+                    contributions are owed, the state paying them, and the DRA and the two RCAs
+                    the month is still filed on declare them. Ulga na start has no base at all,
+                    and so has no row here.
+                    {% endcomment %}
+                    {% if month.social.base %}
+                    <tr class="border-b border-[#ddd]">
+                        <td class="py-2 text-[#888]" colspan="3">
+                            Podstawa <span class="money text-[#666]">{{ month.social.base|money }}</span>
+                            <div class="text-xs text-[#999] mt-0.5">{{ month.social.regime.label }}</div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% if month.social.not_charged %}
+                    <tr>
+                        <td class="py-2 w-full font-semibold">
+                            Społeczne
+                            <div class="text-xs font-normal text-[#999] mt-0.5">{{ month.social.not_charged }}</div>
+                        </td>
+                        <td class="py-2 pr-5"></td>
+                        <td class="py-2 w-px text-right money font-semibold align-top whitespace-nowrap">{{ month.social.total|money }}</td>
+                    </tr>
+                    {% else %}
+                    {% comment %}
+                    The components one by one, in the order a DRA states them: a DRA is what
+                    they are checked against, and the total on its own says nothing about which
+                    of them moved.
+                    {% endcomment %}
+                    {% for part in month.social.components %}
+                    {% include "wad/_contribution_line.html" with first=forloop.first %}
+                    {% endfor %}
+                    <tr class="border-t border-[#ddd]">
+                        <td class="py-2 font-semibold">Społeczne</td>
+                        <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">=</td>
+                        <td class="py-2 w-px text-right money font-semibold whitespace-nowrap">{{ month.social.total|money }}</td>
+                    </tr>
+                    {% endif %}
+                    {% endif %}
+                    <tr>
+                        <td class="py-2 w-full text-[#888]">
+                            Zdrowotne
+                            {% if month.bracket %}
+                            <div class="text-xs text-[#999] mt-0.5">
+                                9% of <span class="money">{{ month.bracket.base|money }}</span>, the band at
+                                {{ month.bracket.share }}% of the average wage
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td class="py-2 pr-5 text-right text-[#bbb] align-top" aria-hidden="true">
+                            {% if month.social %}+{% endif %}
+                        </td>
+                        <td class="py-2 w-px text-right money align-top whitespace-nowrap">
                             {% if month.health %}{{ month.health|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
                         </td>
                     </tr>
-                    <tr>
+                    <tr class="border-t border-[#ddd]">
                         <td class="py-2 font-semibold">Składki</td>
-                        <td class="py-2 text-right money font-semibold">
+                        <td class="py-2 pr-5 text-right text-[#bbb]" aria-hidden="true">=</td>
+                        <td class="py-2 w-px text-right money font-semibold whitespace-nowrap">
                             {% if month.dra_total is not None %}{{ month.dra_total|money }}{% else %}<span class="text-[#bbb]">&mdash;</span>{% endif %}
                         </td>
                     </tr>
@@ -164,16 +240,12 @@
             </div>
             <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
                 <table class="w-full border-collapse text-sm">
-                    <tr class="border-b border-[#eee]">
+                    <tr {% if month.social.regime != "ulga" %}class="border-b border-[#eee]"{% endif %}>
                         <td class="py-2 text-[#888]">This month</td>
                         <td class="py-2 text-right">
-                            {{ month.social.regime.label }}
+                            {{ month.social.regime.label|capfirst }}
                             {% if month.social.exempt %}<div class="text-xs text-[#999] mt-0.5">wakacje składkowe granted</div>{% endif %}
                         </td>
-                    </tr>
-                    <tr {% if month.social.regime != "ulga" %}class="border-b border-[#eee]"{% endif %}>
-                        <td class="py-2 text-[#888]">Base</td>
-                        <td class="py-2 text-right money">{{ month.social.base|money }}</td>
                     </tr>
                     {% if month.social.regime != "ulga" %}
                     <tr>

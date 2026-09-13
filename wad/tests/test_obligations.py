@@ -1169,6 +1169,14 @@ class PageTests(PageTestCase):
         self.assertNotContains(response, "Next due")
         self.assertContains(response, "has been recorded as paid")
 
+    def test_a_year_that_billed_nothing_states_no_rate(self) -> None:
+        """The return's sum holds no rate for the base to be struck at: the year holds none,
+        and a percent sign with nothing before it is not one."""
+        response = self._page()
+
+        self.assertContains(response, f"PIT-28 for {YEAR}")
+        self.assertNotContains(response, "Ryczałt rate")
+
     def test_the_register_and_the_files_are_reached_from_the_year(self) -> None:
         """They are the year's own source and its own output, so the year is where they hang."""
         self._issued(3)
@@ -1196,6 +1204,20 @@ class PageTests(PageTestCase):
         self.assertContains(response, "Health contribution")
         self.assertContains(response, str(MIDDLE_AMOUNT))
         self.assertContains(response, str(MIDDLE_AMOUNT - LOWER_AMOUNT))
+
+    def test_the_settlement_is_written_out_as_the_subtraction_it_is(self) -> None:
+        """A lump sum next May is a figure somebody wants both sides of: the year at the band it
+        ended in, less what its months were charged at whichever band applied at the time. The
+        provision on its own says nothing about which of them made it."""
+        self._issued(1)
+        self._issued(2)
+
+        response = self._page()
+
+        self.assertContains(response, "The year at this band")
+        self.assertContains(response, "Charged month by month")
+        self.assertContains(response, money(MIDDLE_AMOUNT * 12))
+        self.assertContains(response, money(LOWER_AMOUNT + 11 * MIDDLE_AMOUNT))
 
     def test_a_year_whose_bases_are_missing_says_so_on_the_page(self) -> None:
         HealthContributionYear.objects.all().delete()
@@ -1487,6 +1509,107 @@ class MonthPageTests(PageTestCase):
         self.assertContains(response, money(D(4800)))
         self.assertContains(response, money(SOCIAL_TOTAL + LOWER_AMOUNT))
         self.assertContains(response, "pełne składki")
+
+    def test_the_ryczalt_is_written_out_as_the_sum_it_is(self) -> None:
+        """Revenue, the deduction, the podstawa the two come to and the rate it is struck at:
+        what a reader is checking is the arithmetic, so the rate stands in it rather than being
+        something to work backwards from the tax."""
+        self._issued(3)
+
+        response = self._month_page(3)
+
+        self.assertContains(response, "Przychód")
+        self.assertContains(response, "Contributions paid, deducted")
+        self.assertContains(response, "Ryczałt rate")
+        self.assertContains(response, "12%")
+
+    def test_a_year_at_more_than_one_rate_states_neither_rate_nor_ryczalt(self) -> None:
+        """Art. 11 ust. 3 wants the deductions apportioned between the rates first, which
+        nothing here does. The notice says so, and a rate against a dash would not."""
+        self._issued(3)
+        self.contract.ryczalt_rate = D("8.50")
+        self.contract.save()
+        self._issued(4)
+
+        response = self._month_page(3)
+
+        self.assertNotContains(response, "Ryczałt rate")
+        self.assertContains(response, "No ryczałt figure")
+
+    def test_a_year_that_billed_nothing_states_no_rate(self) -> None:
+        """It holds no rate for a month to be struck at, and the month owes nothing whatever
+        rate its first invoice would have carried."""
+        response = self._month_page(3)
+
+        self.assertNotContains(response, "Ryczałt rate")
+
+    def test_each_contribution_states_the_base_and_the_rate_it_came_from(self) -> None:
+        """The five differ by rate alone, all of them percentages of the one base, so the base
+        heads the sum and each line carries what it was struck at."""
+        self._issued(3)
+
+        response = self._month_page(3)
+
+        self.assertContains(response, money(D("5652.00")))
+        self.assertContains(response, "19.52%")
+        self.assertContains(response, "8.00%")
+        self.assertContains(response, "1.67%")
+        self.assertContains(response, money(D("1103.27")))
+
+    def test_the_base_is_not_an_addend_of_the_sum_it_heads(self) -> None:
+        """Each component is a percentage of the base rather than something added to it, so the
+        line that opens the sum carries no operator and the column adds up as it is read:
+        1 103.27 + 452.16 + 94.39 + 0.00 + 138.47 comes to the 1 788.29 struck under it."""
+        self._issued(3)
+
+        body = self._month_page(3).content.decode()
+        opening = body[body.index("Emerytalne") : body.index("Rentowe")]
+
+        assert "+" not in opening
+
+    def test_a_contribution_the_month_does_not_charge_states_the_rule(self) -> None:
+        """Chorobowe is not elected here, and its zero against 2.45 percent would read as a
+        base of nothing rather than as a contribution nobody is owed."""
+        self._issued(3)
+
+        response = self._month_page(3)
+
+        self.assertContains(response, "voluntary under art. 11 ust. 2, and not elected")
+
+    def test_the_health_contribution_states_the_band_it_was_struck_from(self) -> None:
+        """It is charged on a base of its own rather than on the social one, and which band
+        applies is what moves it."""
+        self._issued(3)
+
+        response = self._month_page(3)
+
+        self.assertContains(response, "9% of")
+        self.assertContains(response, money(LOWER))
+        self.assertContains(response, "60% of the average wage")
+
+    def test_a_granted_month_states_that_the_state_pays_its_contributions(self) -> None:
+        """The payer transfers none of them, so the components fall away and the rule that took
+        them off stands in their place. The base stays: it stands for the month all the same,
+        and the DRA and the two RCAs still filed on it declare what it charges."""
+        ContributionHoliday.objects.create(seller=self.seller, month=datetime.date(YEAR, 3, 1))
+        self._issued(3)
+
+        response = self._month_page(3)
+
+        self.assertContains(response, "the state pays them, art. 17a")
+        self.assertContains(response, money(D("5652.00")))
+        self.assertNotContains(response, "19.52%")
+
+    def test_a_ulga_month_states_that_none_are_owed(self) -> None:
+        """There is no base here at all, so there is no line of percentages to state."""
+        self.seller.business_started_on = datetime.date(YEAR, 7, 1)
+        self.seller.ulga_na_start = True
+        self.seller.save()
+
+        response = self._month_page(7)
+
+        self.assertContains(response, "none are owed")
+        self.assertNotContains(response, "19.52%")
 
     def test_a_month_offers_the_relief_against_itself(self) -> None:
         """One month a calendar year, claimed against the month it covers."""

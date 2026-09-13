@@ -67,6 +67,66 @@ def contribution(base: decimal.Decimal, rate: decimal.Decimal) -> decimal.Decima
     return (base * rate / 100).quantize(GROSZ, rounding=decimal.ROUND_HALF_UP)
 
 
+# Which rule leaves a component off, for the two a base can charge nothing on.
+NOT_ELECTED: Final = "voluntary under art. 11 ust. 2, and not elected"
+BELOW_MINIMUM_WAGE: Final = "the base is below the minimum wage they are owed from"
+
+
+@dataclasses.dataclass(frozen=True)
+class Component:
+    """One line of what a base charges: what charges it, and what it comes to."""
+
+    label: str
+    amount: decimal.Decimal
+    # The percentage of the base this was charged at, or nothing where the base does not
+    # charge it at all - `note` says which rule leaves it off.
+    rate: decimal.Decimal | None
+    note: str
+    # Whether the payer elects this one rather than owing it, which chorobowe alone is. A page
+    # stating what a base charges anybody has to strike its column both with and without it.
+    voluntary: bool = False
+
+
+def _component(
+    label: str,
+    amount: decimal.Decimal | None,
+    rate: decimal.Decimal,
+    left_off: str = "",
+    *,
+    voluntary: bool = False,
+) -> Component:
+    """One line of a base, either charged at `rate` or left off by the rule `left_off` states.
+
+    A base charges nothing for a component only where a rule leaves it off, which is why the two
+    that carry a rule are the only two this can turn into anything but a percentage of the base:
+    a base is above zero wherever these are read, so a percentage of one cannot be nothing.
+    `AnnouncedBase` writes a component it does not charge as nothing and `Social` as a zero, and
+    both mean the rule applied.
+    """
+    if amount:
+        return Component(label=label, amount=amount, rate=rate, note="", voluntary=voluntary)
+
+    return Component(label=label, amount=ZERO, rate=None, note=left_off, voluntary=voluntary)
+
+
+def _components(charged: AnnouncedBase | Social) -> tuple[Component, ...]:
+    """What a base charges, line by line, each against the rate that charged it.
+
+    In the order a DRA states them. Wypadkowe follows the trade rather than the act, so the rate
+    it was charged at is asked for.
+
+    Only two of them can be left off - chorobowe unless the payer elected it, and FP and FS below
+    the minimum wage - and only those two carry the rule that would leave them off.
+    """
+    return (
+        _component("Emerytalne", charged.pension, PENSION_RATE),
+        _component("Rentowe", charged.disability, DISABILITY_RATE),
+        _component("Wypadkowe", charged.accident, charged.accident_rate),
+        _component("Chorobowe", charged.sickness, SICKNESS_RATE, NOT_ELECTED, voluntary=True),
+        _component("FP + FS", charged.funds, FUNDS_RATE, BELOW_MINIMUM_WAGE),
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class AnnouncedBase:
     """One base a year's announced wages set, and what it comes to component by component.
@@ -81,12 +141,44 @@ class AnnouncedBase:
     regime: Regime
     stretch: str
     base: decimal.Decimal
+    # The rate wypadkowe is stated at, which is the payer's own where one is being checked and
+    # the rate for a payer reporting at most nine insured otherwise.
+    accident_rate: decimal.Decimal
     pension: decimal.Decimal
     disability: decimal.Decimal
     accident: decimal.Decimal
     sickness: decimal.Decimal
     # FP + FS, or nothing where the base falls below the minimum wage they are owed from.
     funds: decimal.Decimal | None
+
+    @property
+    def components(self) -> tuple[Component, ...]:
+        """What this base charges, line by line, each against the rate that charged it."""
+        return _components(self)
+
+    @property
+    def owed(self) -> tuple[Component, ...]:
+        """The components everybody on the base owes, which are the ones `without_sickness` strikes."""
+        return tuple(part for part in self.components if not part.voluntary)
+
+    @property
+    def elected(self) -> tuple[Component, ...]:
+        """The components a payer elects rather than owes, struck onto the subtotal that leaves them out."""
+        return tuple(part for part in self.components if part.voluntary)
+
+    @property
+    def total(self) -> decimal.Decimal:
+        """What the base charges in full, chorobowe included."""
+        return self.without_sickness + self.sickness
+
+    @property
+    def without_sickness(self) -> decimal.Decimal:
+        """The same without chorobowe, which a sole trader elects rather than owes.
+
+        Both figures are published - biznes.gov.pl states the preferential base each way and ZUS
+        the full one - so both are stated here, a payer checking whichever they elected.
+        """
+        return self.pension + self.disability + self.accident + (self.funds or ZERO)
 
 
 def announced_bases(published: SocialContributionYear, accident_rate: decimal.Decimal) -> tuple[AnnouncedBase, ...]:
@@ -119,6 +211,7 @@ def announced_bases(published: SocialContributionYear, accident_rate: decimal.De
             regime=regime,
             stretch=stretch,
             base=base,
+            accident_rate=accident_rate,
             pension=contribution(base, PENSION_RATE),
             disability=contribution(base, DISABILITY_RATE),
             accident=contribution(base, accident_rate),
@@ -216,6 +309,8 @@ class Social:
 
     regime: Regime
     base: decimal.Decimal
+    # The rate wypadkowe is charged at, which follows the trade and so is the payer's own.
+    accident_rate: decimal.Decimal
     pension: decimal.Decimal
     disability: decimal.Decimal
     accident: decimal.Decimal
@@ -229,6 +324,31 @@ class Social:
     def total(self) -> decimal.Decimal:
         """What the social half of the month's DRA comes to."""
         return self.pension + self.disability + self.accident + self.sickness + self.funds
+
+    @property
+    def not_charged(self) -> str:
+        """Why the month charges nothing on a base, or empty where it charges the components.
+
+        Two rules leave a month owing none of them: ulga na start, under which there is no base
+        to charge at all, and a granted wakacje składkowe month, where the base stands and the
+        state pays what it charges.
+        """
+        if self.regime is Regime.ULGA:
+            return "ulga na start: none are owed, art. 18 ust. 1 Prawa przedsiębiorców"
+
+        if self.exempt:
+            return "wakacje składkowe: the state pays them, art. 17a"
+
+        return ""
+
+    @property
+    def components(self) -> tuple[Component, ...]:
+        """The month's contributions line by line, each against the rate that charged it.
+
+        A month charging none of them states `not_charged` instead, so every base these lines
+        are read against is above zero.
+        """
+        return _components(self)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -279,6 +399,7 @@ def social(seller: Seller, year: int, month: int, published: Year | None = None)
         return Social(
             regime=regime,
             base=ZERO,
+            accident_rate=seller.accident_rate,
             pension=ZERO,
             disability=ZERO,
             accident=ZERO,
@@ -311,6 +432,7 @@ def social(seller: Seller, year: int, month: int, published: Year | None = None)
     return Social(
         regime=regime,
         base=base,
+        accident_rate=seller.accident_rate,
         pension=pension,
         disability=disability,
         accident=accident,

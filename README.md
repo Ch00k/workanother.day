@@ -708,8 +708,10 @@ contributions paid, and a threshold crossed in a month is paid at the higher amo
 month on with no correction of the earlier ones at the time. The annual settlement then
 recomputes every month of the year at the band the year's total lands in and charges the
 difference on 20 May — which is knowable from the day of the crossing rather than from the
-settlement, so the page states it as a figure to provision for. A negative one is a refund,
-and it has to be claimed by 1 June rather than arriving.
+settlement, so the page states it as a figure to provision for. It is written out as the
+subtraction it is, the year at the band it ended in less what its months were charged at
+whichever band applied at the time: a lump sum next May is a figure somebody will want both
+sides of. A negative one is a refund, and it has to be claimed by 1 June rather than arriving.
 
 Paying it is recorded against the year, not against a month: it recomputes every insured month
 of the year at once, so no month settles it and no month's page states it. The press beside the
@@ -779,8 +781,12 @@ with `--minimum-wage-from-july` where the minimum wage steps mid-year, as it did
 2024 — the preferential base steps with it, and so does the threshold the funds are owed from.
 The **Contribution bases** page takes the same three figures, the July one optional. Both state
 every base back component by component, which is what a human holds against the figures ZUS
-publishes for the full base and biznes.gov.pl publishes for the preferential one. A year nobody
-has entered states no figure at all.
+publishes for the full base and biznes.gov.pl publishes for the preferential one. The page
+states each component against the rate that charged it — a line nobody can multiply out is a
+line nobody can check — and a component the base does not charge, FP and FS below the minimum
+wage, states that rule in place of a rate. It is struck at the bottom both ways, chorobowe being
+elected rather than owed and both figures published. A year nobody has entered states no figure
+at all.
 
 Both kinds are national — one row a year for the whole instance rather than one per taxpayer —
 so the page is gated on `is_staff`: one reader's typo would move every taxpayer's contributions.
@@ -835,10 +841,16 @@ recorded — so computing a month changes no base, no band and no tax.
 
 **A month has a page of its own**, at `/sellers/<id>/taxes/<year>/months/<month>/`, and the
 year's table is a list of them: a row opens the month it is about, and the table itself acts on
-nothing. What the month owes is broken down there component by component, both transfers are
-stated field by field at that month's own figures, and the presses that record them, take them
-off again and claim wakacje składkowe are all on it. The table keeps what is read down a column:
-the amounts, where the month stands in a word, and the day it falls due.
+nothing. What the month owes is written there as the two sums it is, in the shape the year's
+PIT-28 card states its own: revenue less the contributions deducted, to the podstawa and the rate
+it is struck at; and the base ZUS charges, each component against the percentage that took it, to
+the DRA total. A component the month does not charge states the rule that leaves it off rather
+than a zero against a rate — chorobowe unless it was elected, FP and FS below the minimum wage —
+and a month charging none of them, a ulga one or a granted wakacje month, says which rule in
+place of the components. Both transfers are stated field by field at that month's own figures,
+and the presses that record them, take them off again and claim wakacje składkowe are all on it.
+The table keeps what is read down a column: the amounts, where the month stands in a word, and
+the day it falls due.
 
 **Where the two transfers go is stated on the month's page**, and the two accounts are not held
 the same way. The mikrorachunek podatkowy is a function of the taxpayer's NIP — MF generates it from the
@@ -912,6 +924,21 @@ back. The return itself is completed and sent in e-Urzad Skarbowy, so what is ke
 date it went and the UPO that came back — one per year, replaced rather than added to, because
 nothing here holds the document either version was. KAS holds both records too, and where they
 disagree KAS is right.
+
+## Glossary
+
+Everything above is transacted in Polish, and a page that says a month's DRA is due, or that a
+base carries no FP+FS, is a page somebody has to be able to read. **Glossary** in the sidebar,
+at `/glossary/`, gives each of those names in Polish and one sentence saying what the thing is:
+the forms, the codes a tax transfer's title is made of, the ZUS documents, the contributions
+themselves and the reliefs that move them. It goes with the tax pages whose words it explains,
+so it is offered to an account holder with a Polish taxpayer and to nobody else.
+
+The entries are in `wad/glossary.py`, one tuple per term — what is written, its Polish name, and
+what it is — and the page is a loop over them. A few of the names decipher into nothing, the
+number on a PIT form and the letters of a ZUS application being sigils rather than
+abbreviations, and those entries say so rather than leaving a reader hunting for a meaning that
+was never there.
 
 ## Known gaps
 

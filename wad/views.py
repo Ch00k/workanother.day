@@ -22,7 +22,7 @@ from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_GET, require_POST
 from ksef2 import KSeFException
 
-from wad import contributions, ewidencja, jpk, obligations, parties, throttle
+from wad import contributions, ewidencja, glossary, jpk, obligations, parties, throttle
 from wad.calendar_utils import (
     POLAND_TZ,
     MonthlySummary,
@@ -86,6 +86,7 @@ from wad.models import (
     TimeOff,
     generate_calendar_token,
     generate_token,
+    has_polish_seller,
     hash_token,
     is_account_holder,
 )
@@ -376,6 +377,20 @@ def index(request: HttpRequest) -> HttpResponse:
     if request.user.is_authenticated:
         return redirect("contract_list")
     return render(request, "wad/landing.html")
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def glossary_view(request: HttpRequest) -> HttpResponse:
+    """The Polish names the rest of the application uses, and what each of them is.
+
+    For the reader who meets those names on the pages that use them, which is an account holder
+    with a Polish taxpayer: the forms, the codes and the contributions here are what those pages
+    state, and nobody else is shown any of them.
+    """
+    if not has_polish_seller(request.user):
+        raise Http404
+
+    return render(request, "wad/glossary.html", {"sections": glossary.SECTIONS})
 
 
 def login_view(request: HttpRequest) -> HttpResponse:
@@ -2684,7 +2699,6 @@ def contribution_bases(request: HttpRequest, year: int) -> HttpResponse:
             "announced_bases": (
                 contributions.announced_bases(published, DEFAULT_ACCIDENT_RATE) if published is not None else ()
             ),
-            "accident_rate": DEFAULT_ACCIDENT_RATE,
         },
     )
 

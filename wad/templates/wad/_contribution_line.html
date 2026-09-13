@@ -1,0 +1,24 @@
+{% comment %}
+One component of a base: what it is called, the rate that charged it, and what it came to.
+
+`part` is the component and `first` says whether it opens the sum, the line that opens one
+carrying no operator. A component the base does not charge states the rule that leaves it off in
+place of a rate - its zero against a percentage would otherwise read as an amount that came out
+zero rather than as a contribution nobody is owed.
+
+The rate is stated to two decimals, which is how ZUS and biznes.gov.pl publish them: a column of
+rates is read down, and 8% against 19.52% does not line up.
+{% endcomment %}
+{% load money %}
+<tr>
+    <td class="py-2 text-[#888]">
+        {{ part.label }}
+        {% if part.rate is not None %}
+        <span class="text-[#bbb]">{{ part.rate|floatformat:2 }}%</span>
+        {% else %}
+        <div class="text-xs text-[#999] mt-0.5">{{ part.note }}</div>
+        {% endif %}
+    </td>
+    <td class="py-2 pr-5 text-right text-[#bbb] align-top" aria-hidden="true">{% if not first %}+{% endif %}</td>
+    <td class="py-2 w-px text-right money align-top whitespace-nowrap">{{ part.amount|money }}</td>
+</tr>
