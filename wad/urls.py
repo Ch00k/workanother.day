@@ -114,6 +114,7 @@ urlpatterns = [
     # Calendar subscription
     path("calendar/<str:token>.ics", views.calendar_feed, name="calendar_feed"),
     path("calendar/sync/", views.calendar_sync, name="calendar_sync"),  # ty: ignore[no-matching-overload]
+    path("calendar/contents/", views.save_calendar_contents, name="save_calendar_contents"),  # ty: ignore[no-matching-overload]
     path("calendar/create-token/", views.create_calendar_token, name="create_calendar_token"),  # ty: ignore[no-matching-overload]
     path("calendar/reset-token/", views.reset_calendar_token, name="reset_calendar_token"),  # ty: ignore[no-matching-overload]
 ]

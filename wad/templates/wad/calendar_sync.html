@@ -7,10 +7,8 @@
 
     <div class="mt-5 rounded-[14px] bg-white p-5 shadow-sm border border-black/5">
         <p class="text-sm text-[#666] mb-4">
-            Subscribe to your calendar from any calendar app. The feed covers every contract's days
-            off and updates as you book them, and it carries the dates your taxpayers' years carry:
-            PIT-28, the JPK_EWP that goes with it, the annual health settlement, and the wakacje
-            składkowe application, which has to go in during one particular month or not at all.
+            Subscribe to your calendar from any calendar app. Two kinds of date go out under one
+            URL: the days off you book, and the dates your taxpayers' years carry.
         </p>
         {% if calendar_url %}
         <div class="flex items-center gap-4 flex-wrap">
@@ -29,7 +27,7 @@
         </div>
         <p class="text-xs text-[#888] mt-3">
             Resetting issues a new URL and stops the old one working. Any app subscribed to the old URL
-            has to be pointed at the new one.
+            has to be pointed at the new one. What the feed carries is left as it is below.
         </p>
         {% else %}
         <form method="post" action="{% url 'create_calendar_token' %}">
@@ -41,5 +39,110 @@
         </form>
         {% endif %}
     </div>
+
+    {% comment %}
+    What the one URL carries, a card to a kind. Saved against the subscription rather than built
+    into it, so a change reaches an app already subscribed on its next poll instead of needing a
+    new URL.
+
+    Each card says what its kind is and how far ahead to announce it. The lead times are per kind
+    because they are prepared for over different lengths of time: a day off is arranged around, a
+    transfer is made in the minutes it takes to read the account number off the month's page, and
+    a return is sat down with.
+    {% endcomment %}
+    {% if calendar_url %}
+    <form method="post" action="{% url 'save_calendar_contents' %}">
+        {% csrf_token %}
+        <div class="card-heading">
+            <h2>What the feed carries</h2>
+        </div>
+
+        <div class="mt-2 grid gap-5 md:grid-cols-2 items-start">
+            <div class="rounded-[14px] bg-white p-5 shadow-sm border border-black/5">
+                <label class="flex gap-2 items-start text-sm font-medium">
+                    <input type="checkbox" id="time_off" name="time_off" value="1" class="mt-0.5"
+                           {% if calendar_token.includes_time_off %}checked{% endif %}>
+                    Days off
+                </label>
+                <div class="text-xs text-[#999] mt-1 ml-6">
+                    Every day booked off against a contract, named for the contract it was booked
+                    against. Updates as you book them.
+                </div>
+
+                {% comment %}
+                Hidden with the box above it: there is nothing to be reminded of in a kind the
+                feed does not carry. The field stays in the form while hidden, so a lead time
+                chosen once survives the box being cleared and ticked again.
+                {% endcomment %}
+                <div data-reminders-for="time_off" class="mt-4 pt-4 border-t border-black/5 grid gap-3"
+                     {% if not calendar_token.includes_time_off %}style="display: none"{% endif %}>
+                    <div class="text-sm font-medium text-[#666]">Remind me</div>
+                    {% include "wad/_reminder_field.html" with name="time_off_reminder" label="Each day off" selected=calendar_token.time_off_reminder_days %}
+                </div>
+            </div>
+
+            <div class="rounded-[14px] bg-white p-5 shadow-sm border border-black/5">
+                <label class="flex gap-2 items-start text-sm font-medium">
+                    <input type="checkbox" id="deadlines" name="deadlines" value="1" class="mt-0.5"
+                           {% if calendar_token.includes_deadlines %}checked{% endif %}>
+                    Tax dates
+                </label>
+                <div class="text-xs text-[#999] mt-1 ml-6">
+                    What each month owes and the day it falls due, the ryczałt and the składki
+                    stated separately. With them the dates your taxpayers' years carry: PIT-28, the
+                    JPK_EWP that goes with it, the annual health settlement, and the wakacje
+                    składkowe application, which has to go in during one particular month or not at
+                    all. An obligation already recorded as met carries no alarm.
+                </div>
+
+                <div data-reminders-for="deadlines" class="mt-4 pt-4 border-t border-black/5 grid gap-3"
+                     {% if not calendar_token.includes_deadlines %}style="display: none"{% endif %}>
+                    <div class="text-sm font-medium text-[#666]">Remind me</div>
+                    {% include "wad/_reminder_field.html" with name="monthly_reminder" label="Monthly payments" selected=calendar_token.monthly_reminder_days %}
+                    {% include "wad/_reminder_field.html" with name="annual_reminder" label="Annual dates" selected=calendar_token.annual_reminder_days %}
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4 text-xs text-[#999]">
+            An alarm goes off at nine in the morning, in the timezone of whatever reads the feed.
+            Whether it arrives at all is the calendar app's to decide: some drop the alarms on a
+            subscribed calendar and notify only for the ones you own.
+        </div>
+
+        {% comment %}
+        Neither ticked is a working URL serving an empty calendar, which is a way to silence a
+        subscription without replacing it. Said out loud, because an app that quietly empties looks
+        broken.
+        {% endcomment %}
+        {% if not calendar_token.includes_time_off and not calendar_token.includes_deadlines %}
+        <div class="notice mt-4">
+            The feed carries nothing at the moment, so anything subscribed to it shows an empty
+            calendar.
+        </div>
+        {% endif %}
+
+        <div class="mt-4">
+            <button type="submit" class="btn btn-secondary">
+                Save
+            </button>
+        </div>
+    </form>
+
+    <script {% csp_nonce_attr %}>
+    (() => {
+        // The server renders the same state; this only keeps it right between ticking a box
+        // and saving.
+        document.querySelectorAll('[data-reminders-for]').forEach((fields) => {
+            const carries = document.getElementById(fields.dataset.remindersFor);
+            if (!carries) return;
+
+            const sync = () => { fields.style.display = carries.checked ? '' : 'none'; };
+            carries.addEventListener('change', sync);
+            sync();
+        });
+    })();
+    </script>
+    {% endif %}
 </div>
 {% endblock %}

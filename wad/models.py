@@ -92,9 +92,45 @@ class AccountToken(models.Model):
         return f"AccountToken: {self.user.username}"
 
 
+# How far ahead a date can be announced, in days before it, each with what the page calls it.
+# A handful of lead times rather than a free number: what is being chosen is when to be
+# interrupted, and the difference between nine and ten days ahead is not one anybody has an
+# opinion about.
+REMINDER_CHOICES = (
+    (0, "On the day"),
+    (1, "The day before"),
+    (3, "3 days before"),
+    (7, "A week before"),
+    (14, "2 weeks before"),
+)
+
+
 class CalendarToken(models.Model):
+    """The credential a calendar client subscribes with, and what the feed under it carries.
+
+    Two kinds of date go out on one URL and they are not wanted by the same people: the days
+    off booked against contracts, and the dates a taxpayer's years carry. Either can be left
+    out without the URL changing, so a client already subscribed reads the choice as it stands
+    on its next poll. Both left out is a calendar that goes out empty, which is how a
+    subscription is silenced without being replaced.
+    """
+
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="calendar_token")
     token = models.CharField(max_length=TOKEN_LENGTH, unique=True)
+    includes_time_off = models.BooleanField(default=True)
+    includes_deadlines = models.BooleanField(default=True)
+
+    # How many days before a date its alarms go off, as a list of lead times: a date can be
+    # announced more than once, a fortnight out to plan around and again the morning it is due.
+    # Empty is no alarm at all, which is what a subscription carries until its reader asks for
+    # one.
+    #
+    # A list per kind of date, because they are prepared for over different lengths of time: a
+    # day off is arranged around, a transfer is made in the minutes it takes to read the account
+    # number off the month's page, and a return is sat down with.
+    time_off_reminder_days = models.JSONField(default=list, blank=True)
+    monthly_reminder_days = models.JSONField(default=list, blank=True)
+    annual_reminder_days = models.JSONField(default=list, blank=True)
 
     def __str__(self) -> str:
         return f"CalendarToken: {self.user.username}"
