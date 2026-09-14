@@ -457,10 +457,11 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     return redirect("index")
 
 
-def calendar_feed(request: HttpRequest, token: str) -> HttpResponse:  # noqa: ARG001
+def calendar_feed(request: HttpRequest, token: str) -> HttpResponse:
     cal_token = get_object_or_404(CalendarToken, token=token)
     ics_content = export_user_calendar(
         cal_token.user,
+        request.build_absolute_uri("/"),
         time_off=cal_token.includes_time_off,
         deadlines=cal_token.includes_deadlines,
         reminders=Reminders(

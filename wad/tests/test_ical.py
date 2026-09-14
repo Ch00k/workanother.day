@@ -33,6 +33,9 @@ from wad.tests.clock import today_is
 
 D = decimal.Decimal
 
+# Where the feed says the application answers, which the dates in it are linked back to.
+BASE_URL = "https://workanother.day/"
+
 
 class ExportTimeOffTests(TestCase):
     def setUp(self) -> None:
@@ -457,12 +460,12 @@ class ExportUserTimeOffTests(TestCase):
     def test_includes_entries_from_all_contracts(self) -> None:
         TimeOff.objects.create(contract=self.contract1, date="2026-03-05", hours=8)
         TimeOff.objects.create(contract=self.contract2, date="2026-06-01", hours=4)
-        result = export_user_calendar(self.user, time_off=True, deadlines=True, reminders=Reminders())
+        result = export_user_calendar(self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders())
         assert "Acme - Time Off (8h)" in result
         assert "Beta Corp - Time Off (4h)" in result
 
     def test_empty_when_no_time_off(self) -> None:
-        result = export_user_calendar(self.user, time_off=True, deadlines=True, reminders=Reminders())
+        result = export_user_calendar(self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders())
         assert "BEGIN:VEVENT" not in result
 
     def test_days_off_left_out_when_not_asked_for(self) -> None:
@@ -470,7 +473,7 @@ class ExportUserTimeOffTests(TestCase):
         it, however many are booked."""
         TimeOff.objects.create(contract=self.contract1, date="2026-03-05", hours=8)
 
-        result = export_user_calendar(self.user, time_off=False, deadlines=True, reminders=Reminders())
+        result = export_user_calendar(self.user, BASE_URL, time_off=False, deadlines=True, reminders=Reminders())
 
         assert "Acme" not in result
 
@@ -487,7 +490,7 @@ class ExportUserTimeOffTests(TestCase):
         )
         TimeOff.objects.create(contract=other_contract, date="2026-03-05", hours=8)
         TimeOff.objects.create(contract=self.contract1, date="2026-06-01", hours=8)
-        result = export_user_calendar(self.user, time_off=True, deadlines=True, reminders=Reminders())
+        result = export_user_calendar(self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders())
         assert "Secret" not in result
         assert "Acme" in result
 
@@ -516,9 +519,9 @@ class ExportDeadlineTests(TestCase):
     def _exported(self) -> str:
         """The feed, unfolded: the format splits a long line and a reader puts it back."""
         with today_is(self.today):
-            return export_user_calendar(self.user, time_off=True, deadlines=True, reminders=Reminders()).replace(
-                "\r\n ", ""
-            )
+            return export_user_calendar(
+                self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders()
+            ).replace("\r\n ", "")
 
     def _block(self, exported: str, summary: str) -> str:
         """The one event of a feed whose summary carries `summary`, so its lines can be read."""
@@ -533,7 +536,7 @@ class ExportDeadlineTests(TestCase):
 
     def _month(self, number: int) -> str:
         """What the event for one month of the year under test is called."""
-        return f"ryczałt and składki for {datetime.date(self.today.year, number, 1):%B %Y}"
+        return f"Ryczałt and składki for {datetime.date(self.today.year, number, 1):%B %Y}"
 
     def _contract(self) -> Contract:
         """Something to book a day off against, this taxpayer being described without one."""
@@ -564,7 +567,7 @@ class ExportDeadlineTests(TestCase):
         art. 21 ust. 1 sets."""
         year = self.today.year
 
-        block = self._event(f"AY Software Services - ryczałt and składki for January {year}")
+        block = self._event(f"AY Software Services - Ryczałt and składki for January {year}")
 
         assert f"DTSTART;VALUE=DATE:{year}02" in block
 
@@ -573,16 +576,56 @@ class ExportDeadlineTests(TestCase):
         with the annual return having been repealed."""
         year = self.today.year
 
-        block = self._event(f"AY Software Services - ryczałt and składki for December {year}")
+        block = self._event(f"AY Software Services - Ryczałt and składki for December {year}")
 
         assert f"DTSTART;VALUE=DATE:{year + 1}01" in block
 
-    def test_a_month_states_each_transfer_with_the_payee_it_goes_to(self) -> None:
+    def test_a_month_states_each_transfer_on_its_own(self) -> None:
         """Two transfers to two offices, so each is named and no total is stated: a figure
         covering both is one nobody sends."""
-        block = self._event(f"ryczałt and składki for March {self.today.year}")
+        block = self._event(f"Ryczałt and składki for March {self.today.year}")
 
-        assert "ryczałt 0.00 PLN to Urząd Skarbowy" in block
+        assert "DESCRIPTION:Ryczałt 0.00 PLN. Składki " in block
+
+    def test_a_month_links_to_the_page_its_transfers_are_made_from(self) -> None:
+        """The figures and then the page, which is where the account numbers, the okres each
+        transfer carries and the press that records them are."""
+        year = self.today.year
+        page = f"{BASE_URL}sellers/{self.seller.pk}/taxes/{year}/months/3/"
+
+        block = self._event(f"Ryczałt and składki for March {year}")
+
+        assert f"DESCRIPTION:Ryczałt 0.00 PLN. Składki 2286.64 PLN. {page}" in block
+        assert f"URL:{page}" in block
+
+    def test_a_date_the_year_carries_links_to_the_years_page(self) -> None:
+        """What the return settles and then where to file it. Everything else the deadline used
+        to spell out is on that page, stated against figures current when it is read."""
+        last_year = self.today.year - 1
+        page = f"{BASE_URL}sellers/{self.seller.pk}/taxes/{last_year}/"
+
+        block = self._event(f"PIT-28 for {last_year}")
+
+        assert f"DESCRIPTION:0.00 PLN. {page}" in block
+        assert f"URL:{page}" in block
+
+    def test_the_wakacje_application_links_to_the_year_it_is_filed_during(self) -> None:
+        """The RWS is the one date a year carries that falls inside it, and it is offered from
+        that year's own page rather than from the page of the year the month claimed falls in."""
+        year = self.today.year
+
+        block = self._event(f"Wakacje składkowe application for June {year}")
+
+        assert f"URL:{BASE_URL}sellers/{self.seller.pk}/taxes/{year}/" in block
+
+    def test_an_amount_the_other_way_round_says_so_rather_than_carrying_a_minus(self) -> None:
+        """The wakacje figure is a month of contributions the state pays, so it is not a transfer
+        to make. A leading minus is easy to read past in a calendar client, and the amount is the
+        one thing the event still states in its own right."""
+        block = self._event(f"Wakacje składkowe application for June {self.today.year}")
+
+        assert "DESCRIPTION:1788.29 PLN in your favour. https://" in block
+        assert "-1788.29" not in block
 
     def test_a_transfer_that_cannot_be_worked_out_says_why(self) -> None:
         """Nobody has entered the wages the year's contribution bases are worked out from, so
@@ -594,9 +637,9 @@ class ExportDeadlineTests(TestCase):
         year = self.today.year
         SocialContributionYear.objects.filter(year=year).delete()
 
-        block = self._event(f"ryczałt and składki for March {year}")
+        block = self._event(f"Ryczałt and składki for March {year}")
 
-        assert f"składki: Nobody has entered the wages ZUS works {year}'s contribution bases out from." in block
+        assert f"Składki: Nobody has entered the wages ZUS works {year}'s contribution bases out from. http" in block
 
     def test_a_month_carries_no_alarm_unless_one_was_asked_for(self) -> None:
         """A subscription says nothing out loud until its reader chooses to be interrupted."""
@@ -612,7 +655,7 @@ class ExportDeadlineTests(TestCase):
         """
         with today_is(self.today):
             result = export_user_calendar(
-                self.user, time_off=True, deadlines=True, reminders=Reminders(monthly=[3])
+                self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders(monthly=[3])
             ).replace("\r\n ", "")
 
         assert "TRIGGER:-P2DT15H" in self._block(result, self._month(6))
@@ -622,7 +665,7 @@ class ExportDeadlineTests(TestCase):
         inside: they happen in the small hours."""
         with today_is(self.today):
             result = export_user_calendar(
-                self.user, time_off=True, deadlines=True, reminders=Reminders(monthly=[1])
+                self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders(monthly=[1])
             ).replace("\r\n ", "")
 
         assert "TRIGGER:-PT15H" in self._block(result, self._month(6))
@@ -633,6 +676,7 @@ class ExportDeadlineTests(TestCase):
         with today_is(self.today):
             result = export_user_calendar(
                 self.user,
+                BASE_URL,
                 time_off=True,
                 deadlines=True,
                 reminders=Reminders(monthly=[0, 14]),
@@ -647,7 +691,7 @@ class ExportDeadlineTests(TestCase):
         the trigger runs forwards rather than back."""
         with today_is(self.today):
             result = export_user_calendar(
-                self.user, time_off=True, deadlines=True, reminders=Reminders(monthly=[0])
+                self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders(monthly=[0])
             ).replace("\r\n ", "")
 
         assert "TRIGGER:PT9H" in self._block(result, self._month(6))
@@ -659,6 +703,7 @@ class ExportDeadlineTests(TestCase):
         with today_is(self.today):
             result = export_user_calendar(
                 self.user,
+                BASE_URL,
                 time_off=True,
                 deadlines=True,
                 reminders=Reminders(monthly=[1], annual=[14]),
@@ -675,7 +720,7 @@ class ExportDeadlineTests(TestCase):
         a lead time whose morning has gone is left off and the event goes out bare."""
         with today_is(self.today):
             result = export_user_calendar(
-                self.user, time_off=True, deadlines=True, reminders=Reminders(monthly=[3])
+                self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders(monthly=[3])
             ).replace("\r\n ", "")
 
         assert "BEGIN:VALARM" not in self._block(result, self._month(3))
@@ -690,6 +735,7 @@ class ExportDeadlineTests(TestCase):
         with today_is(datetime.date(year, 6, 10)):
             result = export_user_calendar(
                 self.user,
+                BASE_URL,
                 time_off=True,
                 deadlines=True,
                 reminders=Reminders(monthly=[3, 14]),
@@ -714,7 +760,7 @@ class ExportDeadlineTests(TestCase):
 
         with today_is(self.today):
             result = export_user_calendar(
-                self.user, time_off=True, deadlines=True, reminders=Reminders(monthly=[3])
+                self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders(monthly=[3])
             ).replace("\r\n ", "")
 
         assert "BEGIN:VALARM" not in self._block(result, self._month(6))
@@ -729,7 +775,7 @@ class ExportDeadlineTests(TestCase):
 
         with today_is(self.today):
             result = export_user_calendar(
-                self.user, time_off=True, deadlines=True, reminders=Reminders(monthly=[3])
+                self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders(monthly=[3])
             ).replace("\r\n ", "")
 
         block = self._block(result, self._month(6))
@@ -745,6 +791,7 @@ class ExportDeadlineTests(TestCase):
         with today_is(self.today):
             result = export_user_calendar(
                 self.user,
+                BASE_URL,
                 time_off=True,
                 deadlines=True,
                 reminders=Reminders(annual=[14]),
@@ -761,6 +808,7 @@ class ExportDeadlineTests(TestCase):
         with today_is(self.today):
             result = export_user_calendar(
                 self.user,
+                BASE_URL,
                 time_off=True,
                 deadlines=True,
                 reminders=Reminders(time_off=[1], monthly=[3]),
@@ -783,20 +831,20 @@ class ExportDeadlineTests(TestCase):
         updates the event in place instead of arriving beside it."""
         year = self.today.year
 
-        block = self._event(f"ryczałt and składki for March {year}")
+        block = self._event(f"Ryczałt and składki for March {year}")
 
         assert f"UID:{self.seller.pk}-{year}-03@workanother.day" in block
 
     def test_the_dates_are_left_out_when_not_asked_for(self) -> None:
         """A reader who wants only the days off gets a calendar carrying none of them."""
         with today_is(self.today):
-            result = export_user_calendar(self.user, time_off=True, deadlines=False, reminders=Reminders())
+            result = export_user_calendar(self.user, BASE_URL, time_off=True, deadlines=False, reminders=Reminders())
 
         assert "PIT-28" not in result
         assert "JPK_EWP" not in result
         assert "Annual health contribution settlement" not in result
         assert "Wakacje składkowe application" not in result
-        assert "ryczałt and składki" not in result
+        assert "Ryczałt and składki" not in result
 
     def test_the_wakacje_application_is_an_event(self) -> None:
         """The one date that has to be met inside the year rather than after it: filed during
@@ -805,7 +853,6 @@ class ExportDeadlineTests(TestCase):
         result = self._exported()
 
         assert f"Wakacje składkowe application for June {self.today.year}" in result
-        assert "eZUS" in result
 
     def test_a_year_already_over_carries_no_application(self) -> None:
         """Last year's months cannot be applied for now, and a date already past is not one
@@ -912,6 +959,25 @@ class CalendarFeedTests(TestCase):
 
         assert "Acme" not in response.content.decode()
 
+    def test_the_links_point_back_at_the_host_the_feed_came_from(self) -> None:
+        """A link is followed from somebody's calendar client, so it has to carry the host as
+        well as the path. It is taken from the request the feed was fetched over, which is the
+        one place this application knows what it is reached at."""
+        year = today_in_poland().year
+        seller = Seller.objects.create(
+            user=self.user,
+            name="AY Software Services",
+            address="ul. Przykladowa 1",
+            country="PL",
+            nip="5213870274",
+            business_started_on=datetime.date(year - 3, 1, 1),
+        )
+
+        with today_is(datetime.date(year, 5, 15)):
+            content = self.client.get(f"/calendar/{self.token}.ics").content.decode().replace("\r\n ", "")
+
+        assert f"URL:http://testserver/sellers/{seller.pk}/taxes/{year}/months/3/" in content
+
     def test_a_lead_time_reaches_the_kind_it_was_saved_against(self) -> None:
         """The feed maps three stored fields onto three kinds of date. Transposing two of them
         would leave every alarm on the wrong sort of deadline with nothing else to notice, the
@@ -931,7 +997,7 @@ class CalendarFeedTests(TestCase):
             content = self.client.get(f"/calendar/{self.token}.ics").content.decode().replace("\r\n ", "")
 
         blocks = content.split("BEGIN:VEVENT")
-        monthly = next(block for block in blocks if f"ryczałt and składki for June {year}" in block)
+        monthly = next(block for block in blocks if f"Ryczałt and składki for June {year}" in block)
         annual = next(block for block in blocks if f"PIT-28 for {year}" in block)
         assert "TRIGGER:-P2DT15H" in monthly
         assert "BEGIN:VALARM" not in annual
