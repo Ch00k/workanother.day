@@ -152,11 +152,6 @@ class Kind(enum.StrEnum):
         """What the page calls this, which is what the taxpayer's own bank statement will."""
         return "ryczałt" if self is Kind.RYCZALT else "składki"
 
-    @property
-    def payee(self) -> str:
-        """Who the transfer goes to, named as the transfer form names them."""
-        return "Urząd Skarbowy" if self is Kind.RYCZALT else "Zakład Ubezpieczeń Społecznych"
-
 
 @dataclasses.dataclass(frozen=True)
 class Obligation:
