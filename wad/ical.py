@@ -3,8 +3,12 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import re
+import urllib.parse
 import uuid
 from typing import TYPE_CHECKING
+
+from django.urls import reverse
+from django.utils.text import capfirst
 
 if TYPE_CHECKING:
     import decimal
@@ -122,7 +126,14 @@ class Reminders:
     annual: Sequence[int] = ()
 
 
-def export_user_calendar(user: User, *, time_off: bool, deadlines: bool, reminders: Reminders) -> str:
+def export_user_calendar(
+    user: User,
+    base_url: str,
+    *,
+    time_off: bool,
+    deadlines: bool,
+    reminders: Reminders,
+) -> str:
     """Generate an iCalendar (.ics) file with a user's time off and the dates their years carry.
 
     Two kinds of entry, and the second is the reason this feed is worth subscribing to: a date
@@ -137,14 +148,22 @@ def export_user_calendar(user: User, *, time_off: bool, deadlines: bool, reminde
 
     The reminders are days before a date, counted separately for the days off, for what a month
     owes and for what a year carries, and nothing for no reminder at all.
+
+    `base_url` is where this application answers, which the dates are linked back to: the page
+    an event is acted on from is the whole of what the event has to say beyond its figures.
     """
     today = today_in_poland()
     events = _time_off_events(user, reminders.time_off, today) if time_off else []
 
     if deadlines:
-        events += _deadline_events(user, today, monthly=reminders.monthly, annual=reminders.annual)
+        events += _deadline_events(user, base_url, today, monthly=reminders.monthly, annual=reminders.annual)
 
     return _calendar("Work Another Day", events)
+
+
+def _page(base_url: str, name: str, **kwargs: object) -> str:
+    """The absolute address of one page of this application."""
+    return urllib.parse.urljoin(base_url, reverse(name, kwargs=kwargs))
 
 
 def _time_off_events(user: User, reminders: Sequence[int], today: datetime.date) -> list[str]:
@@ -159,7 +178,14 @@ def _time_off_events(user: User, reminders: Sequence[int], today: datetime.date)
     ]
 
 
-def _deadline_events(user: User, today: datetime.date, *, monthly: Sequence[int], annual: Sequence[int]) -> list[str]:
+def _deadline_events(
+    user: User,
+    base_url: str,
+    today: datetime.date,
+    *,
+    monthly: Sequence[int],
+    annual: Sequence[int],
+) -> list[str]:
     """Every dated obligation of the user's Polish taxpayers, for the year running and the one
     before.
 
@@ -192,12 +218,21 @@ def _deadline_events(user: User, today: datetime.date, *, monthly: Sequence[int]
             if not schedule.months:
                 continue
 
+            # The year's page carries all four of its dates, the return and the settlement with
+            # the presses that record them, the file with a link to the list it is produced from,
+            # and the RWS with the note saying it goes in through eZUS and that recording the
+            # month it claims waits on ZUS granting it.
+            year_page = _page(base_url, "obligations", pk=seller.pk, year=year)
+
             dated.extend(
-                (deadline.on, _deadline_to_vevent(seller, deadline, annual, today))
+                (deadline.on, _deadline_to_vevent(seller, deadline, annual, today, year_page))
                 for deadline in (*schedule.deadlines, schedule.holiday_application)
                 if deadline is not None
             )
-            dated.extend((month.due_on, _month_to_vevent(seller, month, monthly, today)) for month in schedule.months)
+
+            for month in schedule.months:
+                month_page = _page(base_url, "month", pk=seller.pk, year=month.year, month=month.month)
+                dated.append((month.due_on, _month_to_vevent(seller, month, monthly, today, month_page)))
 
     return [line for _, event in sorted(dated, key=lambda pair: pair[0]) for line in event]
 
@@ -207,25 +242,49 @@ def _deadline_to_vevent(
     deadline: obligations.Deadline,
     reminders: Sequence[int],
     today: datetime.date,
+    page: str,
 ) -> list[str]:
     """One dated obligation as an all-day event.
 
     A deadline is computed rather than stored, so its identity is what it is for rather than a
     row: the same date exported again is the same event in the reader's calendar, and a figure
     that has moved since updates it in place instead of arriving twice.
+
+    What it comes to and where to go and do it. The page states what the obligation is, what it
+    is filed in and what has become of it already, and it states all of that against figures
+    current at the moment it is read, which a copy carried into a calendar client months earlier
+    cannot.
     """
-    stated = f"{_money(deadline.amount)}. " if deadline.amount is not None else ""
     what = f"{seller.name} - {deadline.what}"
+    stated = _stated(deadline.amount)
 
     return [
         "BEGIN:VEVENT",
         f"UID:{seller.pk}-{_slug(deadline.what)}@workanother.day",
         f"DTSTART;VALUE=DATE:{deadline.on.strftime('%Y%m%d')}",
         f"SUMMARY:{escape(what)}",
-        f"DESCRIPTION:{escape(stated + deadline.note)}",
+        f"DESCRIPTION:{escape(stated + page)}",
+        f"URL:{page}",
         *_alarms(what, reminders, deadline.on, today, outstanding=not deadline.is_settled),
         "END:VEVENT",
     ]
+
+
+def _stated(amount: decimal.Decimal | None) -> str:
+    """What a dated obligation comes to, said so the sign cannot be missed.
+
+    Two of them can come out the other way: a return settling a year that was overpaid, and the
+    wakacje application, whose figure is a month of contributions the state pays rather than a
+    transfer to make. A leading minus is easy to read past in a calendar client, and the amount
+    is the one thing the event still states in its own right.
+
+    Empty where the figure it is taken from is missing, which is a year at more than one ryczałt
+    rate or one whose published bases nobody has entered.
+    """
+    if amount is None:
+        return ""
+
+    return f"{_money(-amount)} in your favour. " if amount < 0 else f"{_money(amount)}. "
 
 
 def _month_to_vevent(
@@ -233,6 +292,7 @@ def _month_to_vevent(
     month: obligations.Month,
     reminders: Sequence[int],
     today: datetime.date,
+    page: str,
 ) -> list[str]:
     """What a month owes, as one all-day event on the day it falls due.
 
@@ -243,34 +303,39 @@ def _month_to_vevent(
     Identified by the month it settles, so a figure that moves as invoices or payments are
     entered updates the event already in the reader's calendar instead of arriving beside it.
     """
-    what = f"{seller.name} - ryczałt and składki for {month.date:%B %Y}"
+    what = f"{seller.name} - Ryczałt and składki for {month.date:%B %Y}"
 
     return [
         "BEGIN:VEVENT",
         f"UID:{seller.pk}-{month.year}-{month.month:02d}@workanother.day",
         f"DTSTART;VALUE=DATE:{month.due_on.strftime('%Y%m%d')}",
         f"SUMMARY:{escape(what)}",
-        f"DESCRIPTION:{escape(_month_note(month))}",
+        f"DESCRIPTION:{escape(_month_note(month, page))}",
+        f"URL:{page}",
         *_alarms(what, reminders, month.due_on, today, outstanding=month.is_payable),
         "END:VEVENT",
     ]
 
 
-def _month_note(month: obligations.Month) -> str:
-    """Each of the month's transfers with the payee it goes to, and no total.
+def _month_note(month: obligations.Month, page: str) -> str:
+    """What each of the month's transfers comes to, and the page they are made from.
 
-    The ryczałt goes to the Urząd Skarbowy and the składki to ZUS, so a figure covering both is
-    one nobody sends. A transfer whose figure could not be worked out says why instead, in the
-    words the month's own page uses.
+    Named separately rather than totalled, the two going to different offices, so a figure
+    covering both is one nobody sends. A transfer whose figure could not be worked out says why
+    instead, in the words the month's own page uses. Those are written as sentences and the
+    parts here are joined with a full stop, so the one the reason ends in comes off first.
+
+    The page is where each transfer is stated in full, payee and account number and okres and
+    all, and where both are recorded once made.
     """
     stated = [
-        f"{obligation.kind.label} {_money(obligation.amount)} to {obligation.kind.payee}"
+        f"{capfirst(obligation.kind.label)} {_money(obligation.amount)}"
         if obligation.amount is not None
-        else f"{obligation.kind.label}: {obligation.reason}"
+        else f"{capfirst(obligation.kind.label)}: {obligation.reason.rstrip('.')}"
         for obligation in month.obligations
     ]
 
-    return ". ".join(stated) + ". Both are made from the month's page, which states each transfer in full."
+    return ". ".join([*stated, page])
 
 
 # What hour of the morning an alarm goes off at. A deadline is something to be met during a
