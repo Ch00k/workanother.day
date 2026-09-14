@@ -588,14 +588,14 @@ class ExportDeadlineTests(TestCase):
         assert "DESCRIPTION:Ryczałt 0.00 PLN. Składki " in block
 
     def test_a_month_links_to_the_page_its_transfers_are_made_from(self) -> None:
-        """The figures and then the page, which is where the account numbers, the okres each
-        transfer carries and the press that records them are."""
+        """The figures in the body and the page as the event's own link, which is where the
+        account numbers, the okres each transfer carries and the press that records them are."""
         year = self.today.year
         page = f"{BASE_URL}sellers/{self.seller.pk}/taxes/{year}/months/3/"
 
         block = self._event(f"Ryczałt and składki for March {year}")
 
-        assert f"DESCRIPTION:Ryczałt 0.00 PLN. Składki 2286.64 PLN. {page}" in block
+        assert "DESCRIPTION:Ryczałt 0.00 PLN. Składki 2286.64 PLN.\r\n" in block
         assert f"URL:{page}" in block
 
     def test_a_date_the_year_carries_links_to_the_years_page(self) -> None:
@@ -606,7 +606,7 @@ class ExportDeadlineTests(TestCase):
 
         block = self._event(f"PIT-28 for {last_year}")
 
-        assert f"DESCRIPTION:0.00 PLN. {page}" in block
+        assert "DESCRIPTION:0.00 PLN.\r\n" in block
         assert f"URL:{page}" in block
 
     def test_the_wakacje_application_links_to_the_year_it_is_filed_during(self) -> None:
@@ -618,13 +618,38 @@ class ExportDeadlineTests(TestCase):
 
         assert f"URL:{BASE_URL}sellers/{self.seller.pk}/taxes/{year}/" in block
 
+    def test_the_link_is_carried_once(self) -> None:
+        """As the event's URL and nowhere else. A client that renders both the URL and the body
+        prints the address twice over, which is what putting it in each of them looked like."""
+        exported = self._exported()
+
+        bodies = [
+            line
+            for block in exported.split("BEGIN:VEVENT")[1:]
+            if "URL:" in block
+            for line in block.split("\r\n")
+            if line.startswith("DESCRIPTION:")
+        ]
+
+        assert bodies
+        for body in bodies:
+            assert "http" not in body, body
+
+    def test_a_deadline_with_no_figure_goes_out_with_no_body(self) -> None:
+        """JPK_EWP states no amount and never did, and the link is the event's URL rather than
+        something written in its body, so there is nothing left for a body to hold."""
+        block = self._event(f"JPK_EWP for {self.today.year - 1}")
+
+        assert "DESCRIPTION:" not in block
+        assert "URL:" in block
+
     def test_an_amount_the_other_way_round_says_so_rather_than_carrying_a_minus(self) -> None:
         """The wakacje figure is a month of contributions the state pays, so it is not a transfer
         to make. A leading minus is easy to read past in a calendar client, and the amount is the
         one thing the event still states in its own right."""
         block = self._event(f"Wakacje składkowe application for June {self.today.year}")
 
-        assert "DESCRIPTION:1788.29 PLN in your favour. https://" in block
+        assert "DESCRIPTION:1788.29 PLN in your favour.\r\n" in block
         assert "-1788.29" not in block
 
     def test_a_transfer_that_cannot_be_worked_out_says_why(self) -> None:
@@ -639,7 +664,7 @@ class ExportDeadlineTests(TestCase):
 
         block = self._event(f"Ryczałt and składki for March {year}")
 
-        assert f"Składki: Nobody has entered the wages ZUS works {year}'s contribution bases out from. http" in block
+        assert f"Składki: Nobody has entered the wages ZUS works {year}'s contribution bases out from.\r\n" in block
 
     def test_a_month_carries_no_alarm_unless_one_was_asked_for(self) -> None:
         """A subscription says nothing out loud until its reader chooses to be interrupted."""

@@ -150,7 +150,9 @@ def export_user_calendar(
     owes and for what a year carries, and nothing for no reminder at all.
 
     `base_url` is where this application answers, which the dates are linked back to: the page
-    an event is acted on from is the whole of what the event has to say beyond its figures.
+    an event is acted on from is the whole of what the event has to say beyond its figures. The
+    link is the event's URL and is not repeated in its body, a client that renders both showing
+    it twice.
     """
     today = today_in_poland()
     events = _time_off_events(user, reminders.time_off, today) if time_off else []
@@ -250,10 +252,13 @@ def _deadline_to_vevent(
     row: the same date exported again is the same event in the reader's calendar, and a figure
     that has moved since updates it in place instead of arriving twice.
 
-    What it comes to and where to go and do it. The page states what the obligation is, what it
-    is filed in and what has become of it already, and it states all of that against figures
-    current at the moment it is read, which a copy carried into a calendar client months earlier
-    cannot.
+    What it comes to, and the page as a link beside it. The page states what the obligation is,
+    what it is filed in and what has become of it already, and it states all of that against
+    figures current at the moment it is read, which a copy carried into a calendar client months
+    earlier cannot.
+
+    A deadline whose figure could not be worked out has nothing to say in its own right, and
+    goes out with no body at all rather than an empty one.
     """
     what = f"{seller.name} - {deadline.what}"
     stated = _stated(deadline.amount)
@@ -263,7 +268,7 @@ def _deadline_to_vevent(
         f"UID:{seller.pk}-{_slug(deadline.what)}@workanother.day",
         f"DTSTART;VALUE=DATE:{deadline.on.strftime('%Y%m%d')}",
         f"SUMMARY:{escape(what)}",
-        f"DESCRIPTION:{escape(stated + page)}",
+        *([f"DESCRIPTION:{escape(stated)}"] if stated else []),
         f"URL:{page}",
         *_alarms(what, reminders, deadline.on, today, outstanding=not deadline.is_settled),
         "END:VEVENT",
@@ -284,7 +289,7 @@ def _stated(amount: decimal.Decimal | None) -> str:
     if amount is None:
         return ""
 
-    return f"{_money(-amount)} in your favour. " if amount < 0 else f"{_money(amount)}. "
+    return f"{_money(-amount)} in your favour." if amount < 0 else f"{_money(amount)}."
 
 
 def _month_to_vevent(
@@ -310,23 +315,20 @@ def _month_to_vevent(
         f"UID:{seller.pk}-{month.year}-{month.month:02d}@workanother.day",
         f"DTSTART;VALUE=DATE:{month.due_on.strftime('%Y%m%d')}",
         f"SUMMARY:{escape(what)}",
-        f"DESCRIPTION:{escape(_month_note(month, page))}",
+        f"DESCRIPTION:{escape(_month_note(month))}",
         f"URL:{page}",
         *_alarms(what, reminders, month.due_on, today, outstanding=month.is_payable),
         "END:VEVENT",
     ]
 
 
-def _month_note(month: obligations.Month, page: str) -> str:
-    """What each of the month's transfers comes to, and the page they are made from.
+def _month_note(month: obligations.Month) -> str:
+    """What each of the month's transfers comes to.
 
     Named separately rather than totalled, the two going to different offices, so a figure
     covering both is one nobody sends. A transfer whose figure could not be worked out says why
     instead, in the words the month's own page uses. Those are written as sentences and the
     parts here are joined with a full stop, so the one the reason ends in comes off first.
-
-    The page is where each transfer is stated in full, payee and account number and okres and
-    all, and where both are recorded once made.
     """
     stated = [
         f"{capfirst(obligation.kind.label)} {_money(obligation.amount)}"
@@ -335,7 +337,7 @@ def _month_note(month: obligations.Month, page: str) -> str:
         for obligation in month.obligations
     ]
 
-    return ". ".join([*stated, page])
+    return ". ".join(stated) + "."
 
 
 # What hour of the morning an alarm goes off at. A deadline is something to be met during a
