@@ -12,6 +12,7 @@ same tool call has to come back the same way through either.
 from __future__ import annotations
 
 import datetime
+import decimal
 import json
 from typing import Any
 from unittest.mock import patch
@@ -526,6 +527,16 @@ class CalendarToolTests(CallerMixin, TaxpayerTestCase):
         assert contract["home_country"] == "PL"
         assert contract["client_country"] == "CH"
         assert contract["seller"]["name"] == self.seller.name
+
+    def test_a_contract_states_what_it_bills_a_day_at(self) -> None:
+        self.contract.day_rate = decimal.Decimal("800.00")
+        self.contract.currency = "EUR"
+        self.contract.save()
+
+        contract = self.found("list_contracts")["contracts"][0]
+
+        assert contract["day_rate"] == "800.00"
+        assert contract["currency"] == "EUR"
 
     def test_a_year_counts_the_days_booked_against_the_cap(self) -> None:
         found = self.found("get_contract_year", {"contract_id": str(self.contract.id), "year": YEAR})

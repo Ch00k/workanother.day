@@ -263,6 +263,40 @@ a random access token that is the only way back to their data. Guests keep their
 in the browser; a saved account keeps them on the server, so an invoice can be found,
 corrected, and sent again.
 
+## What a day is billed at
+
+A contract states its `Day Rate` and the `Currency` it bills in. The engagement agrees both
+once and every month is the same arithmetic against the days worked, so the invoice form for a
+month starts from them: a contract's first invoice has something to start from, and a rate that
+moves mid-term is typed once on the contract rather than into every month after it.
+
+What the contract states outranks what was billed last, since the rate and the currency are
+terms of the engagement. The rest of the form still carries over from the last invoice stored
+for the contract — the payment terms, the bank details, the VAT note — those being details of a
+month rather than terms of anything.
+
+The rate reaches the first line, which is the month's own work — the form writes the month into
+it and fills in the days worked. A line added beside it bills something else at a price of its
+own, and a day rate stamped onto an expense would read as an ordinary carry-over while
+overcharging it.
+
+Figures carry over only while the currency does. A contract billing in something other than
+what the last invoice was raised in leaves last month's prices behind rather than restating
+them in a currency they were never agreed in.
+
+An invoice keeps the price it was issued at. What a line carries is a copy taken when the
+invoice was stored, so a rate changed on the contract moves the next month and never a document
+already issued, and the register states what was actually billed.
+
+Both fields are optional: a contract kept for its calendar alone says nothing about what it is
+worth, and its invoice form asks for the rate as it did before. A rate without a currency is
+refused, an amount of money being no amount at all without one, and so is one stated finer than
+two decimal places, which is all the column holds.
+
+Guests are not offered either field. Their invoices never reach the server and their form is
+prefilled from their own browser, so a rate stored against their contract is a figure nothing
+would read back.
+
 ## The printed invoice
 
 `Download PDF` on a stored invoice is printed by the server, by Chromium, from

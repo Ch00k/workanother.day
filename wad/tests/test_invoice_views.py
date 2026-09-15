@@ -19,6 +19,13 @@ LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
 PERIOD = (LAST_MONTH, TODAY.replace(day=1) - datetime.timedelta(days=1))
 
 
+# The month's own work, which every invoice here bills.
+BILLED: dict[str, str] = {"description": "Software development services", "days": "18", "rate": "800.00"}
+
+# A line billing something other than a day of the work, which the form takes as readily.
+EXPENSE: dict[str, str] = {"description": "Travel", "days": "1", "rate": "320.00"}
+
+
 def _payload(buyer_id: str = "", **overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "buyer": buyer_id,
@@ -30,7 +37,7 @@ def _payload(buyer_id: str = "", **overrides: object) -> dict[str, object]:
         "vat_note": "Reverse charge applies.",
         "account_holder": "AY Software Services",
         "iban": "PL61 1090 1014 0000 0712 1981 2874",
-        "lines": [{"description": "Software development services", "days": "18", "rate": "800.00"}],
+        "lines": [BILLED],
     }
     payload.update(overrides)
     return payload
@@ -601,6 +608,12 @@ class PrefillFromLastInvoiceTests(InvoiceViewTestCase):
         embedded = response.content.decode().split('id="invoice-context"')[1]
         return json.loads(embedded.split(">", 1)[1].split("</script>")[0])
 
+    def _state_terms(self, *, rate: str, currency: str) -> None:
+        """Say what the contract bills a day at, as its form would."""
+        self.contract.day_rate = decimal.Decimal(rate) if rate else None
+        self.contract.currency = currency
+        self.contract.save()
+
     def test_a_first_invoice_has_nothing_to_carry_over(self) -> None:
         assert self._context()["prefill"] == {}
 
@@ -637,6 +650,70 @@ class PrefillFromLastInvoiceTests(InvoiceViewTestCase):
         self._save(number=f"{series}-1")
 
         assert self._context()["next_number"] == f"{series}-2"
+
+    def test_the_contracts_rate_seeds_a_first_invoice(self) -> None:
+        """With nothing billed yet, what the contract states is the whole of the prefill."""
+        self.contract.day_rate = decimal.Decimal("900.00")
+        self.contract.currency = "EUR"
+        self.contract.save()
+
+        prefill = self._context()["prefill"]
+
+        assert prefill["currency"] == "EUR"
+        assert prefill["lines"] == [{"rate": "900.00"}]
+
+    def test_the_contracts_rate_outranks_the_last_invoice(self) -> None:
+        """A rate moved on the contract is what the next month is billed at."""
+        self._save()
+        self._state_terms(rate="900.00", currency="CHF")
+
+        prefill = self._context()["prefill"]
+
+        assert prefill["currency"] == "CHF"
+        assert prefill["lines"][0]["rate"] == "900.00"
+        assert prefill["lines"][0]["description"] == "Software development services"
+
+    def test_only_the_month_s_own_line_takes_the_contracts_rate(self) -> None:
+        """A line billing something other than days keeps the price it was billed at.
+
+        The form takes any number of lines at prices of their own, and the day rate stamped
+        onto an expense would read as an ordinary carry-over while overcharging it.
+        """
+        self._save(lines=[BILLED, EXPENSE])
+        self._state_terms(rate="900.00", currency="CHF")
+
+        lines = self._context()["prefill"]["lines"]
+
+        assert lines[0]["rate"] == "900.00"
+        assert lines[1] == {"description": "Travel", "days": "1.000000", "rate": "320.00"}
+
+    def test_a_currency_change_leaves_last_months_figures_behind(self) -> None:
+        """Prices agreed in one currency do not mean the same thing restated in another."""
+        self._save()
+        self._state_terms(rate="", currency="EUR")
+
+        prefill = self._context()["prefill"]
+
+        assert prefill["currency"] == "EUR"
+        assert prefill["lines"] == [{"description": "Software development services", "days": "18.000000"}]
+
+    def test_a_currency_change_still_states_the_contracts_own_rate(self) -> None:
+        """The rate is agreed in the contract's currency, so it survives the change."""
+        self._save(lines=[BILLED, EXPENSE])
+        self._state_terms(rate="900.00", currency="EUR")
+
+        lines = self._context()["prefill"]["lines"]
+
+        assert lines[0]["rate"] == "900.00"
+        assert "rate" not in lines[1]
+
+    def test_a_contract_stating_no_rate_leaves_the_last_invoice_standing(self) -> None:
+        self._save()
+
+        prefill = self._context()["prefill"]
+
+        assert prefill["currency"] == "CHF"
+        assert prefill["lines"][0]["rate"] == "800.00"
 
     def test_another_contracts_invoices_do_not_carry_over(self) -> None:
         other = Contract.objects.create(

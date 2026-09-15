@@ -112,6 +112,10 @@ if TYPE_CHECKING:
 MAX_QUANTITY = decimal.Decimal(10) ** 6 - 1
 MAX_UNIT_PRICE = decimal.Decimal(10) ** 12 - 1
 
+# What a contract's day rate is stated to, which is what its column holds and what the form
+# steps by.
+DAY_RATE_STEP = decimal.Decimal("0.01")
+
 # What the payment columns can hold. A sole trader's whole year of ZUS or of ryczałt is a few
 # tens of thousands of złote, so anything near this is a typo rather than a payment.
 MAX_PAYMENT = decimal.Decimal(10) ** 10 - 1
@@ -630,6 +634,7 @@ def contract_create(request: HttpRequest) -> HttpResponse:
             else ""
         ),
         **_contract_party_fields(request),
+        **_contract_rate_fields(request),
         **_contract_tax_fields(request),
         **_contract_message_fields(request),
     )
@@ -675,7 +680,12 @@ def contract_edit(request: HttpRequest, pk: str) -> HttpResponse:
         contract.end_date = datetime.date.fromisoformat(request.POST["end_date"])
         if request.user.is_staff:  # ty: ignore[unresolved-attribute]
             contract.external_calendar_url = request.POST.get("external_calendar_url", "").strip()
-        fields = _contract_party_fields(request) | _contract_tax_fields(request) | _contract_message_fields(request)
+        fields = (
+            _contract_party_fields(request)
+            | _contract_rate_fields(request)
+            | _contract_tax_fields(request)
+            | _contract_message_fields(request)
+        )
         for field, value in fields.items():
             setattr(contract, field, value)
         contract.save()
@@ -1001,10 +1011,7 @@ def _prefill_from(record: Invoice) -> dict[str, object]:
         "account_holder": record.account_holder,
         "iban": record.iban,
         "bic": record.bic,
-        "lines": [
-            {"description": line.description, "days": str(line.quantity), "rate": str(line.unit_net_price)}
-            for line in record.lines.all()  # ty: ignore[unresolved-attribute]
-        ],
+        "lines": _prefill_lines(record),
     }
 
     # Not stored as such, but the gap between the dates is what it was.
@@ -1014,24 +1021,62 @@ def _prefill_from(record: Invoice) -> dict[str, object]:
     return prefill
 
 
-def _invoice_prefill(contract: Contract) -> dict[str, object]:
-    """Seed a new month's form from the last invoice stored for this contract.
+def _prefill_lines(record: Invoice) -> list[dict[str, str]]:
+    """What one invoice billed, in the shape the form's line items read back in."""
+    return [
+        {"description": line.description, "days": str(line.quantity), "rate": str(line.unit_net_price)}
+        for line in record.lines.all()  # ty: ignore[unresolved-attribute]
+    ]
 
-    Currency, the payment note, the bank details, the buyer and the rates are the same
-    most months, and they are already recorded. Reading them back is what lets the form
-    keep nothing of its own.
+
+def _invoice_prefill(contract: Contract) -> dict[str, object]:
+    """Seed a new month's form from the contract and the last invoice stored against it.
+
+    The payment note, the bank details and the buyer are the same most months, and they are
+    already recorded. Reading them back is what lets the form keep nothing of its own.
+
+    What the contract states outranks what was billed last. The rate and the currency are
+    terms of the engagement rather than details of a month, so one changed on the contract
+    is what the next invoice is raised at without anybody retyping it - and the first invoice
+    of a contract, with nothing behind it to read, starts from them too. A contract that
+    states neither leaves last month's standing.
+
+    The rate reaches the first line, which is the month's own work: the form writes the month
+    into it and fills in the days worked. A line added beside it bills something else at a
+    price of its own, and the day rate stamped onto an expense would read as an ordinary
+    carry-over while overcharging it.
+
+    Figures carry over only while the currency does. A contract billing in something other
+    than what the last invoice was raised in leaves last month's prices behind rather than
+    restating them in a currency they were never agreed in, so they are typed again against
+    the currency they now mean.
 
     Corrections are passed over. One carries the lines of the invoice it corrects rather than a
     month's own, so a month starting from one would start from a figure that was withdrawn.
     """
-    prefill: dict[str, object] = {}
     last = (
         contract.invoices.filter(corrects__isnull=True)  # ty: ignore[unresolved-attribute]
         .order_by("-period_start", "-issue_date")
         .first()
     )
+    prefill: dict[str, Any] = _prefill_from(last) if last is not None else {}
 
-    return _prefill_from(last) if last is not None else prefill
+    if contract.currency:
+        prefill["currency"] = contract.currency
+
+    restated = last is not None and bool(contract.currency) and contract.currency != last.currency
+    lines = prefill.get("lines") or [{}]
+
+    if restated:
+        lines = [{field: value for field, value in line.items() if field != "rate"} for line in lines]
+
+    if contract.day_rate is not None:
+        lines = [lines[0] | {"rate": str(contract.day_rate)}, *lines[1:]]
+
+    if restated or contract.day_rate is not None:
+        prefill["lines"] = lines
+
+    return prefill
 
 
 @require_GET  # ty: ignore[invalid-argument-type]
@@ -3701,6 +3746,9 @@ def _validate_contract_form(request: HttpRequest, post_data: QueryDict, *, exter
         except ValueError:
             errors.append("Working hours per day must be a number.")
 
+        if _is_account_holder(request):
+            errors.extend(_rate_errors(post_data))
+
         external_url = str(post_data.get("external_calendar_url", "")).strip()
         if external_sync_enabled and external_url:
             try:
@@ -3718,6 +3766,47 @@ def _validate_contract_form(request: HttpRequest, post_data: QueryDict, *, exter
 
         if post_data.get("send_to_ksef"):
             errors.extend(_validate_ksef_fields(request, home_country=home))
+
+    return errors
+
+
+def _rate_errors(post_data: QueryDict) -> list[str]:
+    """What is wrong with the rate a contract form states, if it states one.
+
+    A rate is an amount of money, so one given without a currency is refused rather than
+    stored as a number meaning nothing. A currency on its own is kept: it is what the
+    contract bills in whether or not the rate is agreed yet.
+
+    A figure finer than the column holds is refused rather than rounded into it. Stored, a
+    rate of 750.999 comes back as 751.00 and 0.004 as 0.00 - a rate nobody agreed, and in the
+    second case the very rate the positivity check exists to keep out, seeding every invoice
+    after it.
+    """
+    errors: list[str] = []
+
+    currency = str(post_data.get("currency", "")).strip().upper()
+    if currency and not CURRENCY_PATTERN.fullmatch(currency):
+        errors.append("Currency must be a three-letter code, such as EUR.")
+
+    rate = str(post_data.get("day_rate", "")).strip()
+    if not rate:
+        return errors
+
+    try:
+        amount = decimal.Decimal(rate)
+    except decimal.InvalidOperation:
+        errors.append("Day rate must be a number.")
+        return errors
+
+    if not amount.is_finite() or amount <= 0:
+        errors.append("Day rate must be positive.")
+    elif amount > MAX_UNIT_PRICE:
+        errors.append("Day rate is larger than an invoice can carry.")
+    elif amount != amount.quantize(DAY_RATE_STEP):
+        errors.append("Day rate must be stated to at most two decimal places.")
+
+    if not currency:
+        errors.append("A day rate needs the currency it is billed in.")
 
     return errors
 
@@ -3780,6 +3869,28 @@ def _contract_message_fields(request: HttpRequest) -> dict[str, object]:
     return {
         "invoice_email_subject": request.POST.get("invoice_email_subject", "").strip(),
         "invoice_email_body": body.strip(),
+    }
+
+
+def _contract_rate_fields(request: HttpRequest) -> dict[str, object]:
+    """Read what a submitted contract form bills a day at, and in what currency.
+
+    Both are optional, because a contract can be kept for its calendar alone. Either left
+    empty is a contract that states nothing about what it is worth, and the invoice form asks
+    for it as it did before.
+
+    Neither is read from a guest, whose invoice lives in their browser and is prefilled from
+    it: the form does not offer the fields, and a submission naming them anyway is not a way
+    to store what nothing would read back.
+    """
+    if not _is_account_holder(request):
+        return {"day_rate": None, "currency": ""}
+
+    rate = request.POST.get("day_rate", "").strip()
+
+    return {
+        "day_rate": decimal.Decimal(rate) if rate else None,
+        "currency": request.POST.get("currency", "").strip().upper(),
     }
 
 
