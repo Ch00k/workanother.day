@@ -111,6 +111,9 @@ urlpatterns = [
     path("invoices/<uuid:pk>/currency-sales/", views.currency_sale_add, name="currency_sale_add"),  # ty: ignore[no-matching-overload]
     path("currency-sales/<uuid:pk>/delete/", views.currency_sale_delete, name="currency_sale_delete"),  # ty: ignore[no-matching-overload]
     path("invoices/<uuid:pk>/status/", views.invoice_status, name="invoice_status"),  # ty: ignore[no-matching-overload]
+    # One endpoint for the whole of the Model Context Protocol: every message is a POST to it,
+    # and the account's access token is what authorises the call.
+    path("mcp", views.mcp_endpoint, name="mcp"),
     # Calendar subscription
     path("calendar/<str:token>.ics", views.calendar_feed, name="calendar_feed"),
     path("calendar/sync/", views.calendar_sync, name="calendar_sync"),  # ty: ignore[no-matching-overload]
