@@ -61,6 +61,8 @@ D = decimal.Decimal
 USERNAME = "dev"
 ACCESS_TOKEN = "devtoken"  # noqa: S105  # dev-only login token; the command refuses to run outside DEBUG
 CONTRACT_NAME = "Acme Corp"
+CONTRACT_DAY_RATE = D("700.00")
+CONTRACT_CURRENCY = "EUR"
 
 # A second contract routed through KSeF. The seller is established in Poland and the buyer
 # in another member state, which is the only shape the FA(3) renderer accepts: a sale to a
@@ -102,6 +104,10 @@ CHF_BUYER_EMAIL = "invoices@example.ch"
 
 CURRENCY = "CHF"
 DAY_RATE = D("425.00")
+
+# What the KSeF contract bills at, which is the one whose invoice is left a draft.
+KSEF_CURRENCY = "EUR"
+KSEF_DAY_RATE = D("800.00")
 DESCRIPTION = "Software development services"
 IBAN = "PL61109010140000071219812874"
 BIC = "WBKPPLPP"
@@ -148,6 +154,8 @@ RELIEF_BUYER_NAME = "Alpine Systems AG"
 RELIEF_BUYER_ADDRESS = "Seestrasse 12\n6300 Zug"
 RELIEF_BUYER_TAX_ID = "CHE-987.654.321"
 RELIEF_BUYER_EMAIL = "ap@example.ch"
+RELIEF_DAY_RATE = D("620.00")
+RELIEF_CURRENCY = "CHF"
 
 # A KSeF token is issued for one NIP in one KSeF, so both come from the environment: a
 # hardcoded pair would authenticate as nobody. Generate them in the sandbox the deployment
@@ -311,6 +319,8 @@ class Command(BaseCommand):
                 "seller": seller,
                 "buyer": buyer,
                 "send_to_ksef": False,
+                "day_rate": RELIEF_DAY_RATE,
+                "currency": RELIEF_CURRENCY,
                 "ryczalt_rate": RYCZALT_RATE,
             },
         )
@@ -325,7 +335,7 @@ class Command(BaseCommand):
         one a command can put a history on - an invoice becomes issued either by a KSeF verdict
         or by its owner saying so, and only the second is available here.
         """
-        plain, _ = Contract.objects.get_or_create(
+        plain, _ = Contract.objects.update_or_create(
             user=user,
             name=CONTRACT_NAME,
             defaults={
@@ -335,6 +345,8 @@ class Command(BaseCommand):
                 "working_hours_per_day": 8,
                 "start_date": datetime.date(self.today.year, 1, 1),
                 "end_date": datetime.date(self.today.year, 12, 31),
+                "day_rate": CONTRACT_DAY_RATE,
+                "currency": CONTRACT_CURRENCY,
             },
         )
 
@@ -361,6 +373,8 @@ class Command(BaseCommand):
                 "seller": seller,
                 "buyer": buyer,
                 "send_to_ksef": True,
+                "day_rate": KSEF_DAY_RATE,
+                "currency": KSEF_CURRENCY,
                 # Software development services, which is what art. 12 ust. 1 pkt 2b lit. b
                 # sets this rate for.
                 "ryczalt_rate": RYCZALT_RATE,
@@ -390,6 +404,8 @@ class Command(BaseCommand):
                 "seller": seller,
                 "buyer": swiss,
                 "send_to_ksef": False,
+                "day_rate": DAY_RATE,
+                "currency": CURRENCY,
                 "ryczalt_rate": RYCZALT_RATE,
             },
         )
@@ -551,10 +567,10 @@ class Command(BaseCommand):
             {
                 "number": next_number(contract.user, month),
                 "issue_date": self.today.isoformat(),
-                "currency": "EUR",
+                "currency": KSEF_CURRENCY,
                 "iban": IBAN,
                 "bic": BIC,
-                "lines": [{"description": DESCRIPTION, "days": "18", "rate": "800.00"}],
+                "lines": [{"description": DESCRIPTION, "days": "18", "rate": str(KSEF_DAY_RATE)}],
             },
             month.year,
             month.month,
