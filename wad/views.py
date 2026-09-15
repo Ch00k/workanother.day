@@ -1,4 +1,5 @@
 import calendar
+import dataclasses
 import datetime
 import decimal
 import hashlib
@@ -83,6 +84,7 @@ from wad.models import (
     Holiday,
     Invoice,
     InvoiceLine,
+    KsefEnvironment,
     Seller,
     SocialContributionYear,
     TaxPayment,
@@ -105,7 +107,15 @@ from wad.services import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.contrib.auth.models import User
+
+# Where a rehearsal goes. Demo is the one the Ministry runs for rehearsing in: real
+# credentials, fictional invoices, no legal effect. Test is not offered here because its
+# authentication is simulated, which makes it a place to develop against rather than a
+# faithful stand-in for the send it is rehearsing.
+REHEARSAL_ENVIRONMENT = KsefEnvironment.DEMO
 
 # What the quantity and price columns can hold, so a submission too large for them is
 # refused with a sentence rather than a database error.
@@ -1188,6 +1198,8 @@ def _invoice_form(
         "ksef_enabled": contract.issues_through_ksef,
         "ksef_unavailable_reason": _ksef_note(contract),
         "ksef_environment": settings.KSEF_ENVIRONMENT,
+        "ksef_environment_warning": _environment_warning(settings.KSEF_ENVIRONMENT),
+        "rehearsal_environment": REHEARSAL_ENVIRONMENT,
         # So the box stops at the length the schema stops at, and says so before it is reached.
         "max_note_length": MAX_DESCRIPTION_LENGTH,
         # The document template is shared with a stored invoice's page. Here the browser
@@ -1998,6 +2010,30 @@ def invoice_send(request: HttpRequest, pk: str, year: int, month: int) -> HttpRe
     made. A send that fails part way leaves the invoice in flight to be finished through
     invoice_status, which asks KSeF what happened rather than sending anything again.
     """
+    return _stored_then(request, pk, year, month, _send)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def invoice_rehearse(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Store the submitted invoice and put it through a KSeF that issues nothing.
+
+    Stored first because a rehearsal is over the bytes an invoice renders to, and there is
+    no invoice to render until the submitted details are one. What that leaves behind is a
+    draft, which is what the page would have left behind had it been saved.
+    """
+    ksef_token = _rehearsal_token(request)
+
+    return _stored_then(request, pk, year, month, lambda record: _rehearse(record, ksef_token))
+
+
+def _stored_then(
+    request: HttpRequest, pk: str, year: int, month: int, act: Callable[[Invoice], HttpResponse]
+) -> HttpResponse:
+    """Store the submitted invoice and hand it to KSeF, answering for whichever refuses it.
+
+    Both things this page offers to do with an invoice begin by making one out of what was
+    submitted, and neither can say anything about a document that could not be made.
+    """
     contract = get_object_or_404(Contract, pk=pk)
     _require_issuer(request, contract)
 
@@ -2015,7 +2051,50 @@ def invoice_send(request: HttpRequest, pk: str, year: int, month: int) -> HttpRe
     except SchemaUnavailableError as error:
         return JsonResponse({"error": str(error)}, status=503)
 
-    return _send(record)
+    return act(record)
+
+
+def _rehearsal_token(request: HttpRequest) -> str:
+    """The credential a rehearsal was asked for with. Empty where none was given.
+
+    Read off the request and never written down. The KSeF a rehearsal goes to clears its
+    credentials along with its data, so a token kept here would be stale by the time it was
+    wanted, and keeping it would only preserve something already revoked.
+    """
+    try:
+        submitted = json.loads(request.body)
+    except json.JSONDecodeError:
+        return ""
+
+    return str(submitted.get("ksef_token", "")).strip() if isinstance(submitted, dict) else ""
+
+
+def _rehearse(record: Invoice, ksef_token: str) -> HttpResponse:
+    """Rehearse an invoice and report the verdict, however it went.
+
+    The rehearsal answers the one question the schema check cannot: whether KSeF itself
+    accepts this document. It is offered for drafts alone, an issued invoice having already
+    had its answer, and it leaves the draft a draft however it goes.
+
+    The response blocks until KSeF decides, which takes seconds, because there is no record
+    of a rehearsal to come back and ask about later.
+    """
+    reason, status = _unrehearsable(record)
+    if reason:
+        return JsonResponse({"error": reason}, status=status)
+
+    try:
+        rehearsal = sending.rehearse(record, REHEARSAL_ENVIRONMENT, ksef_token)
+    except submission.InvoiceStateError as error:
+        return JsonResponse({"error": str(error)}, status=409)
+    except SchemaValidationError as error:
+        return JsonResponse({"error": str(error)}, status=422)
+    except SchemaUnavailableError as error:
+        return JsonResponse({"error": str(error)}, status=503)
+    except (KSeFException, UnsupportedSaleError, ValueError) as error:
+        return JsonResponse({"error": str(error)}, status=502)
+
+    return JsonResponse({**dataclasses.asdict(rehearsal), "url": reverse("invoice_detail", kwargs={"pk": record.pk})})
 
 
 def _send(record: Invoice) -> HttpResponse:
@@ -2061,6 +2140,8 @@ def _party_context(request: HttpRequest, *, is_seller: bool, party: Seller | Buy
         "contribution_sequence": contributions.sequence(party) if isinstance(party, Seller) else "",
         # An identity an invoice was issued under has to outlive editing screens.
         "can_delete": party is not None and not party.invoices.exists(),  # ty: ignore[unresolved-attribute]
+        # Which KSeF a token entered here has to come from, so the field says what it wants.
+        "ksef_environment": settings.KSEF_ENVIRONMENT,
     }
 
 
@@ -3167,7 +3248,11 @@ def invoice_detail(request: HttpRequest, pk: str) -> HttpResponse:
             "ksef_enabled": record.contract.issues_through_ksef,
             "ksef_in_scope": _ksef_in_scope(record.contract),
             "ksef_unavailable_reason": _ksef_note(record.contract),
+            # The KSeF this invoice went to, or the one it would go to while it is still a
+            # draft. An issued invoice keeps naming the environment that holds it.
             "ksef_environment": settings.KSEF_ENVIRONMENT,
+            "ksef_environment_warning": _environment_warning(settings.KSEF_ENVIRONMENT),
+            "rehearsal_environment": REHEARSAL_ENVIRONMENT,
             # The payment date is a date that has been and gone, so the field cannot offer
             # one that has not.
             "today": today_in_poland(),
@@ -3534,6 +3619,62 @@ def invoice_send_stored(request: HttpRequest, pk: str) -> HttpResponse:
         )
 
     return _send(record)
+
+
+def _environment_warning(environment: str) -> str:
+    """What sending to this KSeF costs, as the confirmation has to put it.
+
+    A sandbox is not a free press of the button. The invoice it accepts is recorded here as
+    issued and counted as revenue, and an invoice already issued cannot be sent to another
+    KSeF afterwards - so a send aimed at demo to see what happens spends the document. That
+    is the difference between sending and rehearsing, and it is what the person pressing the
+    button has to have understood before it is pressed.
+    """
+    if not environment:
+        return ""
+
+    if environment == KsefEnvironment.PRODUCTION:
+        return "This one has legal effect."
+
+    return (
+        f"KSeF {environment} is a sandbox, so the invoice will have no legal effect - but it is still "
+        f"recorded here as issued and counted as revenue, and it cannot be sent to another KSeF "
+        f"afterwards. Rehearse instead to put an invoice through KSeF without issuing it."
+    )
+
+
+def _unrehearsable(record: Invoice) -> tuple[str, int]:
+    """Why this invoice cannot be rehearsed, and what that is as a status.
+
+    The reason is empty when it can be, which is the only case with no status to report.
+    """
+    reason = _invoice_unavailable_reason(record)
+    if reason:
+        return reason, 503
+
+    if record.state != Invoice.State.DRAFT:
+        return f"Invoice {record.number} is {record.state}, so there is nothing left to rehearse.", 409
+
+    # The same date KSeF demands of a send, and demanded here for the sake of what the
+    # rehearsal is for. A rehearsal freezes the bytes so the send that follows can reuse
+    # them; an invoice dated some other day cannot be sent until it is redated, and
+    # redating discards exactly those bytes - leaving production a rendering nothing
+    # rehearsed. So an invoice is rehearsed only while it could be sent as it stands.
+    if record.issue_date != today_in_poland():
+        message = (
+            f"This invoice is dated {record.issue_date}, and KSeF requires the date it is sent. "
+            f"Rehearsing it would freeze bytes that redating discards. Open it, redate it to "
+            f"today and save before rehearsing."
+        )
+        return message, 409
+
+    return "", 0
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def invoice_rehearse_stored(request: HttpRequest, pk: str) -> HttpResponse:
+    """Put a stored draft through a KSeF that issues nothing, and report the verdict."""
+    return _rehearse(_owned_invoice(request, pk), _rehearsal_token(request))
 
 
 @require_GET  # ty: ignore[invalid-argument-type]

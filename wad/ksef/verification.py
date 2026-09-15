@@ -8,6 +8,16 @@ if TYPE_CHECKING:
 
 INVOICE_DATE_FORMAT = "%d-%m-%Y"
 
+# Where a verification code resolves, one host per KSeF. An invoice is only held by the
+# environment that accepted it, so a code is addressed to the one it was sent to: the KSeF
+# this deployment sends to for an issued invoice, and the sandbox that took it for a
+# rehearsal.
+BASE_URLS = {
+    "TEST": "https://qr-test.ksef.mf.gov.pl",
+    "DEMO": "https://qr-demo.ksef.mf.gov.pl",
+    "PRODUCTION": "https://qr.ksef.mf.gov.pl",
+}
+
 
 def verification_url(nip: str, issue_date: datetime.date, sha256_hex: str, base_url: str) -> str:
     """Build the link that reaches the invoice in KSeF.

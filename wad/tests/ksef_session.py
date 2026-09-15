@@ -74,6 +74,11 @@ class Session:
         self._send_error = send_error
         self.sent_xml: bytes | None = None
         self.closed = False
+        # Which KSeF each client was opened against, and the token each authenticated with,
+        # in the order they happened. What a send or a rehearsal chose is otherwise invisible:
+        # the stand-in answers the same whichever it is asked for.
+        self.environments: list[str] = []
+        self.tokens: list[str] = []
 
     def get_state(self) -> OnlineSessionState:
         return OnlineSessionState(
@@ -142,7 +147,9 @@ class _Client:
         return self
 
     def with_token(self, *, ksef_token: str, nip: str) -> _Authenticated:
-        del ksef_token, nip
+        del nip
+
+        self._session.tokens.append(ksef_token)
 
         if self._authentication_error is not None:
             raise self._authentication_error
@@ -158,6 +165,12 @@ def talking_to(
 ) -> Iterator[Session]:
     """Put a stand-in session where the application opens its KSeF client."""
     session = session or Session()
+    opened = session
 
-    with mock.patch("wad.ksef.sending._client", return_value=_Client(session, authentication_error)):
+    def _open(environment: str) -> _Client:
+        opened.environments.append(environment)
+
+        return _Client(opened, authentication_error)
+
+    with mock.patch("wad.ksef.sending._client", side_effect=_open):
         yield session

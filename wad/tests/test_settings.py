@@ -15,6 +15,8 @@ import sys
 from typing import TYPE_CHECKING
 from unittest import mock
 
+import pytest
+from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase
 
 if TYPE_CHECKING:
@@ -126,3 +128,25 @@ class TransportSecurityTests(SimpleTestCase):
 
         assert options["use_tls"]
         assert not options["use_ssl"]
+
+
+class KsefEnvironmentTests(SimpleTestCase):
+    """Which KSeF a deployment sends to, refused at startup when it is not one of them.
+
+    Read lazily instead, a typo surfaces as a KeyError while an invoice is being issued or
+    its verification link drawn, which is the worst moment to find out how a machine was
+    configured.
+    """
+
+    def test_the_sandbox_is_what_a_deployment_gets_without_saying(self) -> None:
+        assert _settings().KSEF_ENVIRONMENT == "TEST"
+
+    def test_each_of_the_three_is_accepted(self) -> None:
+        for environment in ("TEST", "DEMO", "PRODUCTION"):
+            with self.subTest(environment=environment):
+                assert environment == _settings(KSEF_ENVIRONMENT=environment).KSEF_ENVIRONMENT
+
+    def test_a_name_the_ministry_does_not_run_stops_the_process(self) -> None:
+        for wrong in ("PROD", "production", "Test", ""):
+            with self.subTest(wrong=wrong), pytest.raises(ImproperlyConfigured, match="KSEF_ENVIRONMENT"):
+                _settings(KSEF_ENVIRONMENT=wrong)

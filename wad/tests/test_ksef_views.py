@@ -9,7 +9,7 @@ from django.urls import reverse
 
 from wad.calendar_utils import today_in_poland
 from wad.ksef.submission import claim_for_sending, freeze, record_acceptance, record_rejection
-from wad.models import DEFAULT_ACCIDENT_RATE, Buyer, Contract, Guest, Invoice, Seller
+from wad.models import DEFAULT_ACCIDENT_RATE, Buyer, Contract, Guest, Invoice, KsefEnvironment, Seller
 from wad.templatetags.money import money
 from wad.tests.factories import store_invoice
 from wad.tests.http import PUBLISHER, Publisher
@@ -20,6 +20,10 @@ CONFIGURED: dict[str, str] = {}
 
 
 TODAY = today_in_poland()
+
+# What a rehearsal authenticates with. Typed in each time rather than stored, so every test
+# that asks for one hands one over.
+DEMO_TOKEN = "demo-token"
 
 # A Polish seller is refused without the day its business started, so every form posted here
 # carries one. What it is does not matter to these tests: none of them reads a schedule.
@@ -277,6 +281,17 @@ class StatusTests(KsefViewTestCase):
         body = self.client.get(reverse("invoice_status", kwargs={"pk": self.record.pk})).json()
 
         assert "/invoice/5213870274/" in body["verification_url"]
+
+    @override_settings(**CONFIGURED, KSEF_ENVIRONMENT="PRODUCTION")
+    def test_the_verification_link_is_addressed_to_the_ksef_that_was_sent_to(self) -> None:
+        """A code resolving at the wrong host is a document nobody can check."""
+        claim_for_sending(self.record)
+        record_acceptance(self.record, ksef_number="5213870274-20260812-AABBCC-DD", upo="<UPO/>")
+        self.client.force_login(self.owner)
+
+        body = self.client.get(reverse("invoice_status", kwargs={"pk": self.record.pk})).json()
+
+        assert body["verification_url"].startswith("https://qr.ksef.mf.gov.pl/")
 
     @override_settings(**CONFIGURED)
     def test_a_draft_invoice_reports_without_a_code(self) -> None:
@@ -591,6 +606,14 @@ class SellerFormTests(TestCase):
         assert not seller.chorobowe
         assert seller.accident_rate == DEFAULT_ACCIDENT_RATE
 
+    def test_the_form_asks_only_for_the_token_this_instance_sends_with(self) -> None:
+        """The one a rehearsal uses is asked for on the invoice, not kept against the seller."""
+        page = self.client.get(reverse("seller_create")).content.decode()
+
+        assert 'name="ksef_token"' in page
+        assert 'name="ksef_token_demo"' not in page
+        assert "not kept here" in page
+
     def test_the_token_is_never_rendered_back(self) -> None:
         self._post(reverse("seller_create"), nip="5213870274", ksef_token="original-token")
         seller = Seller.objects.get()
@@ -618,6 +641,12 @@ class SellerFormTests(TestCase):
 
         seller.refresh_from_db()
         assert seller.ksef_token == "replacement"
+
+    def test_the_form_names_no_environment(self) -> None:
+        """Which KSeF this instance sends to is its own setting, not a choice per seller."""
+        page = self.client.get(reverse("seller_create")).content.decode()
+
+        assert 'name="ksef_environment"' not in page
 
     def test_another_user_cannot_edit_a_seller(self) -> None:
         self._post(reverse("seller_create"), nip="5213870274", ksef_token="tok")
@@ -763,7 +792,14 @@ class EnvironmentBadgeTests(KsefViewTestCase):
 
         assert b"TEST" in content
         assert b"bg-amber-100" in content
-        assert b"legal effect" not in content
+        assert b"Invoices sent here have legal effect." not in content
+
+    def test_a_sandbox_says_the_send_still_counts(self) -> None:
+        """No legal effect is not nothing: the record it leaves is taxed like any other."""
+        content = self._page().decode()
+
+        assert "is a sandbox" in content
+        assert "counted as revenue" in content
 
     @override_settings(KSEF_ENVIRONMENT="PRODUCTION")
     def test_production_is_marked_in_red(self) -> None:
@@ -1414,3 +1450,270 @@ class SendingACorrectionTests(KsefViewTestCase):
         assert body["state"] == "accepted"
         assert self.correction.is_issued
         assert self.correction.ksef_number == "5213870274-20260813-AABBCC-DD"
+
+
+class RehearsalViewTests(KsefViewTestCase):
+    """Putting a draft through a KSeF that issues nothing, from the page that offers it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.record = store_invoice(self.contract, month=LAST_MONTH)
+        self.url = reverse("invoice_rehearse_stored", kwargs={"pk": self.record.pk})
+        self.client.force_login(self.owner)
+
+    def _rehearse(self, ksef_token: str = DEMO_TOKEN):  # noqa: ANN202
+        return self.client.post(self.url, data=json.dumps({"ksef_token": ksef_token}), content_type="application/json")
+
+    def _page(self) -> str:
+        return self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk})).content.decode()
+
+    @override_settings(**CONFIGURED)
+    def test_a_verdict_comes_back_and_the_invoice_is_still_a_draft(self) -> None:
+        reported = status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD")
+
+        with talking_to(Session(reported=reported)):
+            response = self._rehearse()
+
+        self.record.refresh_from_db()
+        assert response.status_code == 200
+        assert response.json()["accepted"]
+        assert response.json()["environment"] == KsefEnvironment.DEMO
+        assert self.record.state == Invoice.State.DRAFT
+
+    @override_settings(**CONFIGURED)
+    def test_a_rehearsal_leaves_nothing_for_the_register_to_count(self) -> None:
+        """An accepted rehearsal that became revenue would land in the ryczalt and JPK_EWP."""
+        reported = status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD")
+
+        with talking_to(Session(reported=reported)):
+            self._rehearse()
+
+        assert not Invoice.objects.filter(state__in=Invoice.ISSUED_STATES).exists()
+
+    @override_settings(**CONFIGURED)
+    def test_an_invoice_dated_another_day_is_not_rehearsed(self) -> None:
+        """Freezing bytes that cannot be sent as they stand is the one thing a rehearsal
+        must not do: redating to send discards them, so production would receive a
+        rendering nothing rehearsed - which is the whole of what a rehearsal promises.
+        """
+        Invoice.objects.filter(pk=self.record.pk).update(issue_date=TODAY - datetime.timedelta(days=1))
+
+        with talking_to() as session:
+            response = self._rehearse()
+
+        self.record.refresh_from_db()
+        assert response.status_code == 409
+        assert "requires the date it is sent" in response.json()["error"]
+        assert session.sent_xml is None
+        assert not self.record.xml, "The bytes were frozen for an invoice that cannot be sent."
+
+    @override_settings(**CONFIGURED)
+    def test_an_issued_invoice_has_nothing_left_to_rehearse(self) -> None:
+        claim_for_sending(self.record)
+        record_acceptance(self.record, ksef_number="5213870274-20260813-AABBCC-DD", upo="<UPO/>")
+
+        response = self._rehearse()
+
+        assert response.status_code == 409
+        assert "nothing left to rehearse" in response.json()["error"]
+
+    @override_settings(**CONFIGURED)
+    def test_a_rehearsal_asked_for_without_a_token_is_refused(self) -> None:
+        """The seller's own token opens production, which is not where a rehearsal goes."""
+        with talking_to() as session:
+            response = self._rehearse("")
+
+        assert response.status_code == 409
+        assert "token is needed" in response.json()["error"]
+        assert session.sent_xml is None
+
+    @override_settings(**CONFIGURED)
+    def test_the_token_typed_in_is_the_one_authenticated_with(self) -> None:
+        """It is the whole point of asking: the stored one opens the wrong KSeF."""
+        reported = status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD")
+
+        with talking_to(Session(reported=reported)) as session:
+            self._rehearse("typed-in-demo-token")
+
+        assert session.tokens == ["typed-in-demo-token"]
+
+    @override_settings(**CONFIGURED)
+    def test_the_token_is_not_stored_anywhere(self) -> None:
+        """A demo credential outlives neither the wipe nor the rehearsal that used it."""
+        reported = status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD")
+
+        with talking_to(Session(reported=reported)):
+            body = self._rehearse("typed-in-demo-token").json()
+
+        self.seller.refresh_from_db()
+        assert self.seller.ksef_token == "test-token"
+        assert "typed-in-demo-token" not in json.dumps(body)
+
+    def test_another_user_cannot_rehearse_a_stored_invoice(self) -> None:
+        self.client.force_login(self.other)
+
+        assert self._rehearse().status_code == 404
+
+    @override_settings(**CONFIGURED)
+    def test_the_page_asks_for_the_token_where_the_rehearsal_is_started(self) -> None:
+        """Which KSeF is about to be spoken to is the one thing worth being sure of."""
+        page = self._page()
+
+        assert 'id="ksef-rehearsal-box"' in page
+        assert 'id="rehearsal-token"' in page
+        assert "KSeF demo token" in page
+
+    @override_settings(**CONFIGURED)
+    def test_the_verdict_carries_the_link_it_can_be_checked_at(self) -> None:
+        reported = status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD")
+
+        with talking_to(Session(reported=reported)):
+            body = self._rehearse().json()
+
+        assert body["verification_url"].startswith("https://qr-demo.ksef.mf.gov.pl/invoice/5213870274/")
+
+    @override_settings(**CONFIGURED)
+    def test_the_box_says_what_a_rehearsal_leaves_behind(self) -> None:
+        """The two acts look alike and differ in what they leave behind, so each says which."""
+        page = self._page()
+        box = page.index('id="ksef-rehearsal-box"')
+        offered = page[box : page.index("</div>", page.index("ksef-rehearsal-start"))]
+
+        assert "Used once and not kept" in offered
+        assert "stays a draft" in offered
+        assert "counts as no revenue" in offered
+
+    @override_settings(**CONFIGURED)
+    def test_sending_to_a_sandbox_is_confirmed_as_spending_the_invoice(self) -> None:
+        """A sandbox send is still an issue: the record counts even where the invoice does not."""
+        page = self._page()
+        send = page.index('id="ksef-send-button"')
+        question = page[send : page.index(">", send)]
+
+        assert "sandbox" in question
+        assert "counted as revenue" in question
+        assert "cannot be sent to another KSeF" in question
+
+    @override_settings(**CONFIGURED, KSEF_ENVIRONMENT="PRODUCTION")
+    def test_sending_to_production_is_confirmed_as_having_legal_effect(self) -> None:
+        page = self._page()
+        send = page.index('id="ksef-send-button"')
+        question = page[send : page.index(">", send)]
+
+        assert "legal effect" in question
+        assert "sandbox" not in question
+
+    @override_settings(**CONFIGURED)
+    def test_the_help_tells_the_two_apart(self) -> None:
+        page = self._page()
+
+        assert "Rehearse</strong> asks the question without spending anything" in page
+        assert "Send</strong> issues the invoice" in page
+
+    @override_settings(**CONFIGURED)
+    def test_an_issued_invoice_is_offered_nothing(self) -> None:
+        claim_for_sending(self.record)
+        record_acceptance(self.record, ksef_number="5213870213-20260813-AABBCC-DD", upo="<UPO/>")
+
+        assert 'id="ksef-rehearsal-box"' not in self._page()
+
+
+class MonthRehearsalTests(KsefViewTestCase):
+    """Rehearsing from the page that prepares the invoice, before it has been saved."""
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.url = reverse(
+            "invoice_rehearse",
+            kwargs={"pk": self.contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month},
+        )
+        self.client.force_login(self.owner)
+
+    def _rehearse(self, ksef_token: str = DEMO_TOKEN, **overrides: object):  # noqa: ANN202
+        return self.client.post(
+            self.url,
+            data=json.dumps({**_payload(str(self.buyer.pk), **overrides), "ksef_token": ksef_token}),
+            content_type="application/json",
+        )
+
+    def _page(self) -> str:
+        return self.client.get(
+            reverse("invoice", kwargs={"pk": self.contract.pk, "year": LAST_MONTH.year, "month": LAST_MONTH.month})
+        ).content.decode()
+
+    @override_settings(**CONFIGURED)
+    def test_an_unsaved_invoice_is_stored_and_then_rehearsed(self) -> None:
+        """There is no invoice to rehearse until the submitted details are one."""
+        reported = status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD")
+
+        with talking_to(Session(reported=reported)) as session:
+            response = self._rehearse()
+
+        record = Invoice.objects.get()
+        assert response.status_code == 200
+        assert response.json()["accepted"]
+        assert record.state == Invoice.State.DRAFT
+        assert session.sent_xml == bytes(record.xml)
+
+    @override_settings(**CONFIGURED)
+    def test_the_verdict_says_where_the_draft_it_stored_now_lives(self) -> None:
+        """It saved something, so it has to say what and where rather than leave it to be found."""
+        reported = status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD")
+
+        with talking_to(Session(reported=reported)):
+            body = self._rehearse().json()
+
+        record = Invoice.objects.get()
+        assert body["url"] == reverse("invoice_detail", kwargs={"pk": record.pk})
+
+    @override_settings(**CONFIGURED)
+    def test_rehearsing_twice_stores_one_invoice(self) -> None:
+        """The same details resolve to the record already made, spending no second number."""
+        reported = status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD")
+
+        with talking_to(Session(reported=reported)):
+            self._rehearse()
+            self._rehearse()
+
+        assert Invoice.objects.count() == 1
+
+    @override_settings(**CONFIGURED)
+    def test_the_invoice_can_still_be_sent_after_being_rehearsed(self) -> None:
+        """A rehearsal that left the draft unsendable would have cost the thing it was checking."""
+        accepted = status(code=ACCEPTED, ksef_number="5213870274-20260813-AABBCC-DD")
+
+        with talking_to(Session(reported=accepted)):
+            self._rehearse()
+
+        with talking_to() as sent:
+            response = self.client.post(
+                self.send_url, data=json.dumps(_payload(str(self.buyer.pk))), content_type="application/json"
+            )
+
+        assert response.status_code == 200
+        assert Invoice.objects.get().state == Invoice.State.SENDING
+        assert sent.environments == [KsefEnvironment.TEST]
+
+    @override_settings(**CONFIGURED)
+    def test_an_invoice_that_cannot_be_made_is_refused_before_ksef(self) -> None:
+        with talking_to() as session:
+            response = self._rehearse(lines=[])
+
+        assert response.status_code == 400
+        assert session.sent_xml is None
+        assert not Invoice.objects.exists()
+
+    def test_a_non_owner_cannot_rehearse(self) -> None:
+        self.client.force_login(self.other)
+
+        assert self._rehearse().status_code == 404
+
+    @override_settings(**CONFIGURED)
+    def test_the_page_asks_for_the_token_before_anything_is_saved(self) -> None:
+        page = self._page()
+
+        assert 'id="ksef-rehearsal-box"' in page
+        assert 'id="rehearsal-token"' in page
+        assert "stored as a draft first" in page

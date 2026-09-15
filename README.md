@@ -57,6 +57,7 @@ KSEF_DEV_TOKEN=... KSEF_DEV_NIP=... make seed
 reach KSeF, and the contract offers everything except sending; `make seed` says so and is
 safe to run again once you have one.
 
+
 Styling is Tailwind. The source is `assets/tailwind.css` and the built stylesheet is
 `static/css/output.css`, which is committed. Rebuild it with `make tailwind-build`, or
 `make tailwind-watch` while working on templates.
@@ -209,7 +210,7 @@ above "the applicable workload limits" are not payable without prior written app
 | `DJANGO_CANONICAL_HOST` | no | — | When set, `www.<host>` is redirected to `<host>` over HTTPS. |
 | `DJANGO_DB_PATH` | no | `db.sqlite3` | Where the SQLite file lives. |
 | `DJANGO_STATIC_ROOT` | no | `staticfiles/` | Where `collectstatic` writes. |
-| `KSEF_ENVIRONMENT` | no | `TEST` | `TEST`, `DEMO` or `PRODUCTION`. Decides which KSeF is talked to and which host verification links point at. |
+| `KSEF_ENVIRONMENT` | no | `TEST` | `TEST`, `DEMO` or `PRODUCTION`. Decides which KSeF invoices are sent to. A rehearsal always goes to demo, whatever this says. |
 | `JPK_GATEWAY_ENVIRONMENT` | no | `TEST` | `TEST` or `PRODUCTION`. Decides which document gateway a JPK_EWP is filed through, and which certificate its payload is sealed to. |
 | `DJANGO_JPK_GATEWAY_CERTIFICATE` | no | the one shipped for the environment | The Ministry's public key certificate, in PEM. Point this at a reissued one without waiting for a release. |
 | `DJANGO_CHROMIUM_PATH` | no | `/usr/bin/chromium` | The browser that prints an invoice to PDF. The image installs one there; point this at a local Chromium or Chrome to render outside it. |
@@ -231,7 +232,57 @@ signing key forges any session, and sessions are the whole of the authentication
 half-configured instance should not be able to issue or file anything with legal effect.
 The Fly deployment names both explicitly in `fly.toml`, because it is the one that issues
 and files for real. A KSeF token is issued for one environment, so a seller's token has to
-come from the same KSeF the deployment talks to.
+come from the same KSeF the deployment sends to.
+
+## Rehearsing an invoice
+
+A seller holds one KSeF token: the credential it issues with, in the KSeF this instance is
+pointed at - and holding it is what makes the KSeF card appear at all, rehearsal included.
+**Rehearse**, on an invoice, asks for a second one at the moment it is used and never keeps
+it - KSeF demo clears its credentials along with its data, so a demo token stored
+beside the seller's own would be stale before it was wanted.
+
+Rehearsing freezes the FA(3), sends it to demo under the token just typed in, waits for a
+verdict and reports it along with the link the invoice can be read at there. Nothing is
+written to the invoice: it is still a draft afterwards, no register or JPK_EWP can see it,
+and the send that follows carries the bytes that were rehearsed. What it catches is the
+document KSeF refuses although the schema accepts it - which would otherwise be discovered
+on the day the invoice has to go. It is offered for an invoice dated today, which is the only
+date KSeF accepts on a send: redating discards the frozen bytes, so an invoice rehearsed on
+one day and sent on another would not be sent the bytes that were rehearsed.
+
+Demo is the one the Ministry runs for the purpose: real credentials, fictional invoices, no
+legal effect. Test is not offered as a rehearsal target, its authentication being simulated -
+which makes it somewhere to develop against rather than a faithful stand-in for the send
+being rehearsed.
+
+It is offered on the month's invoice page as well as on a stored invoice's own. There it
+stores the invoice as a draft first, the way sending does, there being no invoice to
+rehearse until the details on that page are one.
+
+Sending is the other thing. It issues the invoice wherever this instance is pointed, and an
+invoice KSeF has accepted cannot be sent again to another KSeF - so a send aimed at a sandbox
+to see what happens spends the document and leaves a record the month is taxed on. Both ask
+before they act, and say which of the two they are. Which is why the send path never varies
+by environment: the same code freezes, claims, records and resolves whichever KSeF it is
+talking to, so a send to the sandbox in CI is a faithful test of the send to production.
+
+Only sending is confirmed, because only sending spends the document. A rehearsal states what
+it is about to do beside the field the token goes in.
+
+**Known problem:** a rehearsal waits for KSeF synchronously, up to 28 seconds, and the
+deployment runs a single gunicorn worker - so a rehearsal KSeF is slow to settle makes the
+whole instance unresponsive for that long, not only the tab that asked. Adding workers is not
+the fix: one worker is what keeps exactly one Chromium alive at a time on a 768mb machine, and
+two concurrent PDF renders would exhaust it. Accepted for now, a rehearsal being a deliberate
+act performed a handful of times by the one person the instance serves. `--threads` with a
+lock serializing the renderer, or polling the verdict from the browser the way sending is
+polled, are the ways out if it ever matters.
+
+The Ministry asks that invoice data in test and demo be fictional. An invoice to a buyer
+with no Polish NIP is held under the seller's own NIP alone and has no delivery address in
+KSeF, so nobody else can list it; an invoice naming a Polish buyer is delivered to that NIP
+in demo as it would be in production.
 
 ## Deployment
 

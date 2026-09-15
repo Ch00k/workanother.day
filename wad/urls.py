@@ -96,12 +96,16 @@ urlpatterns = [
     path("contracts/<uuid:pk>/import/", views.import_calendar, name="import_calendar"),  # ty: ignore[no-matching-overload]
     path("contracts/<uuid:pk>/invoice/<int:year>/<int:month>/", views.invoice_view, name="invoice"),  # ty: ignore[no-matching-overload]
     path("contracts/<uuid:pk>/invoice/<int:year>/<int:month>/send/", views.invoice_send, name="invoice_send"),  # ty: ignore[no-matching-overload]
+    path(
+        "contracts/<uuid:pk>/invoice/<int:year>/<int:month>/rehearse/", views.invoice_rehearse, name="invoice_rehearse"
+    ),  # ty: ignore[no-matching-overload]
     path("contracts/<uuid:pk>/invoice/<int:year>/<int:month>/save/", views.invoice_save, name="invoice_save"),  # ty: ignore[no-matching-overload]
     path("contracts/<uuid:pk>/invoices/", views.invoice_list, name="invoice_list"),  # ty: ignore[no-matching-overload]
     path("invoices/<uuid:pk>/", views.invoice_detail, name="invoice_detail"),  # ty: ignore[no-matching-overload]
     path("invoices/<uuid:pk>/document.pdf", views.invoice_document, name="invoice_document"),  # ty: ignore[no-matching-overload]
     path("invoices/<uuid:pk>/deliver/", views.invoice_deliver, name="invoice_deliver"),  # ty: ignore[no-matching-overload]
     path("invoices/<uuid:pk>/send/", views.invoice_send_stored, name="invoice_send_stored"),  # ty: ignore[no-matching-overload]
+    path("invoices/<uuid:pk>/rehearse/", views.invoice_rehearse_stored, name="invoice_rehearse_stored"),  # ty: ignore[no-matching-overload]
     path("invoices/<uuid:pk>/delete/", views.invoice_delete, name="invoice_delete"),  # ty: ignore[no-matching-overload]
     path("invoices/<uuid:pk>/issue/", views.invoice_mark_issued, name="invoice_mark_issued"),  # ty: ignore[no-matching-overload]
     path("invoices/<uuid:pk>/edit/", views.invoice_edit, name="invoice_edit"),  # ty: ignore[no-matching-overload]
