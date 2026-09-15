@@ -1,5 +1,6 @@
 import calendar
 import datetime
+import decimal
 import uuid
 from typing import TYPE_CHECKING
 
@@ -423,6 +424,177 @@ class ContractEditTests(TestCase):
         assert response.status_code == 404
         self.contract.refresh_from_db()
         assert self.contract.name == "Acme 2026"
+
+
+class ContractRateTests(TestCase):
+    """What a contract bills a day at, which every month's invoice starts from."""
+
+    def setUp(self) -> None:
+        self.user = User.objects.create_user(username="test")
+        self.client.force_login(self.user)
+        self.valid_data = {
+            "name": "Acme 2026",
+            "home_country": "NL",
+            "client_country": "CH",
+            "max_working_days": "200",
+            "start_date": "2026-01-01",
+            "end_date": "2026-12-31",
+        }
+
+    def _create(self, **fields: str):  # noqa: ANN202
+        return self.client.post("/contracts/new/", {**self.valid_data, **fields})
+
+    def test_the_rate_and_its_currency_are_stored(self) -> None:
+        self._create(day_rate="750.50", currency="EUR")
+
+        contract = Contract.objects.get(name="Acme 2026")
+
+        assert contract.day_rate == decimal.Decimal("750.50")
+        assert contract.currency == "EUR"
+
+    def test_a_currency_is_stored_uppercased(self) -> None:
+        self._create(day_rate="750", currency="eur")
+
+        assert Contract.objects.get(name="Acme 2026").currency == "EUR"
+
+    def test_a_contract_may_state_neither(self) -> None:
+        """A contract kept for its calendar alone says nothing about what it is worth."""
+        self._create()
+
+        contract = Contract.objects.get(name="Acme 2026")
+
+        assert contract.day_rate is None
+        assert contract.currency == ""
+
+    def test_a_rate_without_a_currency_is_refused(self) -> None:
+        """An amount of money means nothing without the currency it is an amount of."""
+        response = self._create(day_rate="750")
+
+        self.assertContains(response, "A day rate needs the currency it is billed in.")
+        assert not Contract.objects.exists()
+
+    def test_a_currency_without_a_rate_is_kept(self) -> None:
+        """What the contract bills in is settled before what it bills."""
+        self._create(currency="EUR")
+
+        contract = Contract.objects.get(name="Acme 2026")
+
+        assert contract.day_rate is None
+        assert contract.currency == "EUR"
+
+    def test_a_rate_that_is_not_a_number_is_refused(self) -> None:
+        response = self._create(day_rate="soon", currency="EUR")
+
+        self.assertContains(response, "Day rate must be a number.")
+        assert not Contract.objects.exists()
+
+    def test_a_rate_of_nothing_is_refused(self) -> None:
+        """Zero and below are not rates anybody agreed, and they bill an empty invoice."""
+        response = self._create(day_rate="0", currency="EUR")
+
+        self.assertContains(response, "Day rate must be positive.")
+        assert not Contract.objects.exists()
+
+    def test_a_rate_larger_than_an_invoice_can_carry_is_refused(self) -> None:
+        response = self._create(day_rate="1000000000000000", currency="EUR")
+
+        self.assertContains(response, "Day rate is larger than an invoice can carry.")
+        assert not Contract.objects.exists()
+
+    def test_a_rate_finer_than_the_column_holds_is_refused(self) -> None:
+        """Stored, 750.999 comes back as 751.00 - a rate nobody agreed to."""
+        response = self._create(day_rate="750.999", currency="EUR")
+
+        self.assertContains(response, "Day rate must be stated to at most two decimal places.")
+        assert not Contract.objects.exists()
+
+    def test_a_rate_that_would_round_to_nothing_is_refused(self) -> None:
+        """0.004 is positive and stores as 0.00, which is the rate the check exists to keep out."""
+        response = self._create(day_rate="0.004", currency="EUR")
+
+        self.assertContains(response, "Day rate must be stated to at most two decimal places.")
+        assert not Contract.objects.exists()
+
+    def test_a_currency_that_is_not_a_code_is_refused(self) -> None:
+        response = self._create(day_rate="750", currency="euros")
+
+        self.assertContains(response, "Currency must be a three-letter code")
+        assert not Contract.objects.exists()
+
+    def test_the_edit_form_shows_what_was_stored(self) -> None:
+        self._create(day_rate="750.50", currency="EUR")
+        contract = Contract.objects.get(name="Acme 2026")
+
+        response = self.client.get(f"/contracts/{contract.pk}/edit/")
+
+        self.assertContains(response, 'value="750.50"')
+        self.assertContains(response, 'value="EUR"')
+
+    def test_editing_moves_the_rate(self) -> None:
+        self._create(day_rate="750", currency="EUR")
+        contract = Contract.objects.get(name="Acme 2026")
+
+        self.client.post(
+            f"/contracts/{contract.pk}/edit/",
+            {**self.valid_data, "day_rate": "800", "currency": "EUR"},
+        )
+        contract.refresh_from_db()
+
+        assert contract.day_rate == decimal.Decimal(800)
+
+    def test_editing_can_take_the_rate_away(self) -> None:
+        self._create(day_rate="750", currency="EUR")
+        contract = Contract.objects.get(name="Acme 2026")
+
+        self.client.post(f"/contracts/{contract.pk}/edit/", self.valid_data)
+        contract.refresh_from_db()
+
+        assert contract.day_rate is None
+        assert contract.currency == ""
+
+
+class GuestContractRateTests(TestCase):
+    """The rate is offered where invoices are kept, and a guest's are kept in their browser."""
+
+    def setUp(self) -> None:
+        self.guest = _create_guest_user()
+        self.client.force_login(self.guest)
+        self.contract = Contract.objects.create(
+            user=self.guest,
+            name="Theirs",
+            home_country="NL",
+            client_country="CH",
+            max_working_days=200,
+            start_date=datetime.date(2026, 1, 1),
+            end_date=datetime.date(2026, 12, 31),
+        )
+
+    def test_neither_form_offers_the_fields(self) -> None:
+        for url in ("/contracts/new/", f"/contracts/{self.contract.pk}/edit/"):
+            response = self.client.get(url)
+
+            self.assertNotContains(response, 'name="day_rate"', msg_prefix=url)
+            self.assertNotContains(response, 'name="currency"', msg_prefix=url)
+
+    def test_a_submitted_rate_is_not_stored(self) -> None:
+        """Nothing offers the field, so a submission naming it is not a way to fill it."""
+        self.client.post(
+            f"/contracts/{self.contract.pk}/edit/",
+            {
+                "name": "Theirs",
+                "home_country": "NL",
+                "client_country": "CH",
+                "max_working_days": "200",
+                "start_date": "2026-01-01",
+                "end_date": "2026-12-31",
+                "day_rate": "750",
+                "currency": "EUR",
+            },
+        )
+        self.contract.refresh_from_db()
+
+        assert self.contract.day_rate is None
+        assert self.contract.currency == ""
 
 
 class CalendarStatsBarTests(TestCase):

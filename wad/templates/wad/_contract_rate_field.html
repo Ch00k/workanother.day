@@ -1,0 +1,30 @@
+{% comment %}
+The rate and the currency are one thing said in two fields: a rate is an amount of money, so
+the form refuses one without the other.
+
+Offered where invoices are kept. A guest's invoice lives in their browser and is prefilled
+from it, so a rate stored against their contract would be a figure nothing ever reads back.
+{% endcomment %}
+{% if can_store_invoices %}
+<div>
+    <label for="day_rate" class="block text-sm font-medium text-[#666] mb-1">Day Rate</label>
+    <input type="number" id="day_rate" name="day_rate" placeholder="750" min="0" step="0.01"
+           value="{% if form_data %}{{ form_data.day_rate }}{% else %}{{ contract.day_rate|default_if_none:'' }}{% endif %}"
+           class="w-full field">
+    <div class="text-xs text-[#999] mt-1">
+        What a day of this work is billed at. Each month's invoice starts from it, and a rate
+        changed here is what the next invoice is raised at; invoices already stored keep the
+        rate they were issued at.
+    </div>
+</div>
+<div>
+    <label for="currency" class="block text-sm font-medium text-[#666] mb-1">Currency</label>
+    <input type="text" id="currency" name="currency" placeholder="EUR" maxlength="3" pattern="[A-Za-z]{3}"
+           value="{% if form_data %}{{ form_data.currency }}{% else %}{{ contract.currency }}{% endif %}"
+           class="w-full field uppercase">
+    <div class="text-xs text-[#999] mt-1">
+        The three-letter code this contract bills in, such as EUR. Changing it leaves last
+        month's figures behind, since they were never agreed in it.
+    </div>
+</div>
+{% endif %}

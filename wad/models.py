@@ -627,6 +627,14 @@ class Contract(models.Model):
     )
     send_to_ksef = models.BooleanField(default=False)
 
+    # What a day of this contract's work is billed at, and the currency it is billed in. The
+    # engagement agrees both and every month bills the same arithmetic against them, so naming
+    # them here is what lets a contract's first invoice be raised without them being typed,
+    # and a rate that changes mid-term be stated once. Each invoice keeps its own copy: a line
+    # carries the price it was issued at, and an invoice its own currency.
+    day_rate = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=3, blank=True, default="")
+
     # The rate this contract's revenue is taxed at under Poland's ryczalt od przychodow
     # ewidencjonowanych, or nothing where that is not how it is taxed. Named on the contract
     # because the rate follows the classification of the services, which the engagement

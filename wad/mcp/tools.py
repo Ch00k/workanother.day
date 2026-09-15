@@ -219,6 +219,8 @@ def _contract(contract: Contract) -> dict:
         "end_date": contract.end_date,
         "max_working_days": contract.max_working_days,
         "working_hours_per_day": contract.working_hours_per_day,
+        "day_rate": contract.day_rate,
+        "currency": contract.currency,
         "ryczalt_rate": contract.ryczalt_rate,
         "issues_through_ksef": contract.issues_through_ksef,
         "has_external_calendar": bool(contract.external_calendar_url),
@@ -879,8 +881,8 @@ CATALOGUE: tuple[Tool, ...] = (
         title="List contracts",
         description=(
             "Every contract on the account, with its two countries, its term, its annual day "
-            "cap, who it bills for and whether its invoices go through KSeF. Start here: the "
-            "ids it returns are what the other contract tools take."
+            "cap, what a day of it is billed at, who it bills for and whether its invoices go "
+            "through KSeF. Start here: the ids it returns are what the other contract tools take."
         ),
         schema=_schema(),
         answer=list_contracts,
