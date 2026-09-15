@@ -44,9 +44,9 @@ def verification_url(record: Invoice) -> str:
     """The link art. 106gb ust. 5 requires on an invoice handed over outside KSeF.
 
     Taken over the bytes that were sent, so the link resolves to the invoice KSeF actually
-    holds. Empty without a digest: sending freezes one first, so an accepted invoice
-    normally has one, and guarding anyway keeps a half-recorded invoice from turning its own
-    page into a server error.
+    holds. Empty without a digest: sending freezes one first, so an accepted invoice normally
+    has one, and guarding anyway keeps a half-recorded invoice from turning its own page into
+    a server error.
     """
     if not record.xml_sha256:
         return ""
@@ -55,7 +55,7 @@ def verification_url(record: Invoice) -> str:
         record.seller_nip,
         record.issue_date,
         record.xml_sha256,
-        settings.KSEF_QR_BASE_URL,
+        verification.BASE_URLS[settings.KSEF_ENVIRONMENT],
     )
 
 

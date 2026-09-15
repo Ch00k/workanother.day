@@ -166,22 +166,26 @@ LOGGING = {
 }
 
 # KSeF
-# Who invoices are issued by, and the credential they are issued with, are set per
-# contract. What stays here is which KSeF a deployment talks to, because a token only
-# works against the environment it was created in. The verification host is derived from
-# the same choice so the two cannot disagree. It defaults to the sandbox: a
-# half-configured instance should not be able to issue anything with legal effect.
+# Who invoices are issued by, and the credential they are issued with, are set per seller.
+# What stays here is which KSeF a deployment sends to, because a token only works against
+# the environment it was created in. The verification host is derived from the same choice
+# so the two cannot disagree. It defaults to the sandbox: a half-configured instance should
+# not be able to issue anything with legal effect.
 KSEF_ENVIRONMENT = os.environ.get("KSEF_ENVIRONMENT", "TEST")
+
+# Checked here so that a name the Ministry does not run - a typo, a lowercased one, "PROD" -
+# stops the process before it serves anything. Read lazily instead, the same typo surfaces as
+# a KeyError while an invoice is being issued or its verification link drawn, which is the
+# worst moment to discover how a machine was configured.
+KSEF_ENVIRONMENTS = ("TEST", "DEMO", "PRODUCTION")
+if KSEF_ENVIRONMENT not in KSEF_ENVIRONMENTS:
+    message = f"KSEF_ENVIRONMENT must be one of {', '.join(KSEF_ENVIRONMENTS)}, not {KSEF_ENVIRONMENT!r}."
+    raise ImproperlyConfigured(message)
 
 # Encrypts the stored KSeF tokens. Held apart from SECRET_KEY because rotating a signing
 # key should not make every seller's credential unreadable. Generate one with:
 #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 KSEF_TOKEN_KEY = _required("DJANGO_KSEF_TOKEN_KEY", "rXevUkBPASjAGdFZDd0mIj-SukHMTv-SxRKx1uGmbCY=")
-KSEF_QR_BASE_URL = {
-    "TEST": "https://qr-test.ksef.mf.gov.pl",
-    "DEMO": "https://qr-demo.ksef.mf.gov.pl",
-    "PRODUCTION": "https://qr.ksef.mf.gov.pl",
-}[KSEF_ENVIRONMENT]
 
 # JPK gateway
 # Where a JPK_EWP is filed, and the certificate its payload is sealed to. The two are chosen

@@ -308,6 +308,12 @@
             afterwards, so this page waits and says what came back. A rejected invoice keeps the
             reason in KSeF's own words and can be sent again once the cause is fixed.
         </p>
+        <p>
+            Sending issues the invoice whichever KSeF the seller is set to, and an invoice that has
+            been sent cannot be sent again to another one. To put a document through KSeF without
+            issuing it, rehearse it: that stores it as a draft and sends those exact bytes to KSeF
+            demo, which issues nothing.
+        </p>
         {% endexplainer %}
     </div>
     <div id="ksef-panel" class="mb-4 mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
@@ -330,16 +336,54 @@
             {% comment %}
             Confirmed because this stores the invoice and sends it in one act: an invoice KSeF
             accepts is issued, spending a number on a document that can no longer be edited or
-            discarded. The environment is in the question because the same button in the
-            sandbox costs nothing and in production issues a document with legal effect.
+            discarded. The environment is in the question because what the same button costs
+            differs between them, which is what the warning beside it spells out.
             {% endcomment %}
             <button type="button" id="ksef-send-button"
-                    data-confirm="Send this invoice to KSeF ({{ ksef_environment }})? It is stored as it stands, and an invoice KSeF accepts is issued and cannot be changed or deleted afterwards.{% if ksef_environment == 'PRODUCTION' %} This one has legal effect.{% endif %}"
+                    data-confirm="Send this invoice to KSeF {{ ksef_environment }}? It is stored as it stands, and an invoice KSeF accepts is issued and cannot be changed or deleted afterwards. {{ ksef_environment_warning }}"
                     class="btn btn-primary">
                 Send
             </button>
         </div>
+        {% comment %}
+        Where a rehearsal is asked for. Folded away rather than sitting beside Send: it is a
+        thing done once before the first invoice of a contract, and an open box asking for a
+        credential every time the page is read would be noise on every other visit.
+
+        The token is typed in each time and never stored: KSeF demo clears its credentials
+        along with its data, so one kept beside the seller's own would be stale by the time it
+        was wanted.
+        {% endcomment %}
+        <details id="ksef-rehearsal-box" class="mt-3">
+            {% comment %}
+            The marker sits inside the content box, which is what lines the triangle up with the
+            left edge of everything else on the card.
+            {% endcomment %}
+            <summary class="list-inside text-sm font-medium text-[#666]">
+                Rehearse in KSeF {{ rehearsal_environment|lower }}
+            </summary>
+            <div class="mt-2">
+                <label for="rehearsal-token" class="block text-sm font-medium text-[#666] mb-1">
+                    KSeF {{ rehearsal_environment|lower }} token
+                </label>
+                <input type="password" id="rehearsal-token" autocomplete="off" spellcheck="false"
+                       placeholder="Generate one in KSeF {{ rehearsal_environment|lower }}" class="w-full field">
+                <div class="text-xs text-[#999] mt-1">
+                    Used once and not kept. This invoice is stored as a draft first, then sent to KSeF
+                    {{ rehearsal_environment|lower }} exactly as production would receive it. It is issued
+                    nowhere and counts as no revenue.
+                </div>
+                <button type="button" id="ksef-rehearsal-start" class="btn btn-primary mt-2">
+                    Rehearse
+                </button>
+            </div>
+        </details>
         <div id="ksef-error" class="notice notice-error mt-3" style="display:none"></div>
+        {% comment %}
+        What the last rehearsal made of this invoice, including where it can be read in the
+        KSeF that took it. Filled in by the rehearsal itself, nothing about one being stored.
+        {% endcomment %}
+        <div id="ksef-rehearsal" class="notice mt-3" style="display:none"></div>
     </div>
     {% elif ksef_unavailable_reason %}
     <div id="ksef-note" class="notice mb-4 print:hidden">{{ ksef_unavailable_reason }}</div>
@@ -693,6 +737,11 @@
         const sendButton = document.getElementById('ksef-send-button');
         const statusText = document.getElementById('ksef-status');
         const errorBox = document.getElementById('ksef-error');
+        const rehearsalBox = document.getElementById('ksef-rehearsal');
+        const rehearsalForm = document.getElementById('ksef-rehearsal-box');
+        const tokenField = document.getElementById('rehearsal-token');
+        const startButton = document.getElementById('ksef-rehearsal-start');
+        const REHEARSAL_ENVIRONMENT = "{{ rehearsal_environment }}";
         const stamp = document.getElementById('ksef-stamp');
         const spinner = document.getElementById('ksef-spinner');
         // Turning stands for the wait itself, so it follows whether one is still on: a status
@@ -707,6 +756,20 @@
             accepted: 'Accepted by KSeF.',
             rejected: 'Rejected by KSeF.',
         };
+
+        // What the panel says the invoice is, and whether a request of ours is outstanding.
+        // Every control follows these two rather than being set by hand at each turn, so a
+        // rehearsal puts them back the way it found them instead of assuming a draft.
+        let invoiceState = 'draft';
+        let busy = false;
+
+        function syncControls() {
+            const draft = invoiceState === 'draft';
+
+            sendButton.disabled = busy || !draft;
+            if (startButton) startButton.disabled = busy || !draft;
+            if (rehearsalForm && !draft) rehearsalForm.remove();
+        }
 
         // Errors accumulate rather than overwrite. A send can fail and then fail again
         // differently while polling, and the first message is usually the one that
@@ -725,13 +788,14 @@
         };
 
         function applyState(state) {
+            invoiceState = state.state;
             statusText.textContent = STATE_LABELS[state.state] ?? state.state;
             showError(state.error);
+            syncControls();
 
             // An accepted invoice may not be sent again, and the visualisation handed to
             // the client has to carry the code and number KSeF assigned.
             const accepted = state.state === 'accepted';
-            sendButton.disabled = accepted || state.state === 'sending';
             stamp.style.display = accepted ? '' : 'none';
             setWaiting(state.state === 'sending');
             if (accepted) {
@@ -758,7 +822,8 @@
             const question = sendButton.getAttribute('data-confirm');
             if (question !== null && !window.confirm(question)) return;
 
-            sendButton.disabled = true;
+            busy = true;
+            syncControls();
             statusText.textContent = 'Sending...';
             showError('');
             setWaiting(true);
@@ -782,7 +847,8 @@
                 if (!response.ok && !state.state) {
                     statusText.textContent = 'Not sent.';
                     showError(state.error ?? `Request failed (${response.status}).`);
-                    sendButton.disabled = false;
+                    busy = false;
+                    syncControls();
                     setWaiting(false);
                     return;
                 }
@@ -798,15 +864,95 @@
                 applyState(state);
                 if (state.state === 'sending') await poll(state.id);
             } catch (err) {
-                // The invoice may well have reached KSeF, so this deliberately does not
-                // re-enable sending. Reopening the page resolves it by asking KSeF.
+                // The invoice may well have reached KSeF, so it is held to be in flight
+                // rather than still a draft: sending stays shut and so does rehearsing.
+                // Reopening the page resolves it by asking KSeF.
+                invoiceState = 'sending';
                 statusText.textContent = 'Lost contact while sending.';
                 showError(`${err}. Reopen this page to find out whether KSeF accepted it.`);
                 setWaiting(false);
             }
+
+            busy = false;
+            syncControls();
         }
 
+        // The accepted verdict, with the link the rehearsed invoice can be read at in the
+        // KSeF that took it, and the page the draft it stored now lives on.
+        function showRehearsal(environment, verdict) {
+            const said = document.createElement('div');
+            said.textContent = `KSeF ${environment} accepted it as ${verdict.ksef_number}`;
+
+            const where = document.createElement('a');
+            where.href = verdict.verification_url;
+            where.textContent = verdict.verification_url;
+            where.rel = 'noreferrer';
+            where.target = '_blank';
+            where.className = 'break-all underline';
+
+            const kept = document.createElement('div');
+            const page = document.createElement('a');
+            page.href = verdict.url;
+            page.textContent = 'its own page';
+            page.className = 'underline';
+            kept.append('Stored as a draft on ', page, ', which is where it can be sent from.');
+
+            rehearsalBox.replaceChildren(said, where, kept);
+            rehearsalBox.style.display = '';
+        }
+
+        // Nothing here touches applyState: a rehearsal leaves the invoice a draft, so the
+        // panel must still offer to send it once the verdict is in.
+        async function rehearse() {
+            if (invoiceState !== 'draft') return;
+
+            // Held in a local and never put back on the field or anywhere else, so the page
+            // keeps no copy of it after the request that used it.
+            const ksefToken = tokenField.value.trim();
+            if (!ksefToken) {
+                tokenField.focus();
+                return;
+            }
+
+            busy = true;
+            syncControls();
+            statusText.textContent = `Rehearsing in KSeF ${REHEARSAL_ENVIRONMENT}...`;
+            showError('');
+            rehearsalBox.style.display = 'none';
+            setWaiting(true);
+
+            try {
+                const response = await fetch(
+                    `{% url 'invoice_rehearse' pk=contract.pk year=year month=month %}`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': form.elements.csrfmiddlewaretoken.value,
+                        },
+                        body: JSON.stringify({ ...invoicePayload(), ksef_token: ksefToken }),
+                    },
+                );
+                const verdict = await response.json();
+
+                // The box stays open and keeps what was typed, whichever way it went: a
+                // verdict is read against the thing that produced it, and a second rehearsal
+                // is a press away rather than a re-entered credential.
+                if (verdict.accepted) showRehearsal(REHEARSAL_ENVIRONMENT, verdict);
+                else showError(verdict.error ?? `Request failed (${response.status}).`);
+            } catch (err) {
+                showError(`${err}. The rehearsal did not finish, so it says nothing about this invoice.`);
+            }
+
+            statusText.textContent = STATE_LABELS[invoiceState] ?? invoiceState;
+            busy = false;
+            syncControls();
+            setWaiting(false);
+        }
+
+        syncControls();
         sendButton.addEventListener('click', send);
+        if (startButton) startButton.addEventListener('click', rehearse);
     }
 
     // Saving keeps the invoice so it can be found, sent and retried later. Guests have

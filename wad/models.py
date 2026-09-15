@@ -136,6 +136,19 @@ class CalendarToken(models.Model):
         return f"CalendarToken: {self.user.username}"
 
 
+class KsefEnvironment(models.TextChoices):
+    """The three KSeF the Ministry of Finance runs, which are separate systems.
+
+    A token, a certificate and a set of permissions belong to the one they were created
+    in and open nothing in the others, so the choice of environment carries the choice of
+    credential with it.
+    """
+
+    TEST = "TEST", "Test"
+    DEMO = "DEMO", "Demo"
+    PRODUCTION = "PRODUCTION", "Production"
+
+
 class Seller(models.Model):
     """A taxpayer the user issues invoices as.
 
@@ -152,6 +165,12 @@ class Seller(models.Model):
     nip = models.CharField(max_length=10, blank=True, default="")
     # Printed on the document as written, unlike nip which is sent as structured data.
     tax_ids = models.TextField(blank=True, default="")
+
+    # The credential this taxpayer issues with, in the KSeF the deployment talks to. A token
+    # opens only the environment it was created in, so a deployment pointed elsewhere needs a
+    # different one here. The token a rehearsal authenticates with is not kept: demo revokes
+    # its credentials along with its data, so one stored here would be stale before it was
+    # wanted, and it is asked for at the moment it is used instead.
     ksef_token = EncryptedTextField(blank=True, default="")
 
     # Who invoices are sent from, and so where a buyer's reply lands. The mail server this
