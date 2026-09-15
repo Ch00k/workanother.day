@@ -82,7 +82,10 @@
                        {% if party.ksef_token %}placeholder="Stored - leave blank to keep it"{% endif %}
                        class="w-full field">
                 <div class="text-xs text-[#999] mt-1">
-                    Can issue invoices under the NIP above until you revoke it. Never shown again once saved.
+                    Can issue invoices under the NIP above until you revoke it. Never shown again once
+                    saved. A token opens only the KSeF it was made in, and this instance sends to
+                    <strong>{{ ksef_environment }}</strong>. The token a rehearsal uses is not kept here -
+                    it is asked for on the invoice.
                 </div>
             </div>
             {% comment %}
