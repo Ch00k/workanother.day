@@ -5,7 +5,7 @@ import datetime
 import ipaddress
 import logging
 import socket
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 from urllib.parse import urlparse
 
 import httpx
@@ -173,6 +173,27 @@ def get_overlapping_holidays(
     home_dates = {h.date for h in home_holidays}
     client_dates = {h.date for h in client_holidays}
     return home_dates & client_dates
+
+
+class ContractHolidays(NamedTuple):
+    """A contract's two holiday calendars, cut down to the period it covers."""
+
+    home: list[Holiday]
+    client: list[Holiday]
+    stale: bool
+
+
+def contract_holidays(contract: Contract) -> ContractHolidays:
+    """Both countries' holidays for the years this contract spans, within its dates."""
+    years = range(contract.start_date.year, contract.end_date.year + 1)
+    home, home_stale = get_holidays_for_years(contract.home_country, years)
+    client, client_stale = get_holidays_for_years(contract.client_country, years)
+
+    return ContractHolidays(
+        home=[h for h in home if contract.start_date <= h.date <= contract.end_date],
+        client=[h for h in client if contract.start_date <= h.date <= contract.end_date],
+        stale=home_stale or client_stale,
+    )
 
 
 def validate_external_calendar_url(url: str) -> set[str]:

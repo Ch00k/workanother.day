@@ -5,12 +5,13 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, NamedTuple, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, NamedTuple, NotRequired, TypedDict
 
 import httpx
 from django.conf import settings
 from django.contrib.auth import login, logout
 from django.core.exceptions import ValidationError
+from django.core.serializers.json import DjangoJSONEncoder
 from django.core.validators import URLValidator
 from django.db import transaction
 from django.db.models import ProtectedError
@@ -19,6 +20,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils.http import content_disposition_header
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from ksef2 import KSeFException
 
@@ -60,6 +62,7 @@ from wad.mail import (
     unconfigured_mail_reason,
     undeliverable_reason,
 )
+from wad.mcp import protocol
 from wad.middleware import create_guest_user
 from wad.models import (
     DEFAULT_ACCIDENT_RATE,
@@ -93,11 +96,16 @@ from wad.models import (
 )
 from wad.schema import SchemaUnavailableError, SchemaValidationError
 from wad.services import (
+    ContractHolidays,
     ExternalCalendarURLError,
+    contract_holidays,
     fetch_external_time_off,
     get_holidays_for_years,
     get_overlapping_holidays,
 )
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User
 
 # What the quantity and price columns can hold, so a submission too large for them is
 # refused with a sentence rather than a database error.
@@ -760,7 +768,7 @@ def _holiday_dates_for_mode(contract: Contract, mode: str) -> set[datetime.date]
     Raises Http404 for a mode with no meaning, because doing nothing and reporting success
     is indistinguishable from a button that quietly stopped working.
     """
-    holidays = _contract_holidays(contract)
+    holidays = contract_holidays(contract)
     home_dates = {h.date for h in holidays.home}
     client_dates = {h.date for h in holidays.client}
 
@@ -3562,27 +3570,6 @@ def compare_external_calendar(request: HttpRequest, pk: str) -> HttpResponse:
     return render(request, "wad/_external_comparison.html", context)
 
 
-class ContractHolidays(NamedTuple):
-    """A contract's two holiday calendars, cut down to the period it covers."""
-
-    home: list[Holiday]
-    client: list[Holiday]
-    stale: bool
-
-
-def _contract_holidays(contract: Contract) -> ContractHolidays:
-    """Both countries' holidays for the years this contract spans, within its dates."""
-    years = range(contract.start_date.year, contract.end_date.year + 1)
-    home, home_stale = get_holidays_for_years(contract.home_country, years)
-    client, client_stale = get_holidays_for_years(contract.client_country, years)
-
-    return ContractHolidays(
-        home=[h for h in home if contract.start_date <= h.date <= contract.end_date],
-        client=[h for h in client if contract.start_date <= h.date <= contract.end_date],
-        stale=home_stale or client_stale,
-    )
-
-
 def _holiday_comparison_rows(
     holidays: ContractHolidays,
     booked_dates: set[str],
@@ -3616,7 +3603,7 @@ def _holiday_comparison_rows(
 
 def _build_calendar_context(contract: Contract, time_off_entries: list[TimeOff] | None = None) -> CalendarContext:
     """Build the full context dict for calendar rendering."""
-    holidays = _contract_holidays(contract)
+    holidays = contract_holidays(contract)
 
     if time_off_entries is None:
         time_off_entries = list(contract.time_off.all())  # ty: ignore[unresolved-attribute]
@@ -3660,7 +3647,7 @@ def _build_calendar_context(contract: Contract, time_off_entries: list[TimeOff] 
 def _build_holiday_comparison_context(contract: Contract) -> HolidayComparisonContext:
     """Build minimal context for the holiday comparison table."""
     booked = {d.isoformat() for d in contract.time_off.values_list("date", flat=True)}  # ty: ignore[unresolved-attribute]
-    *_, comparison = _holiday_comparison_rows(_contract_holidays(contract), booked)
+    *_, comparison = _holiday_comparison_rows(contract_holidays(contract), booked)
 
     return {
         "contract": contract,
@@ -3844,3 +3831,77 @@ def _validate_ksef_fields(request: HttpRequest, *, home_country: str) -> list[st
         errors.append(f"{buyer.name} needs a tax identifier before invoices to it can be sent.")
 
     return errors
+
+
+@csrf_exempt  # ty: ignore[invalid-argument-type]
+@require_POST  # ty: ignore[invalid-argument-type]
+def mcp_endpoint(request: HttpRequest) -> HttpResponse:
+    """The Model Context Protocol endpoint: one JSON-RPC message per request.
+
+    Answers GET and DELETE with 405 through `require_POST`, which is what the revision asks of
+    a server holding no session and opening no stream.
+
+    The credential is the account's own access token, presented as a bearer token, and it is
+    the whole of the authentication: no session is opened and `request.user` is never
+    consulted, which is what makes exempting this from CSRF safe. A cookie would be sent by a
+    browser on any page's say-so, and that is the authority CSRF protects; an Authorization
+    header is only ever set by the client that means to set it.
+    """
+    if not _mcp_origin_allowed(request):
+        return JsonResponse(
+            {"jsonrpc": "2.0", "error": {"code": -32600, "message": "Origin not allowed."}},
+            status=403,
+        )
+
+    # Counted before the token is looked up, the way the login page counts before it looks one
+    # up. The limit is a bound on the work one caller can make a single-worker deployment do,
+    # and posting rubbish bearer tokens is the cheapest way to ask for that work: counting
+    # afterwards would leave the one unauthenticated path as the one with no bound on it.
+    if throttle.exceeded(request, "mcp", throttle.TOOL_CALLS):
+        return HttpResponse(status=429)
+
+    user = _mcp_caller(request)
+    if user is None:
+        challenge = HttpResponse(status=401)
+        challenge["WWW-Authenticate"] = 'Bearer realm="workanother.day"'
+        return challenge
+
+    try:
+        message = json.loads(request.body)
+    except UnicodeDecodeError, json.JSONDecodeError:
+        return JsonResponse(
+            {"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error."}},
+            status=400,
+        )
+
+    status, body = protocol.answer(message, request.headers, user=user)
+    if body is None:
+        return HttpResponse(status=status)
+
+    return JsonResponse(body, status=status, encoder=DjangoJSONEncoder)
+
+
+def _mcp_origin_allowed(request: HttpRequest) -> bool:
+    """Whether a request naming an origin is allowed to come from it.
+
+    The binding requires this to stop a page in a browser reaching an endpoint through a name
+    it has made resolve here. Nothing that speaks the protocol is a browser, so the header is
+    absent on every legitimate request and its presence is what has to be accounted for.
+    """
+    origin = request.headers.get("Origin")
+
+    return origin is None or settings.DEBUG or origin in settings.CSRF_TRUSTED_ORIGINS
+
+
+def _mcp_caller(request: HttpRequest) -> User | None:
+    """The account whose access token this request carries, or nothing where it carries none."""
+    header = request.headers.get("Authorization", "")
+    scheme, _, token = header.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return None
+
+    account_token = AccountToken.objects.filter(token_hash=hash_token(token.strip())).select_related("user").first()
+    if account_token is None or not account_token.user.is_active:
+        return None
+
+    return account_token.user
