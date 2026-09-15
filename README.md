@@ -925,6 +925,54 @@ date it went and the UPO that came back — one per year, replaced rather than a
 nothing here holds the document either version was. KAS holds both records too, and where they
 disagree KAS is right.
 
+## Asking it questions from a model
+
+Everything above is read through pages. `/mcp` is the same record answered over the
+[Model Context Protocol](https://modelcontextprotocol.io), so a model can be asked how the day
+cap is going, what May owes, or why the register is a row short, and go and look rather than be
+told.
+
+It reads and never writes. Fourteen tools cover the three things this keeps — contracts and
+their caps, invoices with their corrections and payments, and a Polish seller's months, register
+and filings — and there is no tool that books a day off, draws up an invoice or sends anything.
+That is a property of the catalogue rather than of the credential: what reaches KSeF or the
+document gateway has legal effect and is undone only by issuing a correction or filing again, so
+it stays behind the pages where a person presses the button.
+
+Connect it with the account's own access token, the one from **Accounts**, as a bearer token:
+
+```bash
+claude mcp add --transport http wad https://workanother.day/mcp \
+  --header "Authorization: Bearer $WAD_TOKEN"
+```
+
+That token is the whole of the authentication. No session is opened and `request.user` is never
+consulted, which is what makes the endpoint safe to exempt from CSRF: a cookie is sent by a
+browser on any page's say-so and that is the authority CSRF protects, whereas an `Authorization`
+header is only ever set by the client that meant to set it. It is also the account's full
+credential — a client configuration file holding it can reach the web pages too, and those do
+write.
+
+Money comes back as a decimal string and dates as ISO-8601 days in Poland's civil calendar. A
+figure the application cannot work out comes back as null with a sibling field saying what is
+missing, the way a page prints a dash and a sentence: a month whose contribution bases nobody
+has entered owes an unknown amount, and an unknown rendered as zero would be a wrong answer
+rather than a missing one.
+
+The transport is a Django view rather than an ASGI application mounted beside this one. A
+server with nothing to stream — no progress to report, no input to ask the client for, no
+subscription to hold open — may answer each request with a single JSON object, which is the
+whole of what the binding asks of it, so `wad/mcp/protocol.py` speaks it directly and the
+deployment stays the one WSGI process it was. Nothing spans two requests: no session is minted,
+and `GET` and `DELETE` are answered 405, as the revision tells a server with neither to.
+
+Two eras of the protocol are answered. Revision 2026-07-28 carries the version, the client's
+identity and its capabilities in every request's `_meta` and mirrors some of them into headers,
+which are checked against the body so that a proxy routing on one cannot disagree with what this
+acts on. Revisions up to 2025-11-25 open with an `initialize` handshake and send no `_meta` at
+all, and that is what released clients still speak — Claude Code among them, which is why both
+are here rather than only the newest.
+
 ## Glossary
 
 Everything above is transacted in Polish, and a page that says a month's DRA is due, or that a
@@ -949,6 +997,11 @@ was never there.
   established yet both reach [api.nbp.pl](https://api.nbp.pl), and a day it published no
   table for costs another request. Timeouts are short and a lookup that fails leaves the
   figure missing rather than stopping the invoice.
+- **The MCP endpoint takes the account's own access token, and there is no narrower one.** The
+  tools read and nothing else, but the credential that reaches them is the credential that
+  reaches the web pages, which write. A client configuration file holding it holds the account.
+  A token of its own, scoped to reading, would need a second kind of token and somewhere to
+  make one.
 - **The ryczalt rate is fixed at 12%.** Art. 12 ust. 1 sets ten rates and this carries the one
   for services related to software, so a business on another rate would need the rate to become
   a choice again. Because of that a year here always holds one rate, and the annual figures

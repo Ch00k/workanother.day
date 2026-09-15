@@ -12,6 +12,12 @@ if TYPE_CHECKING:
 # they are a bound on how much work one caller can make a single-worker deployment do.
 LOGIN_ATTEMPTS = 20
 GUEST_SIGNUPS = 10
+
+# A model works in bursts: listing the tools, then calling several to answer one question. Set
+# well above a conversation's worth so that using the thing is never what trips it, and far
+# below what would keep the single worker busy for an hour.
+TOOL_CALLS = 600
+
 WINDOW_SECONDS = 60 * 60
 
 
