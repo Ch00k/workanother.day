@@ -1,17 +1,19 @@
 import datetime
 import os
 import time
+from unittest import mock
 
 import pytest
 from django.conf import settings
-from django.test import TestCase, override_settings
+from django.test import TestCase
 from ksef2 import KSeFException
 from ksef2.domain.models.session import InvoiceStatusInfo, SessionInvoiceStatusResponse
 
 from wad.calendar_utils import today_in_poland
-from wad.ksef.sending import _accepted_number, resolve, send
+from wad.ksef.sending import _accepted_number, rehearse, resolve, send
 from wad.ksef.submission import InvoiceStateError
-from wad.models import Buyer, Contract, Invoice, Seller
+from wad.ksef.verification import verification_url
+from wad.models import Buyer, Contract, Invoice, KsefEnvironment, Seller
 from wad.tests.factories import store_invoice
 from wad.tests.ksef_session import (
     ACCEPTED,
@@ -176,6 +178,145 @@ class SendTests(TestCase):
         assert session.sent_xml is None
 
 
+class RehearsalTests(TestCase):
+    """What a rehearsal answers, and what it leaves the invoice as.
+
+    The point of one is that it changes nothing: whatever KSeF says, the invoice is still a
+    draft afterwards and the send that follows is its first.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.contract = _contract()
+        self.seller = self.contract.seller
+        self.record = store_invoice(self.contract, month=LAST_MONTH)
+
+    def test_an_accepted_rehearsal_reports_the_number_and_leaves_a_draft(self) -> None:
+        with talking_to(Session(reported=status(code=ACCEPTED, ksef_number=KSEF_NUMBER))):
+            rehearsal = rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        self.record.refresh_from_db()
+        assert rehearsal.accepted
+        assert rehearsal.ksef_number == KSEF_NUMBER
+        assert self.record.state == Invoice.State.DRAFT
+        assert self.record.ksef_number == ""
+        assert self.record.sent_at is None
+
+    def test_an_accepted_rehearsal_says_where_the_invoice_can_be_read(self) -> None:
+        """A verdict worth having is one that can be checked, which means a link to follow."""
+        with talking_to(Session(reported=status(code=ACCEPTED, ksef_number=KSEF_NUMBER))):
+            rehearsal = rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        self.record.refresh_from_db()
+        assert rehearsal.verification_url.startswith("https://qr-demo.ksef.mf.gov.pl/invoice/5213870274/")
+        # Over the bytes that were rehearsed, so the link resolves to what was actually sent.
+        assert rehearsal.verification_url == verification_url(
+            self.record.seller_nip,
+            self.record.issue_date,
+            self.record.xml_sha256,
+            "https://qr-demo.ksef.mf.gov.pl",
+        )
+
+    def test_a_refused_rehearsal_has_nowhere_to_point(self) -> None:
+        """KSeF holds no invoice it refused, so a link would resolve to nothing."""
+        with talking_to(Session(reported=status(code=REJECTED, description="Refused"))):
+            rehearsal = rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        assert rehearsal.verification_url == ""
+
+    def test_a_rehearsal_goes_somewhere_other_than_where_the_seller_issues(self) -> None:
+        """Rehearsing where it issues would be the send it is standing in for."""
+        with talking_to(Session(reported=status(code=ACCEPTED, ksef_number=KSEF_NUMBER))) as session:
+            rehearsal = rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        assert session.environments == [KsefEnvironment.DEMO]
+        assert rehearsal.environment == KsefEnvironment.DEMO
+
+    def test_a_refused_rehearsal_reports_what_ksef_objected_to(self) -> None:
+        """The details are the whole point: they name the field, and the description alone
+        rarely says enough to fix the document with.
+        """
+        reported = status(code=REJECTED, description="Refused", details=["Podmiot2 is not valid"])
+
+        with talking_to(Session(reported=reported)):
+            rehearsal = rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        self.record.refresh_from_db()
+        assert not rehearsal.accepted
+        assert "Podmiot2 is not valid" in rehearsal.error
+        assert str(REJECTED) in rehearsal.error
+        assert self.record.state == Invoice.State.DRAFT
+        assert self.record.error == ""
+
+    def test_a_duplicate_counts_as_accepted(self) -> None:
+        """The same frozen bytes rehearsed twice are an invoice that KSeF already holds."""
+        reported = status(code=DUPLICATE, extensions={"originalKsefNumber": KSEF_NUMBER})
+
+        with talking_to(Session(reported=reported)):
+            rehearsal = rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        assert rehearsal.accepted
+        assert rehearsal.ksef_number == KSEF_NUMBER
+
+    def test_the_send_that_follows_sends_the_bytes_that_were_rehearsed(self) -> None:
+        """Otherwise the rehearsal proved something about a different document."""
+        with talking_to(Session(reported=status(code=ACCEPTED, ksef_number=KSEF_NUMBER))) as demo:
+            rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        with talking_to() as production:
+            send(self.record)
+
+        assert demo.sent_xml == production.sent_xml
+
+    def test_a_rehearsal_that_never_settles_returns_no_verdict(self) -> None:
+        """Silence is not acceptance, and must not be reported as one."""
+        with (
+            mock.patch("wad.ksef.sending.REHEARSAL_ATTEMPTS", 2),
+            mock.patch("wad.ksef.sending.REHEARSAL_INTERVAL", 0),
+            talking_to(Session(reported=status(code=PROCESSING))),
+        ):
+            rehearsal = rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        assert not rehearsal.accepted
+        assert "still processing" in rehearsal.error
+
+    def test_a_rehearsal_without_a_token_is_refused(self) -> None:
+        """A rehearsal authenticates as the taxpayer exactly as a send does."""
+        with talking_to() as session, pytest.raises(InvoiceStateError, match="token is needed"):
+            rehearse(self.record, KsefEnvironment.DEMO, "")
+
+        assert session.sent_xml is None
+
+    def test_the_token_handed_in_is_the_one_authenticated_with(self) -> None:
+        """The seller's own token opens production, which is not where a rehearsal goes."""
+        with talking_to(Session(reported=status(code=ACCEPTED, ksef_number=KSEF_NUMBER))) as session:
+            rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        assert session.tokens == ["demo-token"]
+        assert self.seller.ksef_token not in session.tokens
+
+    def test_the_demo_session_is_closed_even_when_the_send_fails(self) -> None:
+        """A rehearsal has nothing to come back for, so a session left open in demo is
+        abandoned rather than kept - unlike a send, where it is what resolves an invoice.
+        """
+        session = Session(send_error=KSeFException("connection lost"))
+
+        with talking_to(session), pytest.raises(KSeFException):
+            rehearse(self.record, KsefEnvironment.DEMO, "demo-token")
+
+        assert session.closed
+
+    def test_rehearsing_in_production_is_refused(self) -> None:
+        """An invoice production accepts is issued, which is the one thing a rehearsal
+        must not do - so naming it is refused here rather than trusted to the caller.
+        """
+        with talking_to() as session, pytest.raises(InvoiceStateError, match="cannot be rehearsed in production"):
+            rehearse(self.record, KsefEnvironment.PRODUCTION, "production-token")
+
+        assert session.sent_xml is None
+
+
 class ResolveTests(TestCase):
     """What asking KSeF about an invoice in flight settles it as."""
 
@@ -262,7 +403,6 @@ RUNNING_IN_CI = bool(os.environ.get("CI"))
     not (KSEF_DEV_TOKEN and KSEF_DEV_NIP) and not RUNNING_IN_CI,
     reason="KSEF_DEV_TOKEN and KSEF_DEV_NIP name the sandbox taxpayer this sends as.",
 )
-@override_settings(KSEF_ENVIRONMENT="TEST")
 class PublishedKSeFTests(TestCase):
     """The one test that issues an invoice in a KSeF rather than against the stand-in.
 
@@ -291,12 +431,13 @@ class PublishedKSeFTests(TestCase):
 
     def test_an_invoice_is_issued_and_comes_back_with_a_number(self) -> None:
         assert self.publisher is None, "Nothing reached KSeF, so this proves nothing."
-        # Checked as well as pinned. An invoice KSeF accepts in production is issued the moment
-        # it is accepted, and cannot be withdrawn, only corrected - so the one test that really
-        # sends says out loud which KSeF it is sending to.
-        assert settings.KSEF_ENVIRONMENT == "TEST", "This issues an invoice, so it runs in the sandbox or not at all."
         assert KSEF_DEV_TOKEN, "CI was given no KSeF token, so nothing here watches KSeF."
         assert KSEF_DEV_NIP, "CI was given no KSeF NIP, so nothing here watches KSeF."
+
+        # An invoice KSeF accepts in production is issued the moment it is accepted, and cannot
+        # be withdrawn, only corrected - so the one test that really sends says out loud which
+        # KSeF it is sending to, and refuses before it sends anything if that is not the sandbox.
+        assert settings.KSEF_ENVIRONMENT == "TEST", "This issues an invoice, so it runs in the sandbox or not at all."
 
         record = store_invoice(_sandbox_contract(), month=LAST_MONTH)
 

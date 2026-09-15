@@ -158,10 +158,16 @@ RELIEF_DAY_RATE = D("620.00")
 RELIEF_CURRENCY = "CHF"
 
 # A KSeF token is issued for one NIP in one KSeF, so both come from the environment: a
-# hardcoded pair would authenticate as nobody. Generate them in the sandbox the deployment
-# points at and export them together.
+# hardcoded pair would authenticate as nobody. Generate them in the sandbox the seeded seller
+# issues in and export them together.
 SELLER_NIP = os.environ.get("KSEF_DEV_NIP", "5213870274")
 SELLER_KSEF_TOKEN = os.environ.get("KSEF_DEV_TOKEN", "")
+
+
+def _exported_token() -> dict[str, str]:
+    """The sandbox token this run was given, as a column to write. Empty when it was given none."""
+    return {"ksef_token": SELLER_KSEF_TOKEN} if SELLER_KSEF_TOKEN else {}
+
 
 # Stood in for rather than fetched: a UPO is a signed document the tax office produces, and
 # nothing here is filing anything with anybody.
@@ -232,6 +238,10 @@ class Command(BaseCommand):
 
         The NIP and token are updated rather than only defaulted, so exporting a token and
         seeding again is enough to point the seller at a sandbox it can reach.
+
+        A token nobody exported this time is left as it was found. Seeding is run over and
+        over while working, and a seed that quietly revoked the sandbox credential would cost
+        a trip to KSeF to generate another.
         """
         seller, _ = Seller.objects.update_or_create(
             user=user,
@@ -240,7 +250,7 @@ class Command(BaseCommand):
                 "address": SELLER_ADDRESS,
                 "country": "PL",
                 "nip": SELLER_NIP,
-                "ksef_token": SELLER_KSEF_TOKEN,
+                **_exported_token(),
                 "email": SELLER_EMAIL,
                 "first_name": SELLER_FIRST_NAME,
                 "last_name": SELLER_LAST_NAME,
