@@ -131,6 +131,14 @@ class IbanCheckTests(InvoiceViewTestCase):
 
         assert "form.elements.iban.addEventListener('input', checkIban)" in body
 
+    def test_the_form_groups_the_account_number_once_it_is_entered(self) -> None:
+        """Grouped on leaving the field and on prefilling it, and in the preview."""
+        body = self._form()
+
+        assert "form.elements.iban.addEventListener('change', groupIban)" in body
+        assert "groupIban();" in body
+        assert "setText('iban', fmtIban(get('iban')))" in body
+
 
 class SaveTests(InvoiceViewTestCase):
     def test_saving_stores_the_invoice_and_returns_where_it_lives(self) -> None:
@@ -220,6 +228,15 @@ class ListAndDetailTests(InvoiceViewTestCase):
 
         assert money(decimal.Decimal("14400.00")).encode() in content
         assert b"Software development services" in content
+
+    def test_the_document_writes_the_iban_in_groups_of_four(self) -> None:
+        record = self._draft()
+        record.iban = "PL61109010140000071219812874"
+        record.save()
+
+        content = self.client.get(reverse("invoice_detail", kwargs={"pk": record.pk})).content
+
+        assert b'data-field="iban">PL61 1090 1014 0000 0712 1981 2874<' in content
 
     def test_an_accepted_invoice_shows_its_ksef_number_and_link(self) -> None:
         record = self._draft()

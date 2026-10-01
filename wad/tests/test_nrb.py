@@ -103,7 +103,7 @@ class FormattingTests(TestCase):
 
     def test_something_that_is_not_an_account_is_left_as_it_is(self) -> None:
         """A number stored before it was checked is still worth showing to whoever fixes it."""
-        assert nrb.formatted("46 6000") == "466000"
+        assert nrb.formatted("46 6000") == "46 6000"
 
 
 class SellerAccountTests(TestCase):
@@ -165,6 +165,25 @@ class SellerAccountTests(TestCase):
 
         assert b"ends with the NIP" in response.content
         assert not Seller.objects.exists()
+
+    def test_a_refused_zus_account_is_shown_back_grouped(self) -> None:
+        """Written the way the stored one is, so one form does not show a number two ways."""
+        response = self._post(reverse("seller_create"), zus_account=nrb.digits(OTHER_ZUS_ACCOUNT))
+
+        self.assertContains(response, f'value="{OTHER_ZUS_ACCOUNT}"')
+
+    def test_a_zus_account_too_short_to_group_is_shown_back_as_typed(self) -> None:
+        """Stripped of its spaces it would be a run of digits too long to find the mistake in."""
+        typed = "PL46 6000 0002 0260 0152 1387 027"
+        response = self._post(reverse("seller_create"), zus_account=typed)
+
+        self.assertContains(response, f'value="{typed}"')
+
+    def test_the_form_groups_the_zus_account_once_it_is_entered(self) -> None:
+        """The suite runs no JavaScript, so what is checked is that the form carries it."""
+        response = self.client.get(reverse("seller_create"))
+
+        self.assertContains(response, "zusAccount.addEventListener('change'")
 
     def test_a_seller_may_exist_before_zus_has_given_it_an_account(self) -> None:
         self._post(reverse("seller_create"))

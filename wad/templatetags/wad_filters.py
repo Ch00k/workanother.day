@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from django import template
 
 from wad import nrb
+from wad.invoicing import formatted_iban
 
 if TYPE_CHECKING:
     from wad.models import TimeOff
@@ -45,3 +46,9 @@ def account(value: str | None) -> str:
     has where the stored number would be.
     """
     return nrb.formatted(value) if value else ""
+
+
+@register.filter
+def iban(value: str | None) -> str:
+    """An IBAN written out in the groups of four it is printed in. Empty for nothing."""
+    return formatted_iban(value) if value else ""
