@@ -70,14 +70,14 @@ def formatted(account: str) -> str:
     Anything that is not twenty-six digits is handed back untouched: a number stored before it
     was checked is still worth showing to whoever has to correct it.
     """
-    account = digits(account)
-    if not _is_nrb_shaped(account):
+    number = digits(account)
+    if not _is_nrb_shaped(number):
         return account
 
-    rest = account[CHECK_DIGITS_LENGTH:]
+    rest = number[CHECK_DIGITS_LENGTH:]
     groups = [rest[at : at + GROUP] for at in range(0, len(rest), GROUP)]
 
-    return " ".join([account[:CHECK_DIGITS_LENGTH], *groups])
+    return " ".join([number[:CHECK_DIGITS_LENGTH], *groups])
 
 
 def check_digits(account: str) -> str:
