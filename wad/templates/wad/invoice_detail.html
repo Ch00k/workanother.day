@@ -357,7 +357,7 @@
     The sales come after the payment, because the payment is what they are measured against and
     the form for one is in the card above. Nothing to show until the money has landed.
     {% endcomment %}
-    {% if invoice.is_issued and invoice.paid_on and not invoice.is_correction %}
+    {% if invoice.is_paid %}
     {% include "wad/_currency_sales.html" %}
     {% endif %}
     {% endif %}

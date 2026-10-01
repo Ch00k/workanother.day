@@ -63,7 +63,7 @@ and its date are what make a figure checkable, and they are too long to read as 
         </tr>
 
         {# Ruled off only when there is a figure and a row below it to separate from. #}
-        <tr {% if invoice.revenue_pln != None %}{% if invoice.ryczalt_rate or invoice.is_issued %}class="border-b border-[#eee]"{% endif %}{% endif %}>
+        <tr {% if invoice.revenue_pln != None %}{% if invoice.issued_corrections or invoice.ryczalt_rate or invoice.is_paid %}class="border-b border-[#eee]"{% endif %}{% endif %}>
             <td class="py-2 text-[#888] align-top">{% if invoice.is_correction %}Revenue correction{% else %}Revenue{% endif %}</td>
             <td class="py-2 text-right">
                 {% if invoice.revenue_pln == None %}
@@ -102,7 +102,7 @@ and its date are what make a figure checkable, and they are too long to read as 
         for an invoice standing as issued it would repeat the row above it.
         {% endcomment %}
         {% if invoice.issued_corrections %}
-        <tr class="border-b border-[#eee]">
+        <tr {% if invoice.ryczalt_rate or invoice.is_paid %}class="border-b border-[#eee]"{% endif %}>
             <td class="py-2 text-[#888] align-top">After corrections</td>
             <td class="py-2 text-right">
                 <span class="money font-semibold">PLN {{ invoice.revenue_after_corrections|money }}</span>
@@ -119,7 +119,7 @@ and its date are what make a figure checkable, and they are too long to read as 
         into the value column reads as ragged text hanging off the number beside it.
         {% endcomment %}
         {% if invoice.revenue_pln == None %}
-        <tr {% if invoice.ryczalt_rate or invoice.is_issued %}class="border-b border-[#eee]"{% endif %}>
+        <tr {% if invoice.ryczalt_rate or invoice.is_paid %}class="border-b border-[#eee]"{% endif %}>
             <td colspan="2" class="pb-2 text-xs text-[#999]">
                 {% if invoice.revenue_date > today %}
                 The service period ends {{ invoice.revenue_date|date:"j F Y" }}, and NBP publishes
@@ -133,7 +133,7 @@ and its date are what make a figure checkable, and they are too long to read as 
         {% endif %}
 
         {% if invoice.ryczalt_rate %}
-        <tr {% if invoice.is_issued %}class="border-b border-[#eee]"{% endif %}>
+        <tr {% if invoice.is_paid %}class="border-b border-[#eee]"{% endif %}>
             <td class="py-2 text-[#888] align-top">Ryczałt rate</td>
             <td class="py-2 text-right money">{{ invoice.ryczalt_rate|floatformat:"-2" }}%</td>
         </tr>
@@ -148,7 +148,7 @@ and its date are what make a figure checkable, and they are too long to read as 
         Not for a correction, which is not settled on its own: what is paid is the invoice as
         corrected, and the day it lands is recorded against that invoice.
         {% endcomment %}
-        {% if invoice.is_issued and invoice.paid_on and not invoice.is_correction %}
+        {% if invoice.is_paid %}
         <tr {% if invoice.exchange_difference != None %}class="border-b border-[#eee]"{% endif %}>
             <td class="py-2 text-[#888] align-top">Value on receipt</td>
             <td class="py-2 text-right">
