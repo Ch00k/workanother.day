@@ -1112,16 +1112,16 @@ class UnissuedMarkTests(InvoiceViewTestCase):
         assert body.index('class="invoice-page') < mark
         assert "print:hidden" not in enclosing
 
-    def test_acceptance_takes_the_mark_off_without_a_reload(self) -> None:
+    def test_acceptance_redraws_the_page(self) -> None:
         """KSeF answers while the page is open, so the poll that hears it has to clear this.
 
-        The suite runs no JavaScript, so what is checked is that the mark and the script
-        agree on a name: renaming either one alone leaves the mark on an issued invoice.
+        The page drawn for an accepted invoice carries no mark, which the test above checks,
+        so the poll asks for that page again. The suite runs no JavaScript, so what is checked
+        is that the script does ask.
         """
         body = self._detail(self._draft())
 
-        assert 'id="unissued-mark"' in body
-        assert "unissuedMark.remove()" in body
+        assert "if (state.state === 'accepted') window.location.reload();" in body
 
     def test_reopening_a_stored_draft_keeps_the_mark(self) -> None:
         """The edit page draws the same document, from an invoice that is by definition unissued.
