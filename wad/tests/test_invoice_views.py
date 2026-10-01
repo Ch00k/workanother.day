@@ -1575,13 +1575,35 @@ class PaymentDateTests(InvoiceViewTestCase):
         self.assertContains(response, money(decimal.Decimal("1167.84")))
         self.assertContains(response, "increases revenue")
 
-    def _last_revenue_row(self) -> str:
-        """The opening tag of the last row in the Revenue in PLN table."""
+    def _revenue_rows(self) -> list[str]:
+        """Each row of the Revenue in PLN table, from its opening tag to the end of its label."""
         page = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk})).content.decode()
         table = page[page.index('id="revenue-pln"') : page.index("</table>", page.index('id="revenue-pln"'))]
-        start = table.rindex("<tr")
 
-        return table[start : table.index(">", start)]
+        return [row[: row.index("</td>")] for row in table.split("<tr")[1:]]
+
+    def _revenue_row(self, label: str) -> str:
+        return next(row for row in self._revenue_rows() if row.endswith(f">{label}"))
+
+    def _issue_correction(self) -> Invoice:
+        """A correction of the invoice, drawn up as its page does and then taken as issued."""
+        self.client.post(
+            reverse("invoice_correct", kwargs={"pk": self.record.pk}),
+            {
+                "reason": "Day count corrected to the days the Company approved",
+                "cause": Invoice.CorrectionCause.MISTAKE,
+                "position": ["1"],
+                "description": ["Software development services"],
+                "days": ["16"],
+                "rate": ["800.00"],
+            },
+        )
+
+        correction = Invoice.objects.get(corrects=self.record)
+        Invoice.objects.filter(pk=correction.pk).update(state=Invoice.State.ISSUED)
+        correction.refresh_from_db()
+
+        return correction
 
     def test_an_unpaid_invoice_leaves_its_last_row_unruled(self) -> None:
         """The payment form below is ruled off itself, so a rule here would make two."""
@@ -1589,12 +1611,54 @@ class PaymentDateTests(InvoiceViewTestCase):
         self.record.save()
         self._issue()
 
-        assert "border-b" not in self._last_revenue_row()
+        assert "border-b" not in self._revenue_rows()[-1]
 
-    def test_a_paid_invoice_leaves_its_last_row_unruled(self) -> None:
+    def test_the_ryczalt_rate_is_ruled_off_from_the_receipt_below_it(self) -> None:
         self.record.ryczalt_rate = RYCZALT_RATE
         self.record.save()
         self._issue()
         self._pay(self.paid_on.isoformat())
 
-        assert "border-b" not in self._last_revenue_row()
+        assert "border-b" in self._revenue_row("Ryczałt rate")
+
+    def test_the_revenue_is_ruled_off_from_the_corrected_figure_below_it(self) -> None:
+        """With no rate and no payment, the corrected figure is the only row that follows."""
+        self._issue()
+        self._issue_correction()
+
+        assert "border-b" in self._revenue_row("Revenue")
+
+    def test_the_corrected_figure_left_last_is_unruled(self) -> None:
+        self._issue()
+        self._issue_correction()
+
+        last = self._revenue_rows()[-1]
+
+        assert last.endswith(">After corrections")
+        assert "border-b" not in last
+
+    def test_an_issued_invoice_with_a_payment_is_paid(self) -> None:
+        self._issue()
+        self._pay(self.paid_on.isoformat())
+
+        self.record.refresh_from_db()
+        assert self.record.is_paid
+
+    def test_an_issued_invoice_without_a_payment_is_not_paid(self) -> None:
+        self._issue()
+
+        assert not self.record.is_paid
+
+    def test_a_draft_with_a_payment_date_is_not_paid(self) -> None:
+        """The form refuses one, so the date is put there directly."""
+        self.record.paid_on = self.paid_on
+
+        assert not self.record.is_paid
+
+    def test_a_correction_with_a_payment_date_is_not_paid(self) -> None:
+        """A correction is settled as part of the invoice it corrects, never on its own."""
+        self._issue()
+        correction = self._issue_correction()
+        correction.paid_on = self.paid_on
+
+        assert not correction.is_paid

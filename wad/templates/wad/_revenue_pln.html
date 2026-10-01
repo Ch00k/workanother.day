@@ -39,6 +39,10 @@ and its date are what make a figure checkable, and they are too long to read as 
     {% endexplainer %}
 </div>
 <div id="revenue-pln" class="mb-4 mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 print:hidden">
+    {% comment %}
+    Read once: each reading walks the chain of corrections with a query per link.
+    {% endcomment %}
+    {% with issued_corrections=invoice.issued_corrections %}
     <table class="w-full border-collapse text-sm">
         <tr class="border-b border-[#eee]">
             <td class="py-2 text-[#888] align-top w-[210px]">Revenue date</td>
@@ -63,7 +67,7 @@ and its date are what make a figure checkable, and they are too long to read as 
         </tr>
 
         {# Ruled off only when there is a figure and a row below it to separate from. #}
-        <tr {% if invoice.revenue_pln != None %}{% if invoice.issued_corrections or invoice.ryczalt_rate or invoice.is_paid %}class="border-b border-[#eee]"{% endif %}{% endif %}>
+        <tr {% if invoice.revenue_pln != None %}{% if issued_corrections or invoice.ryczalt_rate or invoice.is_paid %}class="border-b border-[#eee]"{% endif %}{% endif %}>
             <td class="py-2 text-[#888] align-top">{% if invoice.is_correction %}Revenue correction{% else %}Revenue{% endif %}</td>
             <td class="py-2 text-right">
                 {% if invoice.revenue_pln == None %}
@@ -101,14 +105,14 @@ and its date are what make a figure checkable, and they are too long to read as 
         exchange difference below is measured from. Only where there is a correction to count:
         for an invoice standing as issued it would repeat the row above it.
         {% endcomment %}
-        {% if invoice.issued_corrections %}
+        {% if issued_corrections %}
         <tr {% if invoice.ryczalt_rate or invoice.is_paid %}class="border-b border-[#eee]"{% endif %}>
             <td class="py-2 text-[#888] align-top">After corrections</td>
             <td class="py-2 text-right">
                 <span class="money font-semibold">PLN {{ invoice.revenue_after_corrections|money }}</span>
                 <div class="text-xs text-[#999] mt-0.5">
                     <span class="money">{{ invoice.currency }} {{ invoice.total_after_corrections|money }}</span> billed, corrected by
-                    {% for correction in invoice.issued_corrections %}{% if not forloop.first %}, {% endif %}{{ correction.number }}{% endfor %}
+                    {% for correction in issued_corrections %}{% if not forloop.first %}, {% endif %}{{ correction.number }}{% endfor %}
                 </div>
             </td>
         </tr>
@@ -187,6 +191,7 @@ and its date are what make a figure checkable, and they are too long to read as 
         {% endif %}
         {% endif %}
     </table>
+    {% endwith %}
 
     {% if not invoice.ryczalt_rate %}
     <div class="text-xs text-[#999] mt-3">This contract is not on ryczałt, so no rate is carried.</div>
