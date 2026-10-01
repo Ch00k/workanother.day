@@ -433,6 +433,13 @@
         // digit at a time.
         return [...digits].reduce((rest, digit) => (rest * 10 + Number(digit)) % 97, 0) === 1;
     };
+    // Written in fours, as the server prints it on the invoice; `formatted_iban` in
+    // `invoicing.py` holds the convention. Anything not shaped like an IBAN is left as typed,
+    // for the check above to report on.
+    const fmtIban = value => {
+        const iban = value.replace(/\s/g, '').toUpperCase();
+        return IBAN_PATTERN.test(iban) ? iban.match(/.{1,4}/g).join(' ') : value;
+    };
 
     const STORAGE_KEY = `wad.invoice.${ctx.contract_id}`;
     // Whether this invoice is kept on the server. When it is, the details that carry from
@@ -692,7 +699,7 @@
         setShow('notes', ctx.reverse_charge || !!get('vat_note'));
 
         setText('account_holder', get('account_holder'));
-        setText('iban', get('iban'));
+        setText('iban', fmtIban(get('iban')));
         setText('bic', get('bic'));
         setShow('bic', !!get('bic'));
         setText('reference', reference);
@@ -1015,10 +1022,17 @@
         );
     };
     form.elements.iban.addEventListener('input', checkIban);
+    // Regrouped once the field is left rather than as it is typed, so the caret is never moved
+    // out from under the person typing.
+    const groupIban = () => {
+        form.elements.iban.value = fmtIban(form.elements.iban.value);
+    };
+    form.elements.iban.addEventListener('change', groupIban);
 
     prefill();
     // Checked after prefilling, because the account number restored from a previous invoice
     // or from this browser is the one the form starts out offering to send.
+    groupIban();
     checkIban();
 })();
 </script>

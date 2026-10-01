@@ -1,4 +1,4 @@
-{% load money %}
+{% load money wad_filters %}
 {% comment %}
 The printable invoice. Filled in by the browser on the stateless month page, and by the
 server on a stored invoice's page. Both write into the same data-field elements, so the
@@ -220,7 +220,7 @@ document itself is defined once.
             <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-2">Payment details</div>
             <div class="space-y-1 text-sm">
                 <div class="flex"><span class="w-[110px] text-[#888]">Account holder</span><span data-field="account_holder">{{ invoice.account_holder }}</span></div>
-                <div class="flex"><span class="w-[110px] text-[#888]">IBAN</span><span class="money" data-field="iban">{{ invoice.iban }}</span></div>
+                <div class="flex"><span class="w-[110px] text-[#888]">IBAN</span><span class="money" data-field="iban">{{ invoice.iban|iban }}</span></div>
                 <div class="flex" data-show="bic" style="{% if not invoice.bic %}display:none{% endif %}"><span class="w-[110px] text-[#888]">BIC / SWIFT</span><span class="money" data-field="bic">{{ invoice.bic }}</span></div>
                 <div class="flex"><span class="w-[110px] text-[#888]">Reference</span><span data-field="reference">{% firstof invoice.payment_reference invoice.number '' %}</span></div>
             </div>
