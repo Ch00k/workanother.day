@@ -166,6 +166,18 @@ class SellerAccountTests(TestCase):
         assert b"ends with the NIP" in response.content
         assert not Seller.objects.exists()
 
+    def test_a_refused_zus_account_is_shown_back_grouped(self) -> None:
+        """Written the way the stored one is, so one form does not show a number two ways."""
+        response = self._post(reverse("seller_create"), zus_account=nrb.digits(OTHER_ZUS_ACCOUNT))
+
+        self.assertContains(response, f'value="{OTHER_ZUS_ACCOUNT}"')
+
+    def test_the_form_groups_the_zus_account_once_it_is_entered(self) -> None:
+        """The suite runs no JavaScript, so what is checked is that the form carries it."""
+        response = self.client.get(reverse("seller_create"))
+
+        self.assertContains(response, "zusAccount.addEventListener('change'")
+
     def test_a_seller_may_exist_before_zus_has_given_it_an_account(self) -> None:
         self._post(reverse("seller_create"))
 

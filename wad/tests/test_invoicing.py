@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from wad.invoicing import valid_iban
+from wad.invoicing import formatted_iban, valid_iban
 
 
 class ValidIbanTests(TestCase):
@@ -60,3 +60,23 @@ class ValidIbanTests(TestCase):
     def test_punctuation_fails(self) -> None:
         """Only the spaces an IBAN is written with are allowed, not other separators."""
         assert not valid_iban("PL61-1090-1014-0000-0712-1981-2874")
+
+
+class FormattedIbanTests(TestCase):
+    """How an IBAN is written out wherever one is shown."""
+
+    def test_an_iban_is_written_in_groups_of_four(self) -> None:
+        assert formatted_iban("PL61109010140000071219812874") == "PL61 1090 1014 0000 0712 1981 2874"
+
+    def test_the_spaces_it_was_typed_with_are_regrouped(self) -> None:
+        assert formatted_iban("PL6110 901014 00000712 19812874") == "PL61 1090 1014 0000 0712 1981 2874"
+
+    def test_lowercase_is_written_in_capitals(self) -> None:
+        assert formatted_iban("gb33bukb20201555555555") == "GB33 BUKB 2020 1555 5555 55"
+
+    def test_a_length_that_is_not_a_multiple_of_four_ends_on_a_short_group(self) -> None:
+        assert formatted_iban("NO9386011117947") == "NO93 8601 1117 947"
+
+    def test_something_not_shaped_like_an_iban_is_handed_back_as_given(self) -> None:
+        """A domestic account number has no country code to start the groups from."""
+        assert formatted_iban("1090 1014 0000 0712 1981 2874") == "1090 1014 0000 0712 1981 2874"
