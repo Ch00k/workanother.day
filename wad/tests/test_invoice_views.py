@@ -1574,3 +1574,27 @@ class PaymentDateTests(InvoiceViewTestCase):
         self.assertContains(response, "Exchange difference")
         self.assertContains(response, money(decimal.Decimal("1167.84")))
         self.assertContains(response, "increases revenue")
+
+    def _last_revenue_row(self) -> str:
+        """The opening tag of the last row in the Revenue in PLN table."""
+        page = self.client.get(reverse("invoice_detail", kwargs={"pk": self.record.pk})).content.decode()
+        table = page[page.index('id="revenue-pln"') : page.index("</table>", page.index('id="revenue-pln"'))]
+        start = table.rindex("<tr")
+
+        return table[start : table.index(">", start)]
+
+    def test_an_unpaid_invoice_leaves_its_last_row_unruled(self) -> None:
+        """The payment form below is ruled off itself, so a rule here would make two."""
+        self.record.ryczalt_rate = RYCZALT_RATE
+        self.record.save()
+        self._issue()
+
+        assert "border-b" not in self._last_revenue_row()
+
+    def test_a_paid_invoice_leaves_its_last_row_unruled(self) -> None:
+        self.record.ryczalt_rate = RYCZALT_RATE
+        self.record.save()
+        self._issue()
+        self._pay(self.paid_on.isoformat())
+
+        assert "border-b" not in self._last_revenue_row()
