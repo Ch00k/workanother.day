@@ -994,6 +994,15 @@ class Invoice(models.Model):
         return self.state == self.State.SENDING
 
     @property
+    def is_paid(self) -> bool:
+        """Whether the money for this invoice has landed, so it carries a value on receipt.
+
+        Never for a correction, which is not settled on its own: what is paid is the invoice
+        as corrected, and the day it lands is recorded against that invoice.
+        """
+        return self.is_issued and self.paid_on is not None and not self.is_correction
+
+    @property
     def revenue_date(self) -> datetime.date:
         """The day this invoice's revenue arose, which is not the day it was issued.
 
