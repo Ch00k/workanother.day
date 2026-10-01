@@ -406,13 +406,10 @@ form of their own.
     const rehearsalForm = document.getElementById('ksef-rehearsal-box');
     const tokenField = document.getElementById('rehearsal-token');
     const startButton = document.getElementById('ksef-rehearsal-start');
-    const stamp = document.getElementById('ksef-stamp');
     const spinner = document.getElementById('ksef-spinner');
     // Turning stands for the wait itself, so it follows whether one is still on: a status
     // line that has come to rest, however it came to rest, is not one to keep spinning over.
     const setWaiting = waiting => { spinner.style.display = waiting ? '' : 'none'; };
-    // Absent on an invoice that was already issued when the page was drawn.
-    const unissuedMark = document.getElementById('unissued-mark');
     const token = document.getElementById('send-invoice-form').elements.csrfmiddlewaretoken.value;
 
     const SEND_URL = "{% url 'invoice_send_stored' pk=invoice.pk %}";
@@ -430,8 +427,8 @@ form of their own.
 
     // What the panel says this invoice is, and whether a request of ours is outstanding.
     // Every control follows these two rather than being set by hand at each turn, so nothing
-    // has to guess what to put back: the page is never reloaded after a send, so a handler
-    // that assumed a draft would go on saying so about an invoice that had been issued.
+    // has to guess what to put back: the page is reloaded only once KSeF accepts, so through a
+    // send in flight or a rejection a handler that assumed a draft would say so wrongly.
     let invoiceState = "{{ invoice.state }}";
     let busy = false;
 
@@ -466,24 +463,12 @@ form of their own.
         showError(state.error);
         syncControls();
 
-        const accepted = state.state === 'accepted';
         setWaiting(state.state === 'sending');
-        if (accepted) {
-            for (const [field, value] of [['ksef_number', state.ksef_number],
-                                         ['verification_url', state.verification_url]]) {
-                document.querySelectorAll(`[data-field="${field}"]`).forEach(el => {
-                    el.textContent = value;
-                    // A field rendered as a link has to point where it says it points.
-                    if (el.tagName === 'A') el.href = value;
-                });
-            }
-            stamp.style.display = '';
-
-            // KSeF accepting it is what makes it an invoice, so the mark saying it is not
-            // one goes in the same update that fills in the number proving it is. Removed
-            // rather than hidden: whatever is printed from here on is the invoice.
-            if (unissuedMark) unissuedMark.remove();
-        }
+        // KSeF accepting it is what makes it an invoice, and most of the page is drawn
+        // differently for one: the stamp and the number on the document, the mark saying it
+        // is not one gone, delivery and the payment form appearing. The server already draws
+        // all of that, so it is asked to rather than having each piece patched in here.
+        if (state.state === 'accepted') window.location.reload();
     }
 
     async function poll() {
