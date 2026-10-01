@@ -49,6 +49,13 @@ SUPPORTED = (MODERN, "2025-11-25", "2025-06-18")
 # revision allows a server supporting such clients to assume it rather than reject them.
 ASSUMED = "2025-03-26"
 
+# How long a client may keep the answer to `server/discover` and `tools/list`, which the revision
+# asks of both. Neither moves between deployments, so an hour is the longest a release waits to be
+# seen. Their scope is private: neither holds anything of the caller's, but both are answered
+# only to a token holder, and a public answer would let a shared cache hand them to anyone.
+CACHE_TTL_MS = 60 * 60 * 1000
+CACHE_SCOPE = "private"
+
 SERVER_NAME = "workanother.day"
 SERVER_VERSION = "0.1.0"
 
@@ -269,13 +276,17 @@ def _decoded(value: str | None) -> str | None:
 def _result(method: str, params: dict, *, user: User, version: str, per_request: bool) -> dict:
     """The result for one method, shaped for the revision that asked for it."""
     if method == DISCOVER:
-        return _complete(_discovery(), per_request=per_request)
+        return _complete(_discovery(), per_request=per_request, cacheable=True)
 
     if method == INITIALIZE:
         return _complete(_greeting(version), per_request=per_request)
 
     if method == LIST_TOOLS:
-        return _complete({"tools": [tool.definition for tool in tools.CATALOGUE]}, per_request=per_request)
+        return _complete(
+            {"tools": [tool.definition for tool in tools.CATALOGUE]},
+            per_request=per_request,
+            cacheable=True,
+        )
 
     if method == CALL_TOOL:
         return _complete(_call(params, user=user), per_request=per_request)
@@ -291,18 +302,22 @@ def _result(method: str, params: dict, *, user: User, version: str, per_request:
     raise ProtocolError(code=METHOD_NOT_FOUND, message=message, status=status)
 
 
-def _complete(result: dict, *, per_request: bool) -> dict:
+def _complete(result: dict, *, per_request: bool, cacheable: bool = False) -> dict:
     """Label a result as the finished answer, for the revisions that label results.
 
-    The handshake-based ones have no `resultType`, and a client speaking one is entitled to
-    refuse a result carrying a field its schema does not have.
+    The handshake-based ones have no `resultType` and no caching hint, and a client speaking
+    one is entitled to refuse a result carrying a field its schema does not have. A client
+    speaking `MODERN` refuses a cacheable result that lacks the hint.
     """
     if not per_request:
         return result
 
+    caching = {"ttlMs": CACHE_TTL_MS, "cacheScope": CACHE_SCOPE} if cacheable else {}
+
     return {
         "resultType": "complete",
         **result,
+        **caching,
         "_meta": {META_SERVER: {"name": SERVER_NAME, "version": SERVER_VERSION}},
     }
 
