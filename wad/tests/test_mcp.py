@@ -293,6 +293,8 @@ class TransportTests(CallerMixin, TaxpayerTestCase):
         result = json.loads(response.content)["result"]
         assert "resultType" not in result
         assert "_meta" not in result
+        assert "ttlMs" not in result
+        assert "cacheScope" not in result
 
     def test_an_unknown_method_is_an_ordinary_error_for_a_handshake_revision(self) -> None:
         """404 is what 2026-07-28 requires; to a client speaking an older revision it is how
@@ -357,6 +359,14 @@ class VersionTests(CallerMixin, TaxpayerTestCase):
         assert result["capabilities"] == {"tools": {}}
         assert result["instructions"]
         assert result["_meta"][protocol.META_SERVER]["name"] == protocol.SERVER_NAME
+
+    def test_discovery_and_the_catalogue_say_how_long_they_may_be_kept(self) -> None:
+        """The revision requires both hints on both, and a client refuses a result lacking them."""
+        for method in (protocol.DISCOVER, protocol.LIST_TOOLS):
+            result = self.ask(*modern(method))["result"]
+
+            assert result["ttlMs"] == protocol.CACHE_TTL_MS
+            assert result["cacheScope"] == "private"
 
     def test_the_handshake_is_answered_at_the_version_it_asked_for(self) -> None:
         body, headers = legacy(protocol.INITIALIZE, {"protocolVersion": LEGACY, "capabilities": {}})
