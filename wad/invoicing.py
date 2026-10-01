@@ -36,6 +36,9 @@ IBAN_PATTERN = re.compile(r"[A-Z]{2}\d{2}[A-Z0-9]{11,30}")
 ALPHANUMERIC_BASE = 36
 IBAN_MODULUS = 97
 IBAN_REMAINDER = 1
+# Written in fours from the country code on, the print form ISO 13616 gives an IBAN and the
+# one a bank statement shows it in.
+IBAN_GROUP = 4
 
 
 def next_number(user: User, period: datetime.date, *, correction: bool = False) -> str:
@@ -293,7 +296,7 @@ def valid_iban(value: str) -> bool:
     Written how an IBAN is written, spaces and either case, because that is how one is
     copied off a bank statement.
     """
-    iban = "".join(value.split()).upper()
+    iban = _compact_iban(value)
     if not IBAN_PATTERN.fullmatch(iban):
         return False
 
@@ -303,6 +306,23 @@ def valid_iban(value: str) -> bool:
     digits = "".join(str(int(character, ALPHANUMERIC_BASE)) for character in rearranged)
 
     return int(digits) % IBAN_MODULUS == IBAN_REMAINDER
+
+
+def formatted_iban(value: str) -> str:
+    """An IBAN written out in groups of four, or as given when it is not shaped like one.
+
+    Anything else is handed back untouched, for the same reason `nrb.formatted` does: a
+    number stored before it was checked is still worth showing to whoever has to correct it.
+    """
+    iban = _compact_iban(value)
+    if not IBAN_PATTERN.fullmatch(iban):
+        return value
+
+    return " ".join(iban[at : at + IBAN_GROUP] for at in range(0, len(iban), IBAN_GROUP))
+
+
+def _compact_iban(value: str) -> str:
+    return "".join(value.split()).upper()
 
 
 def _payment(record: InvoiceRecord) -> Payment | None:

@@ -166,7 +166,7 @@
             <div>
                 <label for="zus_account" class="block text-sm font-medium text-[#666] mb-1">ZUS account</label>
                 <input type="text" id="zus_account" name="zus_account" inputmode="numeric" spellcheck="false"
-                       value="{% firstof form_data.zus_account party.zus_account|account '' %}"
+                       value="{% firstof form_data.zus_account|account party.zus_account|account '' %}"
                        class="w-full field money">
                 <div class="text-xs text-[#999] mt-1">
                     Where the contributions are paid. Can be found at
@@ -307,6 +307,17 @@ buyer carries nothing of its own. Neither can be deleted once an invoice names i
 
     country.addEventListener('change', sync);
     sync();
+
+    // Regrouped once the field is left, as `nrb.formatted` writes it: the check digits, then
+    // fours. Anything that is not twenty-six digits is left as typed, for the server to say
+    // what is wrong with it.
+    const zusAccount = document.getElementById('zus_account');
+    zusAccount.addEventListener('change', () => {
+        const account = zusAccount.value.replace(/\s/g, '').toUpperCase().replace(/^PL/, '');
+        if (/^\d{26}$/.test(account)) {
+            zusAccount.value = [account.slice(0, 2), ...account.slice(2).match(/.{4}/g)].join(' ');
+        }
+    });
 })();
 </script>
 {% endblock %}
