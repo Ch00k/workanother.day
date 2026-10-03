@@ -59,6 +59,9 @@ SALE_DIFFERENCE_NOTE = "Różnica kursowa od własnych środków"
 # restates, so the two rows can be read together.
 CORRECTION_NOTE = "Korekta faktury {number}"
 
+# The longest K_10 the schema takes: TZnakowyJPK is a token of at most 256 characters.
+NOTE_LENGTH = 256
+
 
 @dataclasses.dataclass(frozen=True)
 class Entry:
@@ -183,6 +186,8 @@ def register(seller: Seller, year: int) -> Year:
 
     Ordered by the day the revenue arose, and numbered afterwards, because Lp. has to run
     with the register rather than with whatever order the rows came out of the database in.
+    The sort is stable, so entries of one invoice falling on one day keep the order they are
+    built in: the invoice, then its difference on payment, then its sales.
     """
     invoices = list(
         Invoice.objects.filter(
@@ -190,7 +195,7 @@ def register(seller: Seller, year: int) -> Year:
             state__in=Invoice.ISSUED_STATES,
             ryczalt_rate__isnull=False,
         )
-        .prefetch_related("currency_sales")
+        .prefetch_related("currency_sales", "lines")
         .order_by("period_end", "number")
     )
 
@@ -200,7 +205,7 @@ def register(seller: Seller, year: int) -> Year:
             *_difference_entries(invoices, year),
             *_sale_entries(invoices, year),
         ],
-        key=lambda entry: (entry.revenue_date, entry.document, entry.note),
+        key=lambda entry: (entry.revenue_date, entry.document),
     )
     entries = tuple(dataclasses.replace(entry, position=position) for position, entry in enumerate(unnumbered, start=1))
 
@@ -226,6 +231,11 @@ def _invoice_entries(invoices: Iterable[Invoice], year: int) -> list[Entry]:
     difference it made, its date is whichever art. 14 ust. 1m gives it, and it is a document
     with a number - so what distinguishes it in the register is a note naming the invoice it
     restates.
+
+    Any other invoice notes the services it bills, as its lines name them. That makes the
+    register the record art. 109 ust. 3a of the VAT act asks of a taxpayer supplying services
+    whose place of supply is outside Poland: the name of the service, its value, and the date,
+    which for a service settled in periods is the period's last day, the same as the revenue's.
     """
     return [
         Entry(
@@ -238,11 +248,18 @@ def _invoice_entries(invoices: Iterable[Invoice], year: int) -> list[Entry]:
             ksef_number=invoice.ksef_number,
             counterparty_country=invoice.buyer_country,
             counterparty_tax_id=invoice.buyer_tax_id,
-            note=CORRECTION_NOTE.format(number=invoice.original.number) if invoice.is_correction else "",
+            note=CORRECTION_NOTE.format(number=invoice.original.number)
+            if invoice.is_correction
+            else _services(invoice),
         )
         for invoice in invoices
         if invoice.revenue_date.year == year and invoice.revenue_pln is not None
     ]
+
+
+def _services(invoice: Invoice) -> str:
+    """The services an invoice bills, as its lines name them, cut to what K_10 takes."""
+    return "; ".join(line.description for line in invoice.lines.all())[:NOTE_LENGTH].strip()  # ty: ignore[unresolved-attribute]
 
 
 def _difference_entries(invoices: Iterable[Invoice], year: int) -> list[Entry]:
