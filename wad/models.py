@@ -344,6 +344,40 @@ class ContributionHoliday(models.Model):
         return f"Wakacje składkowe {self.month:%Y-%m}"
 
 
+class ContributionDeclaration(models.Model):
+    """A month's ZUS DRA as it was filed, which is a date and nothing else.
+
+    Filed every month by the 20th, art. 47 ust. 1 pkt 4 ustawy o sus, under ulga na start too,
+    when it declares the health contribution alone. The exemption a payer insuring only
+    themselves once had, art. 47 ust. 2a, was repealed with effect from 2022, and ryczałt has
+    no exception of its own. The DRA is filed in eZUS, which offers no interface a sole trader
+    can reach, so what is kept here is that it went.
+
+    Separate from the payment because the two are separate acts, and doing one is no evidence
+    of the other: a transfer ZUS receives with no declaration behind it is allocated against
+    the last one it holds. One per month, a correcting DRA replacing what is recorded rather
+    than joining it, the way a corrected PIT-28 does.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    seller = models.ForeignKey(Seller, on_delete=models.CASCADE, related_name="contribution_declarations")
+
+    # The first of the month the DRA declares, the day in it carrying no meaning.
+    month = models.DateField()
+    filed_on = models.DateField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering: ClassVar = ["-month"]
+        constraints: ClassVar = [
+            models.UniqueConstraint(fields=["seller", "month"], name="unique_declaration_per_month"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ZUS DRA {self.month:%Y-%m} (filed {self.filed_on})"
+
+
 class TaxPayment(models.Model):
     """A ryczałt payment, as the taxpayer made it.
 
