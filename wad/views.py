@@ -74,6 +74,7 @@ from wad.models import (
     Buyer,
     CalendarToken,
     Contract,
+    ContributionDeclaration,
     ContributionHoliday,
     ContributionPayment,
     CurrencySale,
@@ -2793,6 +2794,47 @@ def contribution_holiday_remove(request: HttpRequest, pk: str, year: int, month:
         return HttpResponse("There is no such month.", status=400)
 
     seller.contribution_holidays.filter(month=granted).delete()  # ty: ignore[unresolved-attribute]
+
+    return redirect("month", pk=seller.pk, year=year, month=month)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def declaration_record(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Record that a month's ZUS DRA was filed, dated today.
+
+    Pressed on the month's page straight after sending it in eZUS, for the same reason the
+    payments press is: the page states what the DRA declares, so the press follows the filing
+    by minutes. A second press is the month already recorded and keeps the day it was first
+    recorded on.
+    """
+    seller = _owned_seller(request, pk)
+
+    try:
+        declares = datetime.date(year, month, 1)
+    except ValueError:
+        return HttpResponse("There is no such month.", status=400)
+
+    if contributions.regime_on(seller, declares) is None:
+        return HttpResponse("The business had not started by that month.", status=400)
+
+    ContributionDeclaration.objects.get_or_create(
+        seller=seller, month=declares, defaults={"filed_on": today_in_poland()}
+    )
+
+    return redirect("month", pk=seller.pk, year=year, month=month)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def declaration_remove(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Take a month's DRA off as filed again, for one recorded against the wrong month."""
+    seller = _owned_seller(request, pk)
+
+    try:
+        declares = datetime.date(year, month, 1)
+    except ValueError:
+        return HttpResponse("There is no such month.", status=400)
+
+    seller.contribution_declarations.filter(month=declares).delete()  # ty: ignore[unresolved-attribute]
 
     return redirect("month", pk=seller.pk, year=year, month=month)
 

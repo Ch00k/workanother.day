@@ -36,6 +36,7 @@ from wad.models import (
     AccountToken,
     Buyer,
     Contract,
+    ContributionDeclaration,
     ContributionPayment,
     CurrencySale,
     Delivery,
@@ -613,7 +614,7 @@ class Command(BaseCommand):
             )
 
     def _contributions(self, seller: Seller) -> None:
-        """ZUS, paid on the 20th of the month after the one it covers.
+        """ZUS, declared and paid on the 20th of the month after the one it covers.
 
         The date is the whole of what matters: art. 11 ust. 1 and ust. 1a are cash-basis, so
         December's payment lands in January and deducts in the year it was paid.
@@ -632,6 +633,7 @@ class Command(BaseCommand):
             if paid_on > self.today:
                 continue
 
+            ContributionDeclaration.objects.create(seller=seller, month=month, filed_on=paid_on)
             paid[(month.year, month.month)] = ContributionPayment.objects.create(
                 seller=seller,
                 covers=month,

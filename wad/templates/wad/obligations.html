@@ -313,14 +313,34 @@
         spring. Absent where the year already holds a granted month, and where no month of it
         can be claimed at all.
         {% endcomment %}
-        {% if schedule.holiday_application %}
-        <div>
-            <div class="card-heading">
-                <h2>Wakacje składkowe</h2>
+        {% if schedule.holiday_application or schedule.registrations %}
+        <div class="grid gap-6 content-start">
+            {% if schedule.holiday_application %}
+            <div>
+                <div class="card-heading">
+                    <h2>Wakacje składkowe</h2>
+                </div>
+                <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
+                    {% include "wad/_deadline.html" with deadline=schedule.holiday_application %}
+                </div>
             </div>
-            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5">
-                {% include "wad/_deadline.html" with deadline=schedule.holiday_application %}
+            {% endif %}
+            {% comment %}
+            The forms a change of regime asks for, stated with the RWS for the same reason: they
+            fall inside the year and are about the contributions. ZUS makes no change by itself.
+            {% endcomment %}
+            {% if schedule.registrations %}
+            <div>
+                <div class="card-heading">
+                    <h2>Change of regime</h2>
+                </div>
+                <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden divide-y divide-[#f5f5f5]">
+                    {% for deadline in schedule.registrations %}
+                    <div class="px-5 py-4">{% include "wad/_deadline.html" %}</div>
+                    {% endfor %}
+                </div>
             </div>
+            {% endif %}
         </div>
         {% endif %}
     </div>
