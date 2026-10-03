@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from wad import contributions, ewidencja
 from wad.calendar_utils import is_weekend, today_in_poland
 from wad.ewidencja import GROSZ, PERCENT
-from wad.models import ContributionPayment, HealthContributionYear, Seller, TaxPayment
+from wad.models import ContributionDeclaration, ContributionPayment, HealthContributionYear, Seller, TaxPayment
 
 if TYPE_CHECKING:
     from collections.abc import Container, Iterable
@@ -54,6 +54,9 @@ SETTLEMENT_DUE = (5, PAYMENT_DAY)
 
 DECEMBER = 12
 DAY = datetime.timedelta(days=1)
+
+# Art. 36 ust. 4 ustawy o sus: a change of insurance title is registered within 7 days of it.
+REGISTRATION_TERM = datetime.timedelta(days=7)
 
 # Why a month states no figure, in the words the page and the dialog print. Each names what
 # is missing, because each is something its owner can go and put right.
@@ -223,6 +226,9 @@ class Month:
     social: contributions.Social | None
     # Why there is no contribution figure, where there is none. Empty otherwise.
     dra_reason: str
+    # The day the month's DRA was recorded as filed. Every month the business is insured in
+    # owes one, whether or not this application can state the figures it declares.
+    dra_filed_on: datetime.date | None
 
     due_on: datetime.date
 
@@ -294,6 +300,21 @@ class Month:
         return any(obligation.is_payable for obligation in self.obligations)
 
     @property
+    def is_declared(self) -> bool:
+        """Whether the month's DRA has been recorded as filed."""
+        return self.dra_filed_on is not None
+
+    @property
+    def declarable_from(self) -> datetime.date:
+        """The first day the month's DRA can be filed: the day after the month ends."""
+        return _payment_date(self.year, self.month).replace(day=1)
+
+    @property
+    def is_open(self) -> bool:
+        """Whether anything is left to do for this month: a transfer to make or the DRA to file."""
+        return self.is_payable or not self.is_declared
+
+    @property
     def settled_on(self) -> datetime.date | None:
         """The day the month was settled, which is the last of its transfers to be recorded."""
         days = [obligation.paid_on for obligation in self.obligations if obligation.paid_on is not None]
@@ -340,6 +361,9 @@ class Schedule:
     # it. Nothing where the year already holds a granted month, or where none of its months can
     # be claimed at all.
     holiday_application: Deadline | None
+    # The ZUS ZWUA and ZUS ZUA moving the insurance from one regime to the next, for each
+    # change whose old regime ends in this year. ZUS makes neither move by itself.
+    registrations: tuple[Deadline, ...]
 
     @property
     def revenue(self) -> decimal.Decimal:
@@ -507,6 +531,7 @@ def schedule(
     contributions_paid, social, deductible = _contributions(seller, year)
     settled, settled_on = _tax_paid(seller, year)
     contributed, contributed_on = _contributions_settled(seller, year)
+    declared = _declared(seller, year)
     brackets = brackets_for(year)
 
     # Read once for the whole loop below: neither the year's wages nor the months ZUS granted
@@ -572,6 +597,7 @@ def schedule(
                     bases=bool(brackets),
                     wages=published.announced is not None,
                 ),
+                dra_filed_on=declared.get(month),
                 due_on=working_day(_payment_date(year, month), holidays),
             )
         )
@@ -592,6 +618,7 @@ def schedule(
         paid=sum(settled.values(), ZERO),
         deadlines=(),
         holiday_application=None,
+        registrations=_registrations(seller, year),
     )
 
     return dataclasses.replace(
@@ -674,6 +701,36 @@ def _deadlines(built: Schedule, holidays: Container[datetime.date]) -> tuple[Dea
             ),
             amount=built.health_provision if built.bracket else None,
         ),
+    )
+
+
+def _registrations(seller: Seller, year: int) -> tuple[Deadline, ...]:
+    """The re-registration each change of regime asks for, where the old regime ends in `year`.
+
+    Art. 36 ust. 4 ustawy o sus gives 7 days from the day the new title arises, and the day of
+    the change itself is not counted. Belonging to the year the old regime ends in puts a
+    change on the first of January on the page, and in the feed, of the December before it.
+
+    Not moved off a weekend: both forms go in through eZUS, which is not an office with
+    opening hours.
+    """
+    return tuple(
+        Deadline(
+            on=change.on + REGISTRATION_TERM,
+            what=(
+                f"ZUS ZWUA ({change.leaves.insurance_code}) and ZUS ZUA ({change.joins.insurance_code}), "
+                f"both dated {change.on.day} {change.on:%B %Y}"
+            ),
+            note=(
+                f"{change.joins.label.capitalize()} start on {change.on.day} {change.on:%B %Y}, and ZUS "
+                "does not move the insurance by itself. In eZUS, ePłatnik: ZUS ZWUA off kod "
+                f"{change.leaves.insurance_code} first, then ZUS ZUA onto kod {change.joins.insurance_code}, "
+                "both dated the day the change takes effect so no day goes uninsured. Chorobowe is elected "
+                "on the ZUA, if wanted."
+            ),
+        )
+        for change in contributions.changes(seller)
+        if (change.on - DAY).year == year
     )
 
 
@@ -915,6 +972,13 @@ def _contributions_settled(seller: Seller, year: int) -> tuple[dict[int, decimal
     payments = ContributionPayment.objects.filter(seller=seller, covers__year=year)
 
     return _settled((payment.covers, payment.paid_on, payment.social + payment.health) for payment in payments)
+
+
+def _declared(seller: Seller, year: int) -> dict[int, datetime.date]:
+    """The day each of a year's DRAs was recorded as filed, by the month it declares."""
+    declarations = ContributionDeclaration.objects.filter(seller=seller, month__year=year)
+
+    return {declaration.month.month: declaration.filed_on for declaration in declarations}
 
 
 def _tax_paid(seller: Seller, year: int) -> tuple[dict[int, decimal.Decimal], dict[int, datetime.date]]:

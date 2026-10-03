@@ -50,6 +50,17 @@ urlpatterns = [
         views.payments_remove,
         name="payments_remove",
     ),
+    # The month's DRA, recorded as filed: it is sent in eZUS, so all that is kept is that it went.
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/declaration/",
+        views.declaration_record,
+        name="declaration_record",
+    ),
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/declaration/remove/",
+        views.declaration_remove,
+        name="declaration_remove",
+    ),
     # Wakacje składkowe, recorded against the month claimed: one a year, and never a month
     # under ulga na start.
     path(  # ty: ignore[no-matching-overload]

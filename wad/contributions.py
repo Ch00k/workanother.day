@@ -61,6 +61,19 @@ class Regime(enum.StrEnum):
             Regime.FULL: "pełne składki",
         }[self]
 
+    @property
+    def insurance_code(self) -> str:
+        """The kod tytułu ubezpieczenia ZUS registers a sole trader under for this regime.
+
+        Ulga na start is registered for health insurance alone, on a ZUS ZZA; the other two on
+        a ZUS ZUA for the social insurances and health together.
+        """
+        return {
+            Regime.ULGA: "05 40 00",
+            Regime.PREFERENTIAL: "05 70 00",
+            Regime.FULL: "05 10 00",
+        }[self]
+
 
 def contribution(base: decimal.Decimal, rate: decimal.Decimal) -> decimal.Decimal:
     """One component of a month's contributions: a percentage of the base, to the grosz."""
@@ -290,6 +303,39 @@ def sequence(seller: Seller) -> str:
     stretches.append(f"{Regime.FULL.label} from {_named(_shifted(first, ulga + preferential))}")
 
     return ", ".join(stretches)
+
+
+@dataclasses.dataclass(frozen=True)
+class Change:
+    """The first day of a month a regime ends before and the next one begins on."""
+
+    on: datetime.date
+    leaves: Regime
+    joins: Regime
+
+
+def changes(seller: Seller) -> tuple[Change, ...]:
+    """Every day the elections move the taxpayer from one regime to the next, oldest first.
+
+    Nothing without a start date, and nothing for a taxpayer who elected neither relief, who is
+    on full contributions from the start and for good.
+    """
+    started = seller.business_started_on
+    if started is None:
+        return ()
+
+    first = started.replace(day=1)
+    ulga = _ulga_months(seller)
+    preferential = PREFERENTIAL_MONTHS if seller.preferential_contributions else 0
+
+    found = []
+    if ulga:
+        joins = Regime.PREFERENTIAL if preferential else Regime.FULL
+        found.append(Change(on=_shifted(first, ulga), leaves=Regime.ULGA, joins=joins))
+    if preferential:
+        found.append(Change(on=_shifted(first, ulga + preferential), leaves=Regime.PREFERENTIAL, joins=Regime.FULL))
+
+    return tuple(found)
 
 
 def _shifted(first: datetime.date, months: int) -> datetime.date:

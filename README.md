@@ -898,6 +898,15 @@ one those insurances were owed for, which no ulga na start month is. So the earl
 year can claim is the third after its first insured month, and the year's page states the last
 day to ask for it with what the relief would be worth.
 
+**Each change of regime is a dated obligation too**, because ZUS makes none of them by itself:
+moving from ulga na start to preferencyjne składki, or from either to pełne składki, takes a ZUS
+ZWUA off the old kod tytułu ubezpieczenia and a ZUS ZUA onto the new one, both dated the day the
+change takes effect, within 7 days of it under art. 36 ust. 4. The days follow from the start
+date and the two reliefs elected, like the regimes themselves, so nothing is entered: the year's
+page states the forms with their codes and their date under **Change of regime**, and the
+calendar feed carries each one on the last day it can go in. A change on the first of January
+belongs to the year before it, so it reaches the page and the feed in December.
+
 The months a year can offer are the ones whose application falls inside it, which is February
 to the January on the other side of it: January's own application went in last December and
 belongs to the year before's page. The month named is the earliest of them **still** open — an
@@ -984,6 +993,16 @@ figure at all cannot be recorded, and a payment can only ever be the whole of wh
 owes — so a part payment, an overpayment and a month whose revenue a correction moved to zero
 after the transfer went have no representation. Neither has a typed-amount path, the amounts
 coming from the schedule being what makes the press one click.
+
+**The DRA is recorded on its own press**, **I have filed it** on the month's page, because filing
+it and paying it are two acts and doing one is no evidence of the other. Every insured month owes
+one by the 20th, ulga na start included, since the exemption a payer insuring only themselves once
+had was repealed for 2022. It is filed in eZUS, which offers nothing a sole trader can call, so the
+page states the path through ePłatnik, what it declares, and the two ZUS RCA a wakacje month adds
+and the annual settlement April's carries; what is kept is the day it was recorded. A month whose
+transfers are recorded and whose DRA is not stays open: its status says **DRA to file** once the
+month is over and **DRA overdue** past its date, and the calendar event, which names the DRA
+beside both transfers, keeps its alarms until both are done.
 
 **Every contribution payment is recorded where the transfer is made**: a month's pair by the
 press on the month's page, the annual health settlement by the press beside the dates. There is
