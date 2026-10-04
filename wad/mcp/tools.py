@@ -444,6 +444,7 @@ def get_tax_year(user: User, arguments: dict) -> dict:
         "months": [_month_state(month) for month in schedule.months],
         "deadlines": [_deadline(deadline) for deadline in schedule.deadlines],
         "holiday_application": _deadline(schedule.holiday_application),
+        "registrations": [_deadline(deadline) for deadline in schedule.registrations],
     }
 
 
@@ -507,6 +508,9 @@ def _month_state(month: obligations.Month) -> dict:
         "contributions_unknown_because": month.dra_reason,
         "due_on": month.due_on,
         "is_settled": month.is_settled,
+        # A month before 2022 owed no DRA of its own, so its missing filing date is not one owed.
+        "dra_owed": month.owes_declaration,
+        "dra_filed_on": month.dra_filed_on,
         "obligations": [
             {
                 "kind": str(obligation.kind),
@@ -587,8 +591,16 @@ def list_deadlines(user: User, arguments: dict) -> dict:
         "holidays_stale": stale,
         "deadlines": [_deadline(deadline) for deadline in schedule.deadlines],
         "holiday_application": _deadline(schedule.holiday_application),
+        "registrations": [_deadline(deadline) for deadline in schedule.registrations],
         "monthly": [
-            {"year": month.year, "month": month.month, "due_on": month.due_on, "is_settled": month.is_settled}
+            {
+                "year": month.year,
+                "month": month.month,
+                "due_on": month.due_on,
+                "is_settled": month.is_settled,
+                "dra_owed": month.owes_declaration,
+                "dra_filed_on": month.dra_filed_on,
+            }
             for month in schedule.months
         ],
     }
@@ -998,11 +1010,12 @@ CATALOGUE: tuple[Tool, ...] = (
         description=(
             "What a Polish seller owes across one year: each month's revenue, the "
             "contributions deducted from it, the ryczalt on what is left, the ZUS "
-            "contributions with the health band they fall in, the day both fall due and what "
-            "has been recorded as paid. Then the year itself - its revenue, the balance the "
-            "return settles, and the annual health settlement due the following May. Check "
-            "revenue_complete: where it is false, missing_revenue names issued invoices the "
-            "register has no row for, and every figure here understates the year by them."
+            "contributions with the health band they fall in, the day both fall due, what "
+            "has been recorded as paid and the day the month's ZUS DRA was recorded as filed. "
+            "Then the year itself - its revenue, the balance the return settles, and the "
+            "annual health settlement due the following May. Check revenue_complete: where it "
+            "is false, missing_revenue names issued invoices the register has no row for, and "
+            "every figure here understates the year by them."
         ),
         schema=_schema({"seller_id": SELLER_ID, "year": YEAR}, required=["seller_id"]),
         answer=get_tax_year,
@@ -1037,7 +1050,8 @@ CATALOGUE: tuple[Tool, ...] = (
         description=(
             "The dates a taxpayer's year carries and what became of each: PIT-28 and JPK_EWP "
             "by 30 April, the annual health settlement by 20 May, the wakacje skladkowe "
-            "application where one can still be made, and the day each month's two transfers "
+            "application where one can still be made, the ZUS ZWUA and ZUA a change of "
+            "contribution regime asks for, and the day each month's two transfers and its ZUS DRA "
             "fall due. Dates are already moved off Saturdays and days off work."
         ),
         schema=_schema({"seller_id": SELLER_ID, "year": YEAR}, required=["seller_id"]),

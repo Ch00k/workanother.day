@@ -74,6 +74,7 @@ from wad.models import (
     Buyer,
     CalendarToken,
     Contract,
+    ContributionDeclaration,
     ContributionHoliday,
     ContributionPayment,
     CurrencySale,
@@ -2793,6 +2794,56 @@ def contribution_holiday_remove(request: HttpRequest, pk: str, year: int, month:
         return HttpResponse("There is no such month.", status=400)
 
     seller.contribution_holidays.filter(month=granted).delete()  # ty: ignore[unresolved-attribute]
+
+    return redirect("month", pk=seller.pk, year=year, month=month)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def declaration_record(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Record that a month's ZUS DRA was filed, and on which day.
+
+    Usually pressed on the month's page straight after sending it in eZUS, with the day left
+    at today. A DRA filed before any of this existed is entered with the day it actually went,
+    because that day is the one thing kept and it is shown as fact everywhere the month is.
+    Never a day that has not arrived, and never one before the month was over, when no DRA for
+    it could have been filed. A second press is the month already recorded and keeps the day
+    it was first recorded on.
+    """
+    seller = _owned_seller(request, pk)
+
+    try:
+        filed_on = datetime.date.fromisoformat(str(request.POST.get("filed_on", "")).strip())
+    except ValueError:
+        return HttpResponse("That is not a date.", status=400)
+
+    # Without holidays, which shift the due date and bear on nothing asked of the month here.
+    schedule = obligations.schedule(seller, year, set())
+    declares = next((each for each in schedule.months if each.month == month), None)
+    if declares is None or not declares.owes_declaration:
+        return HttpResponse("No DRA is owed for that month.", status=400)
+
+    if filed_on > today_in_poland():
+        return HttpResponse("A DRA cannot have been filed on a day that has not arrived.", status=400)
+
+    if filed_on < declares.declarable_from:
+        return HttpResponse("A DRA cannot be filed before the month it declares is over.", status=400)
+
+    ContributionDeclaration.objects.get_or_create(seller=seller, month=declares.date, defaults={"filed_on": filed_on})
+
+    return redirect("month", pk=seller.pk, year=year, month=month)
+
+
+@require_POST  # ty: ignore[invalid-argument-type]
+def declaration_remove(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """Take a month's DRA off as filed again, for one recorded against the wrong month."""
+    seller = _owned_seller(request, pk)
+
+    try:
+        declares = datetime.date(year, month, 1)
+    except ValueError:
+        return HttpResponse("There is no such month.", status=400)
+
+    seller.contribution_declarations.filter(month=declares).delete()  # ty: ignore[unresolved-attribute]
 
     return redirect("month", pk=seller.pk, year=year, month=month)
 

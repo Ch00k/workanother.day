@@ -1,7 +1,8 @@
 {% comment %}
 What the year is waiting on, stated where the page opens rather than left to be picked out of
-the table below: the earliest month still owing a transfer, what each of its two transfers
-comes to, and the day both fall due.
+the table below: the earliest month still open, what each of its two transfers comes to, and the
+day they and the DRA fall due. A month with only its DRA left is offered for filing rather than
+paying.
 
 No total, because there is no transfer that size: the ryczałt goes to the Urząd Skarbowy and
 the składki to ZUS, and adding them would state a figure nobody sends.
@@ -37,7 +38,7 @@ would record money as sent by somebody who has not yet been told where to send i
             </div>
             <a href="{% url 'month' pk=seller.pk year=due.year month=due.month %}"
                class="btn btn-primary">
-                Pay
+                {% if due.is_payable %}Pay{% else %}File the DRA{% endif %}
             </a>
         </div>
     </div>
