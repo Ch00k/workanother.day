@@ -677,11 +677,14 @@ issued in where it follows something later — with a note naming the invoice it
 invoices count — art. 14 ust. 1e makes an issued invoice revenue whether or not it has been
 paid, but a draft is a document nobody holds.
 
-Any other invoice's entry notes the services it bills, as its lines name them, in the Uwagi column
-(K_10 in the file, cut to the 256 characters it takes). That is the one thing art. 109 ust. 3a of
-the VAT act adds to what the register already holds for services supplied outside Poland — the
-value, and the date, which for a service settled monthly is the last day of the month either way —
-so the register doubles as that record for a VAT-exempt seller, who keeps no other.
+Every invoice's entry, a correction's included, notes the services it bills, as its lines name
+them, in the Uwagi column (K_10 in the file). Each service is named once, and a note longer than
+the 256 characters K_10 takes is cut with `...` at the end. A correction's note names the invoice
+first and then the services as the correction restates them, so a renamed or added service is
+recorded too. The services are the one thing art. 109 ust. 3a of the VAT act adds to what the
+register already holds for services supplied outside Poland — the value, and the date, which for
+a service settled monthly is the last day of the month either way — so the register doubles as
+that record for a VAT-exempt seller, who keeps no other.
 
 **The file is only complete if all your invoicing goes through this app.** JPK_EWP has to cover
 all revenue for the year, and nothing here can detect a sale invoiced somewhere else. The page

@@ -334,8 +334,18 @@ class RegisterTests(CorrectionTestCase):
         entry = ewidencja.register(self.seller, YEAR).entries[1]
 
         assert entry.document == correction.number
-        assert entry.note == f"Korekta faktury {invoice.number}"
+        assert entry.note == f"Korekta faktury {invoice.number}: Software development services"
         assert entry.entered_on == correction.issue_date
+
+    def test_the_entry_names_the_services_as_the_correction_restates_them(self) -> None:
+        """A renamed service is recorded under the name the correction gives it, which art. 109
+        ust. 3a asks the register to hold and the invoice's own row does not."""
+        invoice = self._issued(3, days="10")
+        self._issue(self._correction_of(invoice, description=["Software consulting services"]))
+
+        entry = ewidencja.register(self.seller, YEAR).entries[1]
+
+        assert entry.note == f"Korekta faktury {invoice.number}: Software consulting services"
 
     def test_a_draft_correction_is_not_in_the_register(self) -> None:
         """A document nobody holds has restated nothing."""
