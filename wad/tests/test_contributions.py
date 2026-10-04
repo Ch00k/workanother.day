@@ -189,6 +189,66 @@ class SequenceLineTests(ContributionTestCase):
         assert contributions.sequence(self.seller) == ""
 
 
+class RegimeChangeTests(ContributionTestCase):
+    """The days the elections move the insurance from one regime to the next, each of which
+    asks for a ZUS ZWUA and a ZUS ZUA."""
+
+    def test_both_reliefs_change_twice(self) -> None:
+        self._elects(ulga_na_start=True, preferential_contributions=True)
+
+        assert contributions.changes(self.seller) == (
+            contributions.Change(
+                on=datetime.date(2027, 3, 1),
+                leaves=contributions.Regime.ULGA,
+                joins=contributions.Regime.PREFERENTIAL,
+            ),
+            contributions.Change(
+                on=datetime.date(2029, 3, 1),
+                leaves=contributions.Regime.PREFERENTIAL,
+                joins=contributions.Regime.FULL,
+            ),
+        )
+
+    def test_ulga_alone_goes_straight_to_full_contributions(self) -> None:
+        self._elects(ulga_na_start=True)
+
+        assert contributions.changes(self.seller) == (
+            contributions.Change(
+                on=datetime.date(2027, 3, 1),
+                leaves=contributions.Regime.ULGA,
+                joins=contributions.Regime.FULL,
+            ),
+        )
+
+    def test_preferential_alone_changes_once_after_24_months(self) -> None:
+        self._elects(preferential_contributions=True)
+
+        assert [change.on for change in contributions.changes(self.seller)] == [datetime.date(2028, 9, 1)]
+
+    def test_a_mid_month_start_changes_a_month_later(self) -> None:
+        """Art. 18 ust. 2 keeps the month the business started in out of the six."""
+        self._elects(business_started_on=datetime.date(2026, 9, 15), ulga_na_start=True)
+
+        assert [change.on for change in contributions.changes(self.seller)] == [datetime.date(2027, 4, 1)]
+
+    def test_electing_neither_never_changes(self) -> None:
+        assert contributions.changes(self.seller) == ()
+
+    def test_a_taxpayer_with_no_start_date_has_no_changes(self) -> None:
+        self._elects(business_started_on=None, ulga_na_start=True)
+
+        assert contributions.changes(self.seller) == ()
+
+    def test_each_regime_names_the_code_zus_registers_it_under(self) -> None:
+        assert contributions.Regime.ULGA.insurance_code == "05 40 00"
+        assert contributions.Regime.PREFERENTIAL.insurance_code == "05 70 00"
+        assert contributions.Regime.FULL.insurance_code == "05 10 00"
+
+    def test_each_regime_wakacje_can_be_claimed_under_names_its_own_rca_code(self) -> None:
+        assert contributions.Regime.PREFERENTIAL.holiday_code == "05 74 00"
+        assert contributions.Regime.FULL.holiday_code == "05 14 00"
+
+
 class FullContributionTests(ContributionTestCase):
     """The 2026 figures ZUS published for a payer on full contributions."""
 

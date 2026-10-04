@@ -137,9 +137,10 @@ def export_user_calendar(
     """Generate an iCalendar (.ics) file with a user's time off and the dates their years carry.
 
     Two kinds of entry, and the second is the reason this feed is worth subscribing to: a date
-    computed on a page has to be gone and looked at. The ryczałt and the składki fall due every
-    month, and the return, the file that goes with it, the health settlement and the RWS come
-    round once a year, the RWS during one particular month or not at all.
+    computed on a page has to be gone and looked at. The ryczałt, the ZUS DRA and the składki
+    fall due every month, and the return, the file that goes with it, the health settlement and the RWS come
+    round once a year, the RWS during one particular month or not at all. The ZWUA and ZUA a
+    change of regime asks for come round once or twice in the life of the business.
 
     Which of the two the reader asked for is theirs to say, the days off and the dates going to
     different calendars as often as to the same one. Asking for neither is a calendar with
@@ -220,15 +221,15 @@ def _deadline_events(
             if not schedule.months:
                 continue
 
-            # The year's page carries all four of its dates, the return and the settlement with
-            # the presses that record them, the file with a link to the list it is produced from,
-            # and the RWS with the note saying it goes in through eZUS and that recording the
-            # month it claims waits on ZUS granting it.
+            # The year's page carries all of its dates, the return and the settlement with the
+            # presses that record them, the file with a link to the list it is produced from, the
+            # RWS with the note saying it goes in through eZUS and that recording the month it
+            # claims waits on ZUS granting it, and each change of regime with the forms it takes.
             year_page = _page(base_url, "obligations", pk=seller.pk, year=year)
 
             dated.extend(
                 (deadline.on, _deadline_to_vevent(seller, deadline, annual, today, year_page))
-                for deadline in (*schedule.deadlines, schedule.holiday_application)
+                for deadline in (*schedule.deadlines, schedule.holiday_application, *schedule.registrations)
                 if deadline is not None
             )
 
@@ -301,14 +302,17 @@ def _month_to_vevent(
 ) -> list[str]:
     """What a month owes, as one all-day event on the day it falls due.
 
-    One event rather than two. The month is the unit settled: both transfers fall on the same
-    day and are made in one sitting from the month's own page, which is where the account
-    numbers and the okres each one carries are stated.
+    One event for the DRA and both transfers. The month is the unit settled: all three fall on
+    the same day and are done in one sitting from the month's own page, which is where the
+    DRA's figures, the account numbers and the okres each transfer carries are stated. The
+    alarms go on until the transfers are recorded as made and the DRA as filed. A month before
+    2022 owed no DRA of its own, and its event names the two transfers alone.
 
     Identified by the month it settles, so a figure that moves as invoices or payments are
     entered updates the event already in the reader's calendar instead of arriving beside it.
     """
-    what = f"{seller.name} - Ryczałt and składki for {month.date:%B %Y}"
+    owed = "Ryczałt, ZUS DRA and składki" if month.owes_declaration else "Ryczałt and składki"
+    what = f"{seller.name} - {owed} for {month.date:%B %Y}"
 
     return [
         "BEGIN:VEVENT",
@@ -317,27 +321,35 @@ def _month_to_vevent(
         f"SUMMARY:{escape(what)}",
         f"DESCRIPTION:{escape(_month_note(month))}",
         f"URL:{page}",
-        *_alarms(what, reminders, month.due_on, today, outstanding=month.is_payable),
+        *_alarms(what, reminders, month.due_on, today, outstanding=month.is_open),
         "END:VEVENT",
     ]
 
 
 def _month_note(month: obligations.Month) -> str:
-    """What each of the month's transfers comes to.
+    """Where the month's DRA stands, and what each of its transfers comes to.
 
-    Named separately rather than totalled, the two going to different offices, so a figure
-    covering both is one nobody sends. A transfer whose figure could not be worked out says why
-    instead, in the words the month's own page uses. Those are written as sentences and the
-    parts here are joined with a full stop, so the one the reason ends in comes off first.
+    The DRA first, being filed before the składki are paid. The transfers are named separately
+    rather than totalled, the two going to different offices, so a figure covering both is one
+    nobody sends. A transfer whose figure could not be worked out says why instead, in the
+    words the month's own page uses. Those are written as sentences and the parts here are
+    joined with a full stop, so the one the reason ends in comes off first.
     """
-    stated = [
+    filed_on = month.dra_filed_on
+    if not month.owes_declaration:
+        declaration = []
+    elif filed_on:
+        declaration = [f"ZUS DRA filed {filed_on.day} {filed_on:%B %Y}"]
+    else:
+        declaration = ["ZUS DRA to file in eZUS"]
+    transfers = [
         f"{capfirst(obligation.kind.label)} {_money(obligation.amount)}"
         if obligation.amount is not None
         else f"{capfirst(obligation.kind.label)}: {obligation.reason.rstrip('.')}"
         for obligation in month.obligations
     ]
 
-    return ". ".join(stated) + "."
+    return ". ".join([*declaration, *transfers]) + "."
 
 
 # What hour of the morning an alarm goes off at. A deadline is something to be met during a

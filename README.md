@@ -631,10 +631,10 @@ several of them are told apart. `Taxes` on a seller's card on the **Sellers** pa
 same place. An account whose sellers are all established elsewhere is offered no section at
 all, having no ewidencja to keep.
 
-The year page opens with the month it is waiting on: the earliest month still owing a transfer,
-what each of its two transfers comes to, and the day both fall due. Below that the year runs in
-the order it is lived — month by month, then what falls **during the year** (the health band,
-the wakacje składkowe application), then what settles it **after the year** (the dates, the
+The year page opens with the month it is waiting on: the earliest month still owing a transfer or
+its DRA, what each of its two transfers comes to, and the day they fall due. Below that the year
+runs in the order it is lived — month by month, then what falls **during the year** (the health
+band, the wakacje składkowe application), then what settles it **after the year** (the dates, the
 PIT-28 figures and the contributions they deduct, whether the return went, JPK_EWP). Paying a
 month is done on the month's own page, where the account numbers and the okres each transfer
 carries are stated.
@@ -898,6 +898,16 @@ one those insurances were owed for, which no ulga na start month is. So the earl
 year can claim is the third after its first insured month, and the year's page states the last
 day to ask for it with what the relief would be worth.
 
+**Each change of regime is a dated obligation too**, because ZUS makes none of them by itself:
+moving from ulga na start to preferencyjne składki, or from either to pełne składki, takes a ZUS
+ZWUA off the old kod tytułu ubezpieczenia and a ZUS ZUA onto the new one, both dated the day the
+change takes effect, within 7 days of it under art. 36 ust. 4, moved off a Saturday or a day off
+work by art. 57 § 4 KPA. The days follow from the start date and the two reliefs elected, like the
+regimes themselves, so nothing is entered: the year's page states the forms with their codes and
+their date under **Change of regime**, and the calendar feed carries each one on the last day it
+can go in. A change on the first of January belongs to the year before it, so it reaches the page
+and the feed in December.
+
 The months a year can offer are the ones whose application falls inside it, which is February
 to the January on the other side of it: January's own application went in last December and
 belongs to the year before's page. The month named is the earliest of them **still** open — an
@@ -984,6 +994,19 @@ figure at all cannot be recorded, and a payment can only ever be the whole of wh
 owes — so a part payment, an overpayment and a month whose revenue a correction moved to zero
 after the transfer went have no representation. Neither has a typed-amount path, the amounts
 coming from the schedule being what makes the press one click.
+
+**The DRA is recorded on its own press**, **I have filed it** on the month's page, because filing
+it and paying it are two acts and doing one is no evidence of the other. Every insured month owes
+one by the 20th, ulga na start included, since the exemption a payer insuring only themselves once
+had was repealed for 2022; a month before that owes none here. It is filed in eZUS, which offers
+nothing a sole trader can call, so the page states the path through ePłatnik, what it declares,
+and the two ZUS RCA a wakacje month adds, on kod 05 14 or 05 74 as the regime has it, and the
+annual settlement April's carries from 2023. What is kept is the day it was filed: today unless
+another is given, which is how a DRA filed before this existed goes in, and never before the month
+is over, when the press is not offered. A month whose transfers are recorded and whose DRA is not
+stays open: its status says **DRA to file** once the month is over and **DRA overdue** past its
+date, and the calendar event, which names the DRA beside both transfers, keeps its alarms until
+both are done.
 
 **Every contribution payment is recorded where the transfer is made**: a month's pair by the
 press on the month's page, the annual health settlement by the press beside the dates. There is

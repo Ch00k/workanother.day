@@ -20,6 +20,7 @@ from wad.ical import (
 from wad.models import (
     CalendarToken,
     Contract,
+    ContributionDeclaration,
     ContributionHoliday,
     ContributionPayment,
     Guest,
@@ -29,6 +30,7 @@ from wad.models import (
     TimeOff,
     generate_calendar_token,
 )
+from wad.obligations import working_day
 from wad.tests.clock import today_is
 
 D = decimal.Decimal
@@ -536,7 +538,7 @@ class ExportDeadlineTests(TestCase):
 
     def _month(self, number: int) -> str:
         """What the event for one month of the year under test is called."""
-        return f"Ryczałt and składki for {datetime.date(self.today.year, number, 1):%B %Y}"
+        return f"Ryczałt\\, ZUS DRA and składki for {datetime.date(self.today.year, number, 1):%B %Y}"
 
     def _contract(self) -> Contract:
         """Something to book a day off against, this taxpayer being described without one."""
@@ -561,13 +563,27 @@ class ExportDeadlineTests(TestCase):
         assert f"AY Software Services - JPK_EWP for {last_year}" in result
         assert "Annual health contribution settlement" in result
 
+    def test_a_change_of_regime_is_an_event_on_the_last_day_to_register_it(self) -> None:
+        """Seven days after the change, moved off a weekend, the forms and the day they carry in
+        the title."""
+        year = self.today.year
+        self.seller.business_started_on = datetime.date(year - 1, 9, 1)
+        self.seller.ulga_na_start = True
+        self.seller.preferential_contributions = True
+        self.seller.save()
+
+        block = self._event(f"ZUS ZWUA (05 40 00) and ZUS ZUA (05 70 00)\\, both dated 1 March {year}")
+
+        # 8 March is no Polish holiday, so only a weekend can move it, and that depends on the year.
+        assert f"DTSTART;VALUE=DATE:{working_day(datetime.date(year, 3, 8), set()):%Y%m%d}" in block
+
     def test_every_month_is_an_event_on_the_day_it_falls_due(self) -> None:
         """The pair that falls due every month, which is what the feed is read for eleven months
         out of twelve. January's lands in February, the 20th of the month after being the day
         art. 21 ust. 1 sets."""
         year = self.today.year
 
-        block = self._event(f"AY Software Services - Ryczałt and składki for January {year}")
+        block = self._event(f"AY Software Services - Ryczałt\\, ZUS DRA and składki for January {year}")
 
         assert f"DTSTART;VALUE=DATE:{year}02" in block
 
@@ -576,16 +592,27 @@ class ExportDeadlineTests(TestCase):
         with the annual return having been repealed."""
         year = self.today.year
 
-        block = self._event(f"AY Software Services - Ryczałt and składki for December {year}")
+        block = self._event(f"AY Software Services - Ryczałt\\, ZUS DRA and składki for December {year}")
 
         assert f"DTSTART;VALUE=DATE:{year + 1}01" in block
 
     def test_a_month_states_each_transfer_on_its_own(self) -> None:
         """Two transfers to two offices, so each is named and no total is stated: a figure
-        covering both is one nobody sends."""
-        block = self._event(f"Ryczałt and składki for March {self.today.year}")
+        covering both is one nobody sends. The DRA comes first, being filed before the
+        składki are paid."""
+        block = self._event(f"Ryczałt\\, ZUS DRA and składki for March {self.today.year}")
 
-        assert "DESCRIPTION:Ryczałt 0.00 PLN. Składki " in block
+        assert "DESCRIPTION:ZUS DRA to file in eZUS. Ryczałt 0.00 PLN. Składki " in block
+
+    def test_a_month_says_when_its_dra_was_filed(self) -> None:
+        year = self.today.year
+        ContributionDeclaration.objects.create(
+            seller=self.seller, month=datetime.date(year, 3, 1), filed_on=datetime.date(year, 4, 3)
+        )
+
+        block = self._event(f"Ryczałt\\, ZUS DRA and składki for March {year}")
+
+        assert f"DESCRIPTION:ZUS DRA filed 3 April {year}. Ryczałt 0.00 PLN. Składki " in block
 
     def test_a_month_links_to_the_page_its_transfers_are_made_from(self) -> None:
         """The figures in the body and the page as the event's own link, which is where the
@@ -593,9 +620,9 @@ class ExportDeadlineTests(TestCase):
         year = self.today.year
         page = f"{BASE_URL}sellers/{self.seller.pk}/taxes/{year}/months/3/"
 
-        block = self._event(f"Ryczałt and składki for March {year}")
+        block = self._event(f"Ryczałt\\, ZUS DRA and składki for March {year}")
 
-        assert "DESCRIPTION:Ryczałt 0.00 PLN. Składki 2286.64 PLN.\r\n" in block
+        assert "DESCRIPTION:ZUS DRA to file in eZUS. Ryczałt 0.00 PLN. Składki 2286.64 PLN.\r\n" in block
         assert f"URL:{page}" in block
 
     def test_a_date_the_year_carries_links_to_the_years_page(self) -> None:
@@ -662,7 +689,7 @@ class ExportDeadlineTests(TestCase):
         year = self.today.year
         SocialContributionYear.objects.filter(year=year).delete()
 
-        block = self._event(f"Ryczałt and składki for March {year}")
+        block = self._event(f"Ryczałt\\, ZUS DRA and składki for March {year}")
 
         assert f"Składki: Nobody has entered the wages ZUS works {year}'s contribution bases out from.\r\n" in block
 
@@ -770,11 +797,14 @@ class ExportDeadlineTests(TestCase):
         assert block.count("BEGIN:VALARM") == 1
         assert "TRIGGER:-P2DT15H" in block
 
-    def test_a_month_already_paid_carries_no_alarm(self) -> None:
+    def test_a_month_already_paid_and_declared_carries_no_alarm(self) -> None:
         """A transfer made on the 5th against the 20th is the ordinary case, and an alarm for it
         fires while the deadline is still ahead. The event stays: what the month came to is
         worth having in the calendar after it is paid, and only the alarm is noise."""
         year = self.today.year
+        ContributionDeclaration.objects.create(
+            seller=self.seller, month=datetime.date(year, 6, 1), filed_on=datetime.date(year, 7, 5)
+        )
         ContributionPayment.objects.create(
             seller=self.seller,
             paid_on=datetime.date(year, 7, 5),
@@ -791,12 +821,35 @@ class ExportDeadlineTests(TestCase):
         assert "BEGIN:VALARM" not in self._block(result, self._month(6))
         assert "BEGIN:VALARM" in self._block(result, self._month(7))
 
-    def test_a_month_with_nothing_to_pay_carries_no_alarm(self) -> None:
+    def test_a_month_paid_but_not_declared_keeps_its_alarm(self) -> None:
+        """The transfer is recorded and the DRA is not, which is the month left half done: ZUS
+        divides a payment up by the last declaration it holds."""
+        year = self.today.year
+        ContributionPayment.objects.create(
+            seller=self.seller,
+            paid_on=datetime.date(year, 7, 5),
+            covers=datetime.date(year, 6, 1),
+            social=D("1788.29"),
+            health=D("830.58"),
+        )
+
+        with today_is(self.today):
+            result = export_user_calendar(
+                self.user, BASE_URL, time_off=True, deadlines=True, reminders=Reminders(monthly=[3])
+            ).replace("\r\n ", "")
+
+        assert "BEGIN:VALARM" in self._block(result, self._month(6))
+
+    def test_a_month_with_nothing_to_pay_and_its_dra_filed_carries_no_alarm(self) -> None:
         """Nobody has entered the wages the contributions are worked out from and no invoice was
-        billed, so neither transfer states a figure. There is nothing for the reader to go and do,
-        and an alarm would announce the application's own inability to say anything."""
+        billed, so neither transfer states a figure, and the DRA is filed. There is nothing for
+        the reader to go and do, and an alarm would announce the application's own inability to
+        say anything."""
         year = self.today.year
         SocialContributionYear.objects.filter(year=year).delete()
+        ContributionDeclaration.objects.create(
+            seller=self.seller, month=datetime.date(year, 6, 1), filed_on=datetime.date(year, 7, 5)
+        )
 
         with today_is(self.today):
             result = export_user_calendar(
@@ -856,7 +909,7 @@ class ExportDeadlineTests(TestCase):
         updates the event in place instead of arriving beside it."""
         year = self.today.year
 
-        block = self._event(f"Ryczałt and składki for March {year}")
+        block = self._event(f"Ryczałt\\, ZUS DRA and składki for March {year}")
 
         assert f"UID:{self.seller.pk}-{year}-03@workanother.day" in block
 
@@ -869,7 +922,7 @@ class ExportDeadlineTests(TestCase):
         assert "JPK_EWP" not in result
         assert "Annual health contribution settlement" not in result
         assert "Wakacje składkowe application" not in result
-        assert "Ryczałt and składki" not in result
+        assert "Ryczałt\\, ZUS DRA and składki" not in result
 
     def test_the_wakacje_application_is_an_event(self) -> None:
         """The one date that has to be met inside the year rather than after it: filed during
@@ -1022,7 +1075,7 @@ class CalendarFeedTests(TestCase):
             content = self.client.get(f"/calendar/{self.token}.ics").content.decode().replace("\r\n ", "")
 
         blocks = content.split("BEGIN:VEVENT")
-        monthly = next(block for block in blocks if f"Ryczałt and składki for June {year}" in block)
+        monthly = next(block for block in blocks if f"Ryczałt\\, ZUS DRA and składki for June {year}" in block)
         annual = next(block for block in blocks if f"PIT-28 for {year}" in block)
         assert "TRIGGER:-P2DT15H" in monthly
         assert "BEGIN:VALARM" not in annual
