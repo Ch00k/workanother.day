@@ -58,6 +58,10 @@ DAY = datetime.timedelta(days=1)
 # Art. 36 ust. 4 ustawy o sus: a change of insurance title is registered within 7 days of it.
 REGISTRATION_TERM = datetime.timedelta(days=7)
 
+# The first month every insured month owes a DRA. Before it, art. 47 ust. 2a let a payer insuring
+# only themselves skip the DRA for a month declaring what the one before it had.
+DRA_REQUIRED_FROM = datetime.date(2022, 1, 1)
+
 # Why a month states no figure, in the words the page and the dialog print. Each names what
 # is missing, because each is something its owner can go and put right.
 MIXED_RATES = "This year holds revenue at more than one ryczałt rate, so no monthly figure is stated."
@@ -300,6 +304,11 @@ class Month:
         return any(obligation.is_payable for obligation in self.obligations)
 
     @property
+    def owes_declaration(self) -> bool:
+        """Whether the month owes a DRA of its own, which every insured month has since 2022."""
+        return self.date >= DRA_REQUIRED_FROM
+
+    @property
     def is_declared(self) -> bool:
         """Whether the month's DRA has been recorded as filed."""
         return self.dra_filed_on is not None
@@ -312,7 +321,7 @@ class Month:
     @property
     def is_open(self) -> bool:
         """Whether anything is left to do for this month: a transfer to make or the DRA to file."""
-        return self.is_payable or not self.is_declared
+        return self.is_payable or (self.owes_declaration and not self.is_declared)
 
     @property
     def settled_on(self) -> datetime.date | None:
@@ -372,13 +381,15 @@ class Schedule:
 
     @property
     def next_due(self) -> Month | None:
-        """The earliest month still owing a transfer, which is the one to pay next.
+        """The earliest month still open, which is the one to file and pay next.
 
         Earliest rather than nearest to today, so a month left behind is what the year offers
         until it is settled: an overdue December is more urgent than the March that followed
-        it. Nothing where every month the year can state a figure for has been recorded.
+        it. Open by the same measure the calendar's alarms use, so a month whose transfers are
+        recorded and whose DRA is not is still offered, and so is one with no figure stated,
+        whose DRA is owed all the same. Nothing where every month is done.
         """
-        return next((month for month in self.months if month.is_payable), None)
+        return next((month for month in self.months if month.is_open), None)
 
     @property
     def tax(self) -> decimal.Decimal | None:
@@ -618,7 +629,7 @@ def schedule(
         paid=sum(settled.values(), ZERO),
         deadlines=(),
         holiday_application=None,
-        registrations=_registrations(seller, year),
+        registrations=_registrations(seller, year, holidays),
     )
 
     return dataclasses.replace(
@@ -704,19 +715,19 @@ def _deadlines(built: Schedule, holidays: Container[datetime.date]) -> tuple[Dea
     )
 
 
-def _registrations(seller: Seller, year: int) -> tuple[Deadline, ...]:
+def _registrations(seller: Seller, year: int, holidays: Container[datetime.date]) -> tuple[Deadline, ...]:
     """The re-registration each change of regime asks for, where the old regime ends in `year`.
 
     Art. 36 ust. 4 ustawy o sus gives 7 days from the day the new title arises, and the day of
     the change itself is not counted. Belonging to the year the old regime ends in puts a
     change on the first of January on the page, and in the feed, of the December before it.
 
-    Not moved off a weekend: both forms go in through eZUS, which is not an office with
-    opening hours.
+    Moved off a Saturday or a day off work like every other date here: art. 57 § 4 KPA, which
+    art. 123 ustawy o sus applies to ZUS, does so however the forms are sent.
     """
     return tuple(
         Deadline(
-            on=change.on + REGISTRATION_TERM,
+            on=working_day(change.on + REGISTRATION_TERM, holidays),
             what=(
                 f"ZUS ZWUA ({change.leaves.insurance_code}) and ZUS ZUA ({change.joins.insurance_code}), "
                 f"both dated {change.on.day} {change.on:%B %Y}"

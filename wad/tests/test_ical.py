@@ -30,6 +30,7 @@ from wad.models import (
     TimeOff,
     generate_calendar_token,
 )
+from wad.obligations import working_day
 from wad.tests.clock import today_is
 
 D = decimal.Decimal
@@ -563,7 +564,8 @@ class ExportDeadlineTests(TestCase):
         assert "Annual health contribution settlement" in result
 
     def test_a_change_of_regime_is_an_event_on_the_last_day_to_register_it(self) -> None:
-        """Seven days after the change, the forms and the day they carry in the title."""
+        """Seven days after the change, moved off a weekend, the forms and the day they carry in
+        the title."""
         year = self.today.year
         self.seller.business_started_on = datetime.date(year - 1, 9, 1)
         self.seller.ulga_na_start = True
@@ -572,7 +574,8 @@ class ExportDeadlineTests(TestCase):
 
         block = self._event(f"ZUS ZWUA (05 40 00) and ZUS ZUA (05 70 00)\\, both dated 1 March {year}")
 
-        assert f"DTSTART;VALUE=DATE:{year}0308" in block
+        # 8 March is no Polish holiday, so only a weekend can move it, and that depends on the year.
+        assert f"DTSTART;VALUE=DATE:{working_day(datetime.date(year, 3, 8), set()):%Y%m%d}" in block
 
     def test_every_month_is_an_event_on_the_day_it_falls_due(self) -> None:
         """The pair that falls due every month, which is what the feed is read for eleven months

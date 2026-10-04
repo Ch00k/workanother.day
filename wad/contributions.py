@@ -15,6 +15,7 @@ import dataclasses
 import datetime
 import decimal
 import enum
+import itertools
 from typing import Final
 
 from wad.models import GROSZ, Seller, SocialContributionYear
@@ -72,6 +73,19 @@ class Regime(enum.StrEnum):
             Regime.ULGA: "05 40 00",
             Regime.PREFERENTIAL: "05 70 00",
             Regime.FULL: "05 10 00",
+        }[self]
+
+    @property
+    def holiday_code(self) -> str:
+        """The kod tytułu ubezpieczenia a wakacje składkowe month's state-funded ZUS RCA goes on.
+
+        Each regime the relief can be claimed under has its own, set by the rozporządzenie of
+        27 August 2024: the code ZUS registered the trader under, with its fourth digit a 4.
+        Ulga na start has none, owing no social contributions to be exempted from.
+        """
+        return {
+            Regime.PREFERENTIAL: "05 74 00",
+            Regime.FULL: "05 14 00",
         }[self]
 
 
@@ -317,25 +331,24 @@ class Change:
 def changes(seller: Seller) -> tuple[Change, ...]:
     """Every day the elections move the taxpayer from one regime to the next, oldest first.
 
-    Nothing without a start date, and nothing for a taxpayer who elected neither relief, who is
-    on full contributions from the start and for good.
+    Read off `regime_on` month by month, up to the first month both reliefs together could have
+    run out by, so the two cannot disagree about where a regime ends. Nothing without a start
+    date, and nothing for a taxpayer who elected neither relief, who is on full contributions
+    from the start and for good.
     """
     started = seller.business_started_on
     if started is None:
         return ()
 
     first = started.replace(day=1)
-    ulga = _ulga_months(seller)
-    preferential = PREFERENTIAL_MONTHS if seller.preferential_contributions else 0
+    months = [_shifted(first, offset) for offset in range(_ulga_months(seller) + PREFERENTIAL_MONTHS + 1)]
+    regimes = [(month, regime_on(seller, month)) for month in months]
 
-    found = []
-    if ulga:
-        joins = Regime.PREFERENTIAL if preferential else Regime.FULL
-        found.append(Change(on=_shifted(first, ulga), leaves=Regime.ULGA, joins=joins))
-    if preferential:
-        found.append(Change(on=_shifted(first, ulga + preferential), leaves=Regime.PREFERENTIAL, joins=Regime.FULL))
-
-    return tuple(found)
+    return tuple(
+        Change(on=month, leaves=leaves, joins=joins)
+        for (_, leaves), (month, joins) in itertools.pairwise(regimes)
+        if leaves is not joins and leaves is not None and joins is not None
+    )
 
 
 def _shifted(first: datetime.date, months: int) -> datetime.date:

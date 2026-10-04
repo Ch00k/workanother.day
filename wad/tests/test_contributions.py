@@ -244,6 +244,10 @@ class RegimeChangeTests(ContributionTestCase):
         assert contributions.Regime.PREFERENTIAL.insurance_code == "05 70 00"
         assert contributions.Regime.FULL.insurance_code == "05 10 00"
 
+    def test_each_regime_wakacje_can_be_claimed_under_names_its_own_rca_code(self) -> None:
+        assert contributions.Regime.PREFERENTIAL.holiday_code == "05 74 00"
+        assert contributions.Regime.FULL.holiday_code == "05 14 00"
+
 
 class FullContributionTests(ContributionTestCase):
     """The 2026 figures ZUS published for a payer on full contributions."""

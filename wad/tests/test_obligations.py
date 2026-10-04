@@ -155,6 +155,12 @@ class ScheduleTestCase(TaxpayerTestCase):
             health=D(health),
         )
 
+    def _declares(self, covers: datetime.date) -> None:
+        """The month's DRA recorded as filed, on the 5th of the month after it."""
+        year, month = (covers.year + 1, 1) if covers.month == 12 else (covers.year, covers.month + 1)
+
+        ContributionDeclaration.objects.create(seller=self.seller, month=covers, filed_on=datetime.date(year, month, 5))
+
 
 class MonthlyTaxTests(ScheduleTestCase):
     def test_a_month_owes_twelve_percent_of_its_revenue(self) -> None:
@@ -838,10 +844,11 @@ class NextDueTests(ScheduleTestCase):
         assert due is not None
         assert due.month == 1
 
-    def test_a_month_settled_hands_the_year_on_to_the_next_one(self) -> None:
+    def test_a_month_settled_and_declared_hands_the_year_on_to_the_next_one(self) -> None:
         for number in range(1, 4):
             self._paid_ryczalt(datetime.date(YEAR, number, 1), "0")
             self._settles(datetime.date(YEAR, number, 1))
+            self._declares(datetime.date(YEAR, number, 1))
 
         self._issued(3)
 
@@ -854,8 +861,32 @@ class NextDueTests(ScheduleTestCase):
         for number in range(1, 13):
             self._paid_ryczalt(datetime.date(YEAR, number, 1), "0")
             self._settles(datetime.date(YEAR, number, 1))
+            self._declares(datetime.date(YEAR, number, 1))
 
         assert self._schedule().next_due is None
+
+    def test_a_month_paid_but_not_declared_is_still_the_one(self) -> None:
+        """The same measure the calendar's alarms use: the DRA is owed whatever the transfers
+        stand at, so a month with only its DRA left is what the year is waiting on."""
+        self._paid_ryczalt(datetime.date(YEAR, 1, 1), "0")
+        self._settles(datetime.date(YEAR, 1, 1))
+
+        due = self._schedule().next_due
+
+        assert due is not None
+        assert due.month == 1
+        assert not due.is_payable
+
+    def test_a_month_with_no_figure_still_owes_its_dra(self) -> None:
+        """Nobody has entered the year's wages, so no transfer states a figure; the DRA is owed
+        all the same."""
+        SocialContributionYear.objects.filter(year=YEAR).delete()
+        self._paid_ryczalt(datetime.date(YEAR, 1, 1), "0")
+
+        due = self._schedule().next_due
+
+        assert due is not None
+        assert due.month == 1
 
 
 class NoRevenueTests(ScheduleTestCase):
@@ -1151,6 +1182,7 @@ class PageTests(PageTestCase):
         for number in range(1, 3):
             self._paid_ryczalt(datetime.date(YEAR, number, 1), "0")
             self._settles(datetime.date(YEAR, number, 1))
+            self._declares(datetime.date(YEAR, number, 1))
 
         self._issued(3)
 
@@ -1165,6 +1197,7 @@ class PageTests(PageTestCase):
         for number in range(1, 13):
             self._paid_ryczalt(datetime.date(YEAR, number, 1), "0")
             self._settles(datetime.date(YEAR, number, 1))
+            self._declares(datetime.date(YEAR, number, 1))
 
         response = self._page()
 
@@ -2323,9 +2356,10 @@ class DeclarationTests(PageTestCase):
     and tracked on its own: a month whose transfers are recorded still has the DRA to file.
     """
 
-    def _declare(self, month: int, year: int = YEAR):  # noqa: ANN202
+    def _declare(self, month: int, year: int = YEAR, filed_on: datetime.date | None = None):  # noqa: ANN202
         return self.client.post(
             reverse("declaration_record", kwargs={"pk": self.seller.pk, "year": year, "month": month}),
+            {"filed_on": (filed_on or today_in_poland()).isoformat()},
         )
 
     def _undeclare(self, month: int, year: int = YEAR):  # noqa: ANN202
@@ -2340,6 +2374,45 @@ class DeclarationTests(PageTestCase):
         self.assertRedirects(response, self._month_url(3))
         assert (declaration.month, declaration.filed_on) == (datetime.date(YEAR, 3, 1), today_in_poland())
         assert self._month(3).dra_filed_on == today_in_poland()
+
+    def test_a_dra_filed_before_it_was_recorded_keeps_the_day_it_went(self) -> None:
+        """The day is the one thing kept, and it is shown as fact wherever the month is."""
+        filed_on = datetime.date(YEAR, 4, 14)
+
+        response = self._declare(3, filed_on=filed_on)
+
+        self.assertRedirects(response, self._month_url(3))
+        assert ContributionDeclaration.objects.get().filed_on == filed_on
+
+    def test_a_day_that_has_not_arrived_is_refused(self) -> None:
+        response = self._declare(3, filed_on=today_in_poland() + datetime.timedelta(days=1))
+
+        assert response.status_code == 400
+        assert not ContributionDeclaration.objects.exists()
+
+    def test_a_day_before_the_month_is_over_is_refused(self) -> None:
+        """No DRA for a month can be filed until the month has ended."""
+        response = self._declare(3, filed_on=datetime.date(YEAR, 3, 31))
+
+        assert response.status_code == 400
+        assert not ContributionDeclaration.objects.exists()
+
+    def test_a_month_not_over_yet_is_refused(self) -> None:
+        """A mis-press on the month under way, which would silence its alarms."""
+        with today_is(datetime.date(YEAR, 3, 15)):
+            response = self._declare(3)
+
+        assert response.status_code == 400
+        assert not ContributionDeclaration.objects.exists()
+
+    def test_something_that_is_not_a_date_is_refused(self) -> None:
+        response = self.client.post(
+            reverse("declaration_record", kwargs={"pk": self.seller.pk, "year": YEAR, "month": 3}),
+            {"filed_on": "soon"},
+        )
+
+        assert response.status_code == 400
+        assert not ContributionDeclaration.objects.exists()
 
     def test_recording_it_again_keeps_the_day_it_was_first_recorded(self) -> None:
         first = datetime.date(YEAR, 4, 3)
@@ -2398,6 +2471,15 @@ class DeclarationTests(PageTestCase):
         self.assertContains(response, "File the DRA")
         self.assertContains(response, "Nowy komplet rozliczeniowy")
         self.assertContains(response, "I have filed it")
+        self.assertContains(response, f'min="{YEAR}-04-01"')
+
+    def test_the_press_is_offered_only_once_the_month_is_over(self) -> None:
+        with today_is(datetime.date(YEAR, 3, 15)):
+            response = self._month_page(3)
+
+        self.assertContains(response, "File the DRA")
+        self.assertNotContains(response, "I have filed it")
+        self.assertContains(response, f"It can be filed from 1 April {YEAR}")
 
     def test_a_filed_dra_shows_the_day_it_was_recorded(self) -> None:
         ContributionDeclaration.objects.create(
@@ -2416,12 +2498,63 @@ class DeclarationTests(PageTestCase):
         )
 
         self.assertContains(self._month_page(3), "two ZUS RCA")
+        self.assertContains(self._month_page(3), "05 14 00")
         self.assertNotContains(self._month_page(4), "two ZUS RCA")
+
+    def test_a_preferential_wakacje_month_files_its_rca_on_05_74(self) -> None:
+        """Each regime has its own code for the state-funded RCA."""
+        self.seller.preferential_contributions = True
+        self.seller.save()
+        self.client.post(
+            reverse("contribution_holiday_record", kwargs={"pk": self.seller.pk, "year": YEAR, "month": 3}),
+        )
+
+        response = self._month_page(3)
+
+        self.assertContains(response, "05 74 00")
+        self.assertContains(response, "05 70 00")
+        self.assertNotContains(response, "05 14 00")
 
     def test_april_carries_the_settlement_of_the_year_before(self) -> None:
         """Only once there is a year before: the business started in January of it."""
         self.assertContains(self._month_page(4), "annual health contribution settlement")
         self.assertNotContains(self._month_page(3), "annual health contribution settlement")
+
+    def test_april_2022_carries_no_settlement(self) -> None:
+        """The annual settlement began with 2022's contributions, first settled in April 2023."""
+        self.seller.business_started_on = datetime.date(2021, 1, 1)
+        self.seller.save()
+        self.publisher.add_country_year("PL", 2022)
+        self.publisher.add_country_year("PL", 2023)
+
+        self.assertNotContains(self._month_page(4, year=2022), "annual health contribution settlement")
+        self.assertContains(self._month_page(4, year=2023), "annual health contribution settlement")
+
+    def test_a_month_before_2022_owes_no_dra(self) -> None:
+        """Art. 47 ust. 2a let a payer insuring only themselves skip it until then."""
+        self.seller.business_started_on = datetime.date(2021, 1, 1)
+        self.seller.save()
+        self.publisher.add_country_year("PL", 2021)
+        self.publisher.add_country_year("PL", 2022)
+
+        (march,) = [month for month in obligations.schedule(self.seller, 2021, set()).months if month.month == 3]
+        assert not march.owes_declaration
+        assert march.is_open == march.is_payable
+
+        response = self._month_page(3, year=2021)
+        self.assertNotContains(response, "File the DRA")
+        self.assertNotContains(response, "DRA overdue")
+
+        assert self._declare(3, year=2021).status_code == 400
+        assert not ContributionDeclaration.objects.exists()
+
+    def test_january_2022_owes_one(self) -> None:
+        self.seller.business_started_on = datetime.date(2021, 1, 1)
+        self.seller.save()
+
+        (january,) = [month for month in obligations.schedule(self.seller, 2022, set()).months if month.month == 1]
+        assert january.owes_declaration
+        assert january.is_open
 
     def test_the_first_april_carries_no_settlement(self) -> None:
         self.seller.business_started_on = datetime.date(YEAR, 1, 1)
@@ -2456,12 +2589,32 @@ class RegistrationTests(PageTestCase):
         self.seller.save()
 
     def test_the_change_is_due_seven_days_after_it(self) -> None:
-        """The day of the change itself is not counted."""
-        (registration,) = self._schedule().registrations
+        """The day of the change itself is not counted. Monday 1 March 2027, so Monday the 8th."""
+        self.seller.business_started_on = datetime.date(2026, 9, 1)
+        self.seller.save()
 
-        assert registration.on == datetime.date(YEAR, 3, 8)
-        assert registration.what == f"ZUS ZWUA (05 40 00) and ZUS ZUA (05 70 00), both dated 1 March {YEAR}"
+        (registration,) = obligations.schedule(self.seller, 2027, set()).registrations
+
+        assert registration.on == datetime.date(2027, 3, 8)
+        assert registration.what == "ZUS ZWUA (05 40 00) and ZUS ZUA (05 70 00), both dated 1 March 2027"
         assert "ZUS does not move the insurance by itself" in registration.note
+
+    def test_a_term_ending_on_a_sunday_moves_to_the_monday(self) -> None:
+        """Art. 57 § 4 KPA: 1 March 2026 plus seven days is Sunday the 8th."""
+        self.seller.business_started_on = datetime.date(2025, 9, 1)
+        self.seller.save()
+
+        (registration,) = obligations.schedule(self.seller, 2026, set()).registrations
+
+        assert registration.on == datetime.date(2026, 3, 9)
+
+    def test_a_term_ending_on_a_day_off_work_moves_past_it(self) -> None:
+        self.seller.business_started_on = datetime.date(2026, 9, 1)
+        self.seller.save()
+
+        (registration,) = obligations.schedule(self.seller, 2027, {datetime.date(2027, 3, 8)}).registrations
+
+        assert registration.on == datetime.date(2027, 3, 9)
 
     def test_a_year_with_no_change_carries_none(self) -> None:
         assert obligations.schedule(self.seller, YEAR - 1, set()).registrations == ()
