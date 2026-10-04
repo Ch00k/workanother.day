@@ -89,6 +89,69 @@ class EntryTests(TaxpayerTestCase):
             record.number
         ]
 
+    def test_an_invoice_notes_the_services_it_bills(self) -> None:
+        """The name of the service is what art. 109 ust. 3a of the VAT act adds to the value and
+        the date the register already holds, for services supplied outside Poland."""
+        self._issued(3)
+
+        assert ewidencja.register(self.seller, YEAR).entries[0].note == "Software development services"
+
+    def test_an_invoice_of_several_lines_notes_each_service(self) -> None:
+        self._rate(last_day(3), "4.0000")
+        record = store_invoice(
+            self.contract,
+            month=month(3),
+            lines=[("Software development services", D(10), D("1000.00")), ("Travel", D(1), D("200.00"))],
+        )
+        Invoice.objects.filter(pk=record.pk).update(state=Invoice.State.ISSUED)
+
+        assert ewidencja.register(self.seller, YEAR).entries[0].note == "Software development services; Travel"
+
+    def test_a_service_billed_on_several_lines_is_named_once(self) -> None:
+        """Saying it twice would spend the room K_10 has on nothing."""
+        self._rate(last_day(3), "4.0000")
+        record = store_invoice(
+            self.contract,
+            month=month(3),
+            lines=[
+                ("Software development services", D(10), D("1000.00")),
+                ("Travel", D(1), D("200.00")),
+                ("Software development services", D(2), D("1500.00")),
+            ],
+        )
+        Invoice.objects.filter(pk=record.pk).update(state=Invoice.State.ISSUED)
+
+        assert ewidencja.register(self.seller, YEAR).entries[0].note == "Software development services; Travel"
+
+    def test_a_note_longer_than_the_schema_takes_is_cut_with_a_mark(self) -> None:
+        """K_10 is a token of at most 256 characters, and a record cut short says so."""
+        self._rate(last_day(3), "4.0000")
+        record = store_invoice(self.contract, month=month(3), lines=[("x" * 300, D(1), D("1000.00"))])
+        Invoice.objects.filter(pk=record.pk).update(state=Invoice.State.ISSUED)
+
+        note = ewidencja.register(self.seller, YEAR).entries[0].note
+        assert len(note) == ewidencja.NOTE_LENGTH
+        assert note.endswith(ewidencja.CUT_MARKER)
+
+    def test_a_note_that_fits_exactly_is_not_cut(self) -> None:
+        self._rate(last_day(3), "4.0000")
+        description = "x" * ewidencja.NOTE_LENGTH
+        record = store_invoice(self.contract, month=month(3), lines=[(description, D(1), D("1000.00"))])
+        Invoice.objects.filter(pk=record.pk).update(state=Invoice.State.ISSUED)
+
+        assert ewidencja.register(self.seller, YEAR).entries[0].note == description
+
+    def test_a_difference_on_the_day_the_revenue_arose_follows_its_invoice(self) -> None:
+        """Paid on the last day of the month it billed, the invoice and its difference share the
+        day and the document, and the invoice comes first whatever the notes say."""
+        record = self._issued(3)
+        self._paid(record, last_day(3), "4.1000")
+
+        assert [entry.note for entry in ewidencja.register(self.seller, YEAR).entries] == [
+            "Software development services",
+            ewidencja.EXCHANGE_DIFFERENCE_NOTE,
+        ]
+
     def test_a_contract_not_on_ryczalt_is_not_in_the_register(self) -> None:
         """Ryczalt is what the ewidencja przychodow exists for."""
         self.contract.ryczalt_rate = None
@@ -618,6 +681,11 @@ class RenderTests(TaxpayerTestCase):
         assert code.get("wersjaSchemy") == "1-0"
         assert self._text(f"{{{jpk.NAMESPACE}}}Naglowek/{{{jpk.NAMESPACE}}}DataOd") == f"{YEAR}-01-01"
         assert self._text(f"{{{jpk.NAMESPACE}}}Naglowek/{{{jpk.NAMESPACE}}}DataDo") == f"{YEAR}-12-31"
+
+    def test_an_invoice_row_carries_its_services_in_k_10(self) -> None:
+        self._issued(3)
+
+        assert self._text(f"{{{jpk.NAMESPACE}}}EWPWiersz/{{{jpk.NAMESPACE}}}K_10") == "Software development services"
 
     def test_the_taxpayer_identity_is_in_the_imported_namespace(self) -> None:
         """The trap. Written in the document's own namespace these four are rejected."""
