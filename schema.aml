@@ -1,0 +1,306 @@
+# Work Another Day - the SQLite database schema, as `manage.py migrate` builds it (through
+# wad.0011_contributiondeclaration).
+#
+# The migrations are the authoritative schema. What AML cannot show is noted in column comments:
+# - Every foreign key is DEFERRABLE INITIALLY DEFERRED with no ON DELETE action. CASCADE and PROTECT
+#   are applied by Django, and each FK comment says which.
+# - "integer unsigned" columns carry CHECK (col >= 0).
+# - There are no column defaults in the database. Django fills them in on insert.
+# - UUID primary keys are stored as char(32), hex without dashes.
+
+# ---- Django framework ----
+auth_user | Django's built-in user. Owns everything in wad, directly or through a contract or seller
+  id integer pk | AUTOINCREMENT
+  username "varchar(150)" unique
+  password "varchar(128)"
+  first_name "varchar(150)"
+  last_name "varchar(150)"
+  email "varchar(254)"
+  is_superuser bool
+  is_staff bool
+  is_active bool
+  last_login datetime nullable
+  date_joined datetime
+
+auth_group
+  id integer pk | AUTOINCREMENT
+  name "varchar(150)" unique
+
+auth_permission
+  id integer pk | AUTOINCREMENT
+  content_type_id integer index unique=auth_permission_content_type_id_codename_01ab375a_uniq -> django_content_type(id)
+  codename "varchar(100)" unique=auth_permission_content_type_id_codename_01ab375a_uniq
+  name "varchar(255)"
+
+auth_group_permissions
+  id integer pk | AUTOINCREMENT
+  group_id integer index unique=auth_group_permissions_group_id_permission_id_0cd325b0_uniq -> auth_group(id)
+  permission_id integer index unique=auth_group_permissions_group_id_permission_id_0cd325b0_uniq -> auth_permission(id)
+
+auth_user_groups
+  id integer pk | AUTOINCREMENT
+  user_id integer index unique=auth_user_groups_user_id_group_id_94350c0c_uniq -> auth_user(id)
+  group_id integer index unique=auth_user_groups_user_id_group_id_94350c0c_uniq -> auth_group(id)
+
+auth_user_user_permissions
+  id integer pk | AUTOINCREMENT
+  user_id integer index unique=auth_user_user_permissions_user_id_permission_id_14a6b632_uniq -> auth_user(id)
+  permission_id integer index unique=auth_user_user_permissions_user_id_permission_id_14a6b632_uniq -> auth_permission(id)
+
+django_content_type
+  id integer pk | AUTOINCREMENT
+  app_label "varchar(100)" unique=django_content_type_app_label_model_76bd3d3b_uniq
+  model "varchar(100)" unique=django_content_type_app_label_model_76bd3d3b_uniq
+
+django_session
+  session_key "varchar(40)" pk
+  session_data text
+  expire_date datetime index
+
+django_migrations
+  id integer pk | AUTOINCREMENT
+  app "varchar(255)"
+  name "varchar(255)"
+  applied datetime
+
+# ---- accounts ----
+wad_guest | marks an auth_user as an automatically created guest account, which is swept up again and may not store legal records
+  id integer pk | AUTOINCREMENT
+  user_id integer unique -> auth_user(id) | one-to-one; CASCADE
+  created_at datetime
+
+wad_accounttoken | the credential an account signs in with
+  id integer pk | AUTOINCREMENT
+  user_id integer unique -> auth_user(id) | one-to-one; CASCADE
+  token_hash "varchar(64)" unique
+
+wad_calendartoken | the credential a calendar client subscribes with, and what the feed under it carries
+  id integer pk | AUTOINCREMENT
+  user_id integer unique -> auth_user(id) | one-to-one; CASCADE
+  token "varchar(20)" unique
+  includes_time_off bool | days off booked against contracts go out on the feed
+  includes_deadlines bool | the dates a taxpayer's years carry go out on the feed
+  time_off_reminder_days text | JSON list of lead times in days (0, 1, 3, 7, 14); CHECK JSON_VALID; empty = no alarm
+  monthly_reminder_days text | as time_off_reminder_days, for monthly payment deadlines
+  annual_reminder_days text | as time_off_reminder_days, for annual returns
+
+# ---- parties ----
+wad_seller | a taxpayer the user issues invoices as; one seller may bill several contracts
+  id "char(32)" pk | UUID
+  user_id integer index -> auth_user(id) | CASCADE
+  name "varchar(512)"
+  address "varchar(512)"
+  country "varchar(2)" | ISO code; Django default PL
+  nip "varchar(10)" | sent to KSeF as structured data; empty outside Poland
+  tax_ids text | identifiers printed on the document as written
+  ksef_token text | encrypted at rest; the standing power to issue invoices under this NIP, never sent to the browser
+  email "varchar(254)" | invoices are mailed from this address
+  first_name "varchar(30)" | the taxpayer as a person, which JPK_EWP asks for
+  last_name "varchar(81)"
+  date_of_birth date nullable
+  kod_urzedu "varchar(4)" | tax office a JPK_EWP is addressed to
+  business_started_on date nullable | the day contributions start being owed
+  zus_account "varchar(32)" | digits only
+  ulga_na_start bool | six-month relief, art. 18 Prawo przedsiebiorcow; the months it covers are derived from business_started_on
+  preferential_contributions bool | 24-month preferential base, art. 18a ustawy o sus
+  chorobowe bool | voluntary sickness insurance elected
+  accident_rate decimal | percent
+  created_at datetime
+
+wad_buyer | someone the user invoices
+  id "char(32)" pk | UUID
+  user_id integer index -> auth_user(id) | CASCADE
+  name "varchar(512)"
+  address "varchar(512)"
+  country "varchar(2)"
+  tax_id "varchar(50)" | sent as structured data: an EU VAT number without its country prefix, or whatever the buyer's country issues
+  tax_ids text | identifiers printed on the document as written
+  email "varchar(254)" | where invoices are mailed, art. 106gb ust. 4
+  created_at datetime
+
+# ---- contracts and time off ----
+wad_contract | a capped-day engagement with one client
+  id "char(32)" pk | UUID
+  user_id integer index -> auth_user(id) | CASCADE
+  seller_id "char(32)" nullable index -> wad_seller(id) | who invoices are issued by; PROTECT
+  buyer_id "char(32)" nullable index -> wad_buyer(id) | who the work is billed to; PROTECT
+  name "varchar(200)"
+  home_country "varchar(2)"
+  client_country "varchar(2)"
+  max_working_days "integer unsigned" | the cap for a full calendar year, pro-rated for a partial one
+  working_hours_per_day "integer unsigned"
+  start_date date
+  end_date date
+  external_calendar_url "varchar(200)"
+  send_to_ksef bool | per contract, so one can go through KSeF while another does not
+  day_rate decimal nullable | each invoice line keeps its own copy
+  currency "varchar(3)" | each invoice keeps its own copy
+  ryczalt_rate decimal nullable | percent; null where revenue is not taxed under ryczalt. Each invoice keeps its own copy
+  invoice_email_subject "varchar(200)" | empty = the application writes its own
+  invoice_email_body text
+
+wad_timeoff | hours booked off a contract on one day
+  id "char(32)" pk | UUID
+  contract_id "char(32)" index unique=unique_contract_date -> wad_contract(id) | CASCADE
+  date date unique=unique_contract_date
+  hours "integer unsigned"
+
+wad_holiday | a public holiday fetched for a country and year
+  id "char(32)" pk | UUID
+  country_code "varchar(2)" unique=unique_country_year_date
+  year "integer unsigned" unique=unique_country_year_date
+  date date unique=unique_country_year_date
+  name "varchar(200)"
+  fetched_at datetime
+
+# ---- invoicing ----
+wad_invoice | an invoice from draft through to whatever KSeF made of it; a correction invoice is a row here too. Leaving draft is a compare-and-swap on state, since SQLite ignores row locks
+  id "char(32)" pk | UUID
+  contract_id "char(32)" index -> wad_contract(id) | PROTECT
+  user_id integer index unique=unique_invoice_number_per_user -> auth_user(id) | denormalised from the contract so the number can be unique per issuer; PROTECT
+  corrects_id "char(32)" nullable index -> wad_invoice(id) | the document this faktura korygujaca corrects (the previous link, not the chain head); PROTECT
+  correction_reason "varchar(256)" | FA(3) PrzyczynaKorekty
+  correction_cause "varchar(11)" | mistake / later_event / empty; decides the revenue period under art. 14 ust. 1m
+  number "varchar(200)" unique=unique_invoice_number_per_user
+  issue_date date
+  due_date date nullable
+  currency "varchar(3)"
+  period_start date
+  period_end date | the revenue date for a non-correction, art. 14 ust. 1e
+  seller_id "char(32)" nullable index -> wad_seller(id) | provenance only; the details are snapshotted below. PROTECT
+  buyer_id "char(32)" nullable index -> wad_buyer(id) | provenance only; the details are snapshotted below. PROTECT
+  seller_name "varchar(512)" | snapshot
+  seller_address "varchar(512)" | snapshot
+  seller_nip "varchar(10)" | snapshot
+  seller_country "varchar(2)" | snapshot; PL means the revenue converts to PLN
+  seller_tax_ids text | snapshot, printed only
+  buyer_name "varchar(512)" | snapshot
+  buyer_address "varchar(512)" | snapshot
+  buyer_country "varchar(2)" | snapshot
+  buyer_tax_id "varchar(50)" | snapshot
+  buyer_tax_ids text | snapshot, printed only
+  vat_note text | printed and sent
+  iban "varchar(64)" | printed and sent
+  bic "varchar(16)" | printed and sent
+  account_holder "varchar(512)" | printed only
+  payment_reference "varchar(200)" | printed only
+  state "varchar(10)" | draft / sending / accepted / rejected / issued; issued = settled outside KSeF
+  ryczalt_rate decimal nullable | copied from the contract
+  revenue_pln decimal nullable | frozen PLN value of the revenue, art. 11a ust. 1 PIT; every tax figure sums this. Null until NBP has answered
+  revenue_rate decimal nullable | null for an invoice already in PLN
+  revenue_rate_table "varchar(30)" | NBP table number
+  revenue_rate_date date nullable
+  paid_on date nullable | the day the money landed, entered by hand
+  payment_pln decimal nullable | PLN value on paid_on; the art. 24c exchange difference is this less revenue
+  payment_rate decimal nullable
+  payment_rate_table "varchar(30)"
+  payment_rate_date date nullable
+  xml BLOB nullable | FA(3) bytes, frozen once and reused on every retry
+  xml_sha256 "varchar(64)"
+  frozen_at datetime nullable
+  session_reference "varchar(200)" | KSeF handles while in flight, so an interrupted send can be resolved by asking
+  invoice_reference "varchar(200)"
+  session_state text
+  ksef_number "varchar(50)"
+  upo text | the KSeF receipt; archive of record
+  error text
+  created_at datetime
+  sent_at datetime nullable
+  settled_at datetime nullable
+
+wad_invoiceline | one billed item on an invoice; on a correction, the state after it
+  id "char(32)" pk | UUID
+  invoice_id "char(32)" index unique=unique_invoice_line_position -> wad_invoice(id) | CASCADE
+  position "integer unsigned" unique=unique_invoice_line_position
+  description "varchar(512)"
+  quantity decimal
+  unit "varchar(50)" | Django default day
+  unit_net_price decimal
+
+wad_delivery | one attempt to mail an invoice to the buyer, art. 106gb ust. 4; failed attempts are kept too
+  id "char(32)" pk | UUID
+  invoice_id "char(32)" index -> wad_invoice(id) | CASCADE
+  recipient "varchar(254)" | the address as it was at the time
+  attempted_at datetime
+  message_id "varchar(200)" | handle for finding the message in the provider's log
+  pdf_sha256 "varchar(64)" | digest of the PDF that went; the PDF itself is re-rendered on demand
+  error text | empty = handed over
+
+wad_currencysale | a sale of the currency one invoice was paid in, which realises an art. 24c exchange difference against the invoice's payment_rate
+  id "char(32)" pk | UUID
+  invoice_id "char(32)" index -> wad_invoice(id) | CASCADE
+  sold_on date
+  amount decimal | in the invoice's currency
+  rate decimal | the rate the kantor dealt at
+  reference "varchar(200)" | the confirmation; becomes K_4 on the register entry
+  created_at datetime
+
+# ---- Polish tax and ZUS ----
+wad_filing | a JPK_EWP as it was produced; a year may hold several, a correction superseding without replacing
+  id "char(32)" pk | UUID
+  seller_id "char(32)" index -> wad_seller(id) | CASCADE
+  year "integer unsigned"
+  xml BLOB | the bytes filed; archive of record
+  xml_sha256 "varchar(64)"
+  produced_at datetime
+  revenue decimal | what the register said when the file was made
+  entry_count "integer unsigned"
+  state "varchar(10)" | produced / sending / filed / rejected
+  reference_number "varchar(64)" | the gateway session, so an interrupted send can be resolved by asking
+  sent_at datetime nullable
+  error text
+  upo text | the gateway's receipt; archive of record
+  filed_on date nullable | the day it was handed over
+
+wad_taxreturn | a PIT-28 as it was filed: a date and a UPO. One per year, a correction replacing it
+  id "char(32)" pk | UUID
+  seller_id "char(32)" index unique=unique_return_per_year -> wad_seller(id) | CASCADE
+  year "integer unsigned" unique=unique_return_per_year
+  filed_on date
+  upo text
+  created_at datetime
+
+wad_taxpayment | a ryczalt payment to the mikrorachunek, entered by hand
+  id "char(32)" pk | UUID
+  seller_id "char(32)" index -> wad_seller(id) | CASCADE
+  covers date | first of the month paid for; several payments may name the same month
+  paid_on date
+  amount decimal
+  created_at datetime
+
+wad_contributionpayment | a ZUS payment, entered by hand; deducted in the year of paid_on
+  id "char(32)" pk | UUID
+  seller_id "char(32)" index -> wad_seller(id) | CASCADE
+  paid_on date
+  covers date nullable | first of the month whose DRA this settles, where known
+  settles_year "integer unsigned" nullable | the year whose annual health settlement this pays, where it pays one
+  social decimal | deducted in full
+  health decimal | deducted at half, art. 11 ust. 1a
+  created_at datetime
+
+wad_contributiondeclaration | a month's ZUS DRA as filed in eZUS: a date. One per month, a correction replacing it
+  id "char(32)" pk | UUID
+  seller_id "char(32)" index unique=unique_declaration_per_month -> wad_seller(id) | CASCADE
+  month date unique=unique_declaration_per_month | first of the month declared
+  filed_on date
+  created_at datetime
+
+wad_contributionholiday | a month ZUS granted wakacje skladkowe for, art. 17a ustawy o sus. At most one a year, checked by the application
+  id "char(32)" pk | UUID
+  seller_id "char(32)" index unique=unique_holiday_per_month -> wad_seller(id) | CASCADE
+  month date unique=unique_holiday_per_month | first of the granted month
+  created_at datetime
+
+wad_healthcontributionyear | the three monthly health contribution bases for a year, art. 81 ust. 2e; national figures, one row per year
+  id integer pk | AUTOINCREMENT
+  year "integer unsigned" unique
+  lower_base decimal | 60 percent of the average wage
+  middle_base decimal | 100 percent
+  upper_base decimal | 180 percent
+
+wad_socialcontributionyear | the announced wages a year's social contribution bases come from; national figures, one row per year
+  id integer pk | AUTOINCREMENT
+  year "integer unsigned" unique
+  minimum_wage decimal | from January
+  minimum_wage_from_july decimal nullable | where the year has a mid-year rise
+  forecast_average_wage decimal
