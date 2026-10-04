@@ -8,7 +8,8 @@ month with nothing this application can state a figure for is not due anything h
 so rather than showing a deadline it cannot put an amount against.
 
 The DRA is a second word beside it, said only once the month is over and the DRA can be filed,
-and only until it is recorded as filed: it is owed whatever the transfers stand at.
+and only until it is recorded as filed: it is owed whatever the transfers stand at. Never for a
+month before 2022, which owed no DRA of its own.
 {% endcomment %}
 {% if month.is_settled %}
 <span class="rounded-[6px] bg-green-100 text-green-800 px-2 py-0.5 text-xs font-semibold">Settled</span>
@@ -21,7 +22,7 @@ and only until it is recorded as filed: it is owed whatever the transfers stand 
 {% else %}
 <span class="rounded-[6px] bg-[#f5f5f5] text-[#666] px-2 py-0.5 text-xs font-semibold">Due</span>
 {% endif %}
-{% if not month.is_declared and today >= month.declarable_from %}
+{% if month.owes_declaration and not month.is_declared and today >= month.declarable_from %}
 {% if month.due_on < today %}
 <span class="ml-1 rounded-[6px] bg-red-100 text-red-800 px-2 py-0.5 text-xs font-semibold">DRA overdue</span>
 {% else %}

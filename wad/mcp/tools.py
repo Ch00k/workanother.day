@@ -508,6 +508,8 @@ def _month_state(month: obligations.Month) -> dict:
         "contributions_unknown_because": month.dra_reason,
         "due_on": month.due_on,
         "is_settled": month.is_settled,
+        # A month before 2022 owed no DRA of its own, so its missing filing date is not one owed.
+        "dra_owed": month.owes_declaration,
         "dra_filed_on": month.dra_filed_on,
         "obligations": [
             {
@@ -596,6 +598,7 @@ def list_deadlines(user: User, arguments: dict) -> dict:
                 "month": month.month,
                 "due_on": month.due_on,
                 "is_settled": month.is_settled,
+                "dra_owed": month.owes_declaration,
                 "dra_filed_on": month.dra_filed_on,
             }
             for month in schedule.months

@@ -305,12 +305,14 @@ def _month_to_vevent(
     One event for the DRA and both transfers. The month is the unit settled: all three fall on
     the same day and are done in one sitting from the month's own page, which is where the
     DRA's figures, the account numbers and the okres each transfer carries are stated. The
-    alarms go on until the transfers are recorded as made and the DRA as filed.
+    alarms go on until the transfers are recorded as made and the DRA as filed. A month before
+    2022 owed no DRA of its own, and its event names the two transfers alone.
 
     Identified by the month it settles, so a figure that moves as invoices or payments are
     entered updates the event already in the reader's calendar instead of arriving beside it.
     """
-    what = f"{seller.name} - Ryczałt, ZUS DRA and składki for {month.date:%B %Y}"
+    owed = "Ryczałt, ZUS DRA and składki" if month.owes_declaration else "Ryczałt and składki"
+    what = f"{seller.name} - {owed} for {month.date:%B %Y}"
 
     return [
         "BEGIN:VEVENT",
@@ -334,7 +336,12 @@ def _month_note(month: obligations.Month) -> str:
     joined with a full stop, so the one the reason ends in comes off first.
     """
     filed_on = month.dra_filed_on
-    declaration = f"ZUS DRA filed {filed_on.day} {filed_on:%B %Y}" if filed_on else "ZUS DRA to file in eZUS"
+    if not month.owes_declaration:
+        declaration = []
+    elif filed_on:
+        declaration = [f"ZUS DRA filed {filed_on.day} {filed_on:%B %Y}"]
+    else:
+        declaration = ["ZUS DRA to file in eZUS"]
     transfers = [
         f"{capfirst(obligation.kind.label)} {_money(obligation.amount)}"
         if obligation.amount is not None
@@ -342,7 +349,7 @@ def _month_note(month: obligations.Month) -> str:
         for obligation in month.obligations
     ]
 
-    return ". ".join([declaration, *transfers]) + "."
+    return ". ".join([*declaration, *transfers]) + "."
 
 
 # What hour of the morning an alarm goes off at. A deadline is something to be met during a
