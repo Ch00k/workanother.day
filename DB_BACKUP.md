@@ -108,9 +108,11 @@ ssh-keyscan -p 23 uXXXXXX.your-storagebox.de
 ```
 
 Unlike the Tigris key, a sub-account can read back and delete what is in its directory - the
-protocol has no way to say otherwise. **Automatic snapshots on the Storage Box are what answers
-that**, because snapshots belong to the main account and a sub-account cannot see or touch them.
-Without them, anything that reaches the runner's key reaches the whole history there.
+protocol has no way to say otherwise. What answers that is mostly Tigris, where the workflow's
+key cannot delete: a leaked key can empty the box but not the bucket. **Automatic snapshots on the
+Storage Box** answer it on the box itself, because snapshots belong to the main account and a
+sub-account cannot see or touch them. The free BX10 keeps at most two, taken daily at 04:00, so an
+emptied directory has to be noticed within about two days to be restored from one.
 
 ### Secrets
 
@@ -133,6 +135,9 @@ Things to know about it:
 - **Both copies are written by one job**, which is the single thing the two providers share: a
   Fly token and both sets of storage credentials sit in the same repository. That is what the
   scoped Tigris key and the Storage Box's snapshots are for.
+- **The Storage Box is the free BX10 that comes with a dedicated server**, managed in Robot
+  rather than Hetzner Console. Hetzner cannot detach it, so cancelling that server cancels the
+  box and every copy on it.
 - **The Storage Box is finite** where the bucket is not. Nothing prunes it, and at this size
   nothing needs to for years, but it is a disk with an edge and the bucket is a bill.
 
@@ -141,10 +146,12 @@ Things to know about it:
 Once, in this order. Nothing is backing anything up until the whole list is done, and step 8 is
 what says so.
 
-1. **Mint the Tigris access key.** `fly storage dashboard` opens the Tigris console signed in as
-   the Fly account that owns `app-backups`. Create a key there and attach the policy above by
-   hand: the ReadOnly/Editor/Admin presets are whole-bucket roles, and this wants one action on
-   one prefix. The secret half is shown once.
+1. **Mint the Tigris access key.** With the Tigris CLI (`brew install tigrisdata/tap/tigris`,
+   then `tigris login oauth`, which signs in through Fly), create the policy above as
+   `workanotherday-backup-write`, create a key `workanotherday-backup-workflow` with no bucket
+   role, and attach one to the other with `tigris access-keys attach-policy`. The
+   ReadOnly/Editor/Admin presets are whole-bucket roles, and this wants one action on one
+   prefix. The secret half is shown once, so pipe it straight into `gh secret set`.
 
 2. **Mint the Fly SSH token.**
 
@@ -175,11 +182,11 @@ what says so.
    ssh -p23 -i storage_box uXXXXXX-subN@uXXXXXX.your-storagebox.de ls
    ```
 
-5. **Turn on automatic snapshots** for the box. This is not decoration: the sub-account can
-   delete everything in its own directory, and snapshots, which belong to the main account, are
-   the only thing that survives a key that ends up somewhere it should not.
+5. **Turn on automatic snapshots** for the box, in Robot. The sub-account can delete everything
+   in its own directory, and snapshots, which belong to the main account, are the only thing on
+   the box that survives a key that ends up somewhere it should not.
 
-6. **Set the five secrets** on the repository:
+6. **Set the six secrets** on the repository:
 
    ```bash
    gh secret set FLY_SSH_TOKEN
@@ -322,8 +329,8 @@ ssh -p23 uXXXXXX-subN@uXXXXXX.your-storagebox.de ls
 rsync --progress -e "ssh -p 23" uXXXXXX-subN@uXXXXXX.your-storagebox.de:db-20260903T023700Z.sqlite3.gz .
 ```
 
-If what is wanted is older than what is in the directory, or the directory has been emptied, it
-is in a snapshot, which only the main account can reach.
+If the directory has been emptied, the last two days are in a snapshot, which only the main
+account can reach; anything older is in Tigris.
 
 Then, either way:
 

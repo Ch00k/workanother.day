@@ -308,9 +308,9 @@ removes the ones that never became accounts. Run `manage.py cleanup_guests` when
 wants trimming.
 
 The database is backed up daily by `.github/workflows/backup.yml`, to Tigris and to a Hetzner
-Storage Box, on top of Fly's own volume snapshots. `DB_BACKUP.md` covers what is kept, what the keys are allowed to do,
-and how to restore - including the part that is easy to forget, which is that
-`DJANGO_KSEF_TOKEN_KEY` has to survive too or the KSeF token comes back unreadable.
+Storage Box, on top of Fly's own volume snapshots. `DB_BACKUP.md` covers what is kept, what the
+keys are allowed to do, and how to restore - including the part that is easy to forget, which is
+that `DJANGO_KSEF_TOKEN_KEY` has to survive too or the KSeF token comes back unreadable.
 
 ## Accounts
 
