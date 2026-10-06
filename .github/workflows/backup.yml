@@ -38,13 +38,6 @@ jobs:
           flyctl ssh console -a workanotherday -C "/app/.venv/bin/python /app/manage.py backup_database /app/data/backup.sqlite3"
           flyctl sftp get /app/data/backup.sqlite3 backup.sqlite3 -a workanotherday
 
-      # A 1GB volume against a database in the low tens of MB has room for one transient second
-      # copy, not for one per run. Removed even when the fetch failed, which is when it is left
-      # behind.
-      - name: Remove the copy from the machine
-        if: always()
-        run: flyctl ssh console -a workanotherday -C "rm -f /app/data/backup.sqlite3"
-
       # A backup nobody opened is a guess. This is the cheapest moment to find out that what
       # arrived is a database and is this application's, rather than during a restore.
       - name: Check what arrived
@@ -66,15 +59,16 @@ jobs:
       # a listing sorts oldest first. Named once and carried to both destinations, so the two
       # copies of a run are visibly the same copy.
       - name: Compress and name the copy
+        id: compress
         run: |
           name="db-$(date -u +%Y%m%dT%H%M%SZ).sqlite3.gz"
           gzip -9 backup.sqlite3
           mv backup.sqlite3.gz "$name"
           echo "BACKUP_FILE=$name" >> "$GITHUB_ENV"
 
-      # put-object rather than `s3 cp` because cp switches to a multipart upload above 8MB, and
-      # the key this runs under is allowed s3:PutObject on this prefix and nothing else: it
-      # cannot read the backups back and it cannot delete one.
+      # put-object rather than `s3 cp`: one request, for a file far below any size that would want
+      # a multipart upload. The key this runs under is allowed s3:PutObject on this prefix and
+      # nothing else: it cannot read the backups back and it cannot delete one.
       - name: Upload to Tigris
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
@@ -88,14 +82,17 @@ jobs:
             --body "$BACKUP_FILE"
 
       # The copy at a provider that has nothing to do with the application: Tigris is provisioned
-      # and billed through Fly, so one lost account is both of them. Last, so a Storage Box that
-      # is unreachable still leaves the run with the database stored somewhere.
+      # and billed through Fly, so one lost account is both of them. After Tigris, so a Storage Box
+      # that is unreachable still leaves the run with the database stored somewhere, and attempted
+      # even when Tigris failed, for the same reason the other way round. Either failure still
+      # fails the job, which is what sends the email.
       #
       # rsync over the Storage Box's port 23, which is the port that speaks more than SFTP. It
       # writes to a temporary name and renames on completion, so an upload cut off halfway does
       # not leave something that looks like a backup. The host is a secret only because this
       # repository is public and the hostname carries the account number.
       - name: Upload to the Storage Box
+        if: ${{ !cancelled() && steps.compress.outcome == 'success' }}
         env:
           SSH_KEY: ${{ secrets.STORAGE_BOX_SSH_KEY }}
           SSH_HOST: ${{ secrets.STORAGE_BOX_HOST }}
@@ -107,3 +104,11 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
           rsync --times -e "ssh -p 23 -i ~/.ssh/storage_box -o IdentitiesOnly=yes" \
             "$BACKUP_FILE" "$SSH_HOST:$BACKUP_FILE"
+
+      # A 1GB volume against a database in the low tens of MB has room for one transient second
+      # copy, not for one per run. Removed even when the fetch failed, which is when it is left
+      # behind. Last, so a failed removal cannot keep a copy already fetched from being stored;
+      # a leftover is replaced by the next run's backup_database anyway.
+      - name: Remove the copy from the machine
+        if: always()
+        run: flyctl ssh console -a workanotherday -C "rm -f /app/data/backup.sqlite3"

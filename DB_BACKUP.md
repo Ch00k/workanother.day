@@ -306,13 +306,39 @@ casually copied around for debugging.
 
 Do this once before it is needed, not during an incident.
 
-Restoring a Fly snapshot creates a **new volume**, which means a new machine and a volume name
-that no longer matches `fly.toml`:
+Both paths replace the database the application is serving, so nothing may be using it while
+they do: a worker holds its connection for as long as its request runs, which can be minutes
+(a filing, an invoice by mail). Each path below takes the application off the database first, and
+brings it back only after the restored copy has been checked. Both do it the same way: the
+machine stays up, because SSH needs it running, but with a command that serves nothing in place
+of `run.sh`, which holds across restarts until it is changed back. Pick a quiet moment; whatever
+was written after the copy was taken is gone either way.
+
+`fly machine list -a workanotherday` gives the machine ID both paths need.
+
+### From a Fly snapshot
+
+Restoring a snapshot creates a **new volume**. A machine's volume is fixed when the machine is
+created, so the restored one needs a new machine, cloned from the current one with the new volume
+in place of the old:
 
 ```bash
 fly volumes snapshots list vol_r1jznjp0zpyd5jwr
 fly volumes create wad_data --snapshot-id <snapshot-id> --region fra --size 1 -a workanotherday
+fly machine cordon <machine-id> -a workanotherday
+fly machine stop <machine-id> -a workanotherday
+fly machine clone <machine-id> --attach-volume <new-volume-id>:/app/data --override-cmd "sleep inf" -a workanotherday
 ```
+
+Cordoning first takes the old machine out of the proxy, which would otherwise start it again on
+the next request and have two machines serving two databases. Check the clone (below), then give
+it the application's command back with
+`fly machine update <new-machine-id> --command /app/run.sh --yes -a workanotherday`, which runs
+the migrations at boot like any start, and `fly machine destroy <machine-id>` the old one. Its
+volume stays behind, unattached, until `fly volumes destroy`; keep it until the restore has
+proved itself. Then replace the volume ID in this document with the new one.
+
+### From a daily copy
 
 A daily copy comes from either provider. From Tigris, with a key that can read the prefix - which
 is not the one the workflow runs under:
@@ -332,26 +358,33 @@ rsync --progress -e "ssh -p 23" uXXXXXX-subN@uXXXXXX.your-storagebox.de:db-20260
 If the directory has been emptied, the last two days are in a snapshot, which only the main
 account can reach; anything older is in Tigris.
 
-Then, either way:
+Then, either way, take the application off the database:
+
+```bash
+fly machine update <machine-id> --command "sleep inf" --yes -a workanotherday
+```
+
+Upload the copy and swap it in. Remove `db.sqlite3` **and** its `-wal`/`-shm`/`-journal`
+sidecars before moving the copy into place: stale sidecars against a swapped-in database can
+corrupt it on reopen. The uploaded file arrives owned by root, and the application runs as `wad`,
+which has to be able to write to it:
 
 ```bash
 gunzip db-20260903T023700Z.sqlite3.gz
 fly sftp put db-20260903T023700Z.sqlite3 /app/data/import.sqlite3 -a workanotherday
-```
-
-Then swap it in. Remove `db.sqlite3` **and** its `-wal`/`-shm`/`-journal` sidecars before moving
-the copy into place: stale sidecars against a swapped-in database can corrupt it on reopen. The
-uploaded file arrives owned by root, and the application runs as `wad`, which has to be able to
-write to it:
-
-```bash
 fly ssh console -a workanotherday -C "sh -c 'rm -f /app/data/db.sqlite3 /app/data/db.sqlite3-wal /app/data/db.sqlite3-shm /app/data/db.sqlite3-journal && mv /app/data/import.sqlite3 /app/data/db.sqlite3 && chown wad:wad /app/data/db.sqlite3'"
-fly apps restart workanotherday
 ```
 
-Verify with the integrity check and a row count before trusting a restore, remembering there is
-no `sqlite3` CLI in the image:
+Check it (below), and only then give the machine its own command back:
 
 ```bash
-fly ssh console -a workanotherday -C "python -c \"import sqlite3; c=sqlite3.connect('/app/data/db.sqlite3'); print(c.execute('pragma integrity_check').fetchone()); print(c.execute('select count(*) from wad_filing').fetchone())\""
+fly machine update <machine-id> --command /app/run.sh --yes -a workanotherday
+```
+
+### Checking a restore
+
+The integrity check and a row count, remembering there is no `sqlite3` CLI in the image:
+
+```bash
+fly ssh console -a workanotherday -C "/app/.venv/bin/python -c \"import sqlite3; c=sqlite3.connect('/app/data/db.sqlite3'); print(c.execute('pragma integrity_check').fetchone()); print(c.execute('select count(*) from wad_filing').fetchone())\""
 ```
