@@ -3,9 +3,11 @@
 {% block title %}DRA {{ month.date|date:"F Y" }} - {{ seller.name }} - Work Another Day{% endblock %}
 
 {% comment %}
-The month's DRA, walked through ePłatnik's Obsługa rozliczenia wizard one screen at a time, every
-field it shows with what goes in it. A value this application works out is the month's own; the
-rest are the same for every payer insuring only themselves.
+How a month's DRA is filed, which is either of two ways: as a file to import, or filled in by
+hand in ePłatnik's Obsługa rozliczenia wizard. For the months the walkthrough was written for,
+the wizard is taken one screen at a time, every field it shows with what goes in it. A value
+this application works out is the month's own; the rest are the same for every payer insuring
+only themselves. Every other month states the wizard's path.
 
 What the screens and their fields are called is taken from ZUS's February 2026 leaflet for payers
 settling only for themselves and from ePłatnik's own help, and checked against a DRA filed this
@@ -23,8 +25,8 @@ way. Labels are given in ZUS's words, because they are what is on the screen.
 
     <h1 class="text-[28px] font-bold tracking-tight leading-tight">DRA for {{ month.date|date:"F Y" }}</h1>
     <div class="text-xs text-[#888] mt-1">
-        {{ seller.name }} &middot; due {{ month.due_on|date:"j F Y" }} &middot;
-        {{ month.social.regime.label }}, kod {{ month.social.regime.insurance_code }}
+        {{ seller.name }} &middot; due {{ month.due_on|date:"j F Y" }}{% if month.social %} &middot;
+        {{ month.social.regime.label }}, kod {{ month.social.regime.insurance_code }}{% endif %}
     </div>
 
     {% include "wad/_holidays_stale.html" %}
@@ -41,6 +43,24 @@ way. Labels are given in ZUS's words, because they are what is on the screen.
     </div>
     {% endif %}
 
+    {% if month.social.exempt %}
+    <div class="notice mt-5">
+        This month is wakacje składkowe, so the DRA goes with two ZUS RCA: one on kod
+        {{ month.social.regime.holiday_code }} for the contributions the state pays, and one on the
+        usual kod, {{ month.social.regime.insurance_code }}, for the health contribution.
+    </div>
+    {% endif %}
+
+    {% comment %}
+    The annual settlement began with 2022's contributions, settled in April 2023.
+    {% endcomment %}
+    {% if month.month == 4 and month.year >= 2023 and seller.business_started_on.year < month.year %}
+    <div class="notice mt-5">
+        The DRA for April also carries the annual health contribution settlement for
+        {{ month.year|add:"-1" }}, in blok XII.
+    </div>
+    {% endif %}
+
     <div class="notice mt-5">
         Filed before the transfer: ZUS divides a payment up according to the last DRA it holds.
         ePłatnik writes an amount with a comma before the grosze and no gaps, so
@@ -48,10 +68,71 @@ way. Labels are given in ZUS's words, because they are what is on the screen.
     </div>
 
     {% comment %}
+    Two ways in, a section each, and one of them is taken: a second DRA numbered 01 for the
+    month is refused as one ZUS already holds. Importing is the quicker: the DRA this page
+    describes, as a file for ePłatnik's Import KEDU. Filling it in through the wizard is the way
+    in when there is no file or an import is refused.
+    {% endcomment %}
+    <p class="mt-6 text-sm text-[#666]">
+        Either import the KEDU file, or fill in manually. ZUS takes one DRA for the month and
+        refuses a second as one it already holds.
+    </p>
+
+    <div class="section-heading">Import</div>
+    <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 text-sm space-y-3">
+        {% if dra_refusal %}
+        <p class="text-[#888]">No KEDU file for this month: {{ dra_refusal }}</p>
+        {% else %}
+        {% comment %}
+        A flex row, as the buttons on every other card sit in: an inline link keeps none of the
+        button's height, which then spills over the card's padding.
+        {% endcomment %}
+        <div class="flex">
+            <a class="btn btn-secondary" href="{% url 'declaration_file' pk=seller.pk year=month.year month=month.month %}">Download KEDU</a>
+        </div>
+        <p class="text-[#666]">
+            This DRA as a file to load into ePłatnik instead of typing it in. KEDU, Kolekcja
+            Elektronicznych Dokumentów Ubezpieczeniowych, is ZUS's XML format for its forms.
+        </p>
+        {% comment %}
+        The path is ePłatnik's own menu, as ZUS's help names it. A ZUS ZIPA comes up beside the
+        DRA only where the file names the payer differently from ZUS's register; sending it would
+        change that register, so it is left out of what is sent.
+        {% endcomment %}
+        <ol class="list-decimal pl-5 space-y-1 text-[#666]">
+            <li>
+                In <a class="link text-blue-800" href="https://www.zus.pl/ezus/logowanie">eZUS</a>, ePłatnik:
+                <strong>Dokumenty</strong>, <strong>Dokumenty ubezpieczeniowe</strong>, <strong>Import KEDU</strong>,
+                and the file downloaded here.
+            </li>
+            <li>
+                If a <strong>ZUS ZIPA</strong> is listed beside the DRA, leave it out. It means ZUS holds the
+                payer's details differently from the seller's, and sending it would change what ZUS holds:
+                check the PESEL, REGON, nazwa skrócona, name and date of birth on the
+                <a class="link text-blue-800" href="{% url 'seller_edit' pk=seller.pk %}">seller</a>
+                against eZUS's Dane płatnika.
+            </li>
+            <li>
+                The DRA is in <strong>Dokumenty robocze</strong>: <strong>Weryfikuj</strong>, then send it,
+                signed with <strong>Podpis ePUAP</strong>, which is Profil Zaufany.
+            </li>
+        </ol>
+        {% if month.has_dra_guide %}
+        <p class="text-[#666]">
+            Weryfikuj objects in the same words the wizard's does; the table at the end of this page
+            says what each means.
+        </p>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    {% comment %}
     Two columns, each read down, the wizard's screens running on from the left one into the
     right one. They split where the two come out closest in height.
     {% endcomment %}
-    <div class="mt-6 grid gap-6 lg:grid-cols-2 items-start">
+    <div class="section-heading">Fill in manually</div>
+    {% if month.has_dra_guide %}
+    <div class="grid gap-6 lg:grid-cols-2 items-start">
         <div>
             <div class="card-heading">
                 <h2>1. Getting in</h2>
@@ -367,6 +448,20 @@ way. Labels are given in ZUS's words, because they are what is on the screen.
             </div>
         </div>
     </div>
+    {% else %}
+    {% comment %}
+    A month the walkthrough was not written for: a full-contributions month, April, a wakacje
+    month, or one whose figures are not known here. Its wizard adds screens the walkthrough
+    does not cover, so this states the path and what the DRA declares.
+    {% endcomment %}
+    <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 text-sm text-[#666]">
+        In <a class="link text-blue-800" href="https://www.zus.pl/ezus/logowanie">eZUS</a>:
+        ePłatnik, Kreatory, Obsługa rozliczenia, Nowy komplet rozliczeniowy, then Weryfikuj and
+        Wyślij i zakończ. It declares the składki stated on the
+        <a class="link text-blue-800" href="{% url 'month' pk=seller.pk year=year month=month.month %}">month's page</a>,
+        component by component{% if not month.social.exempt %}, and goes on its own, with no imienny raport{% endif %}.
+    </div>
+    {% endif %}
 
     <p class="mt-6 text-xs text-[#999]">
         From ZUS's leaflet

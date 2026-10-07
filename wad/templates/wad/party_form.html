@@ -143,6 +143,42 @@
             </div>
 
             {% comment %}
+            The payer as ZUS registered them, which a DRA states. ePłatnik reads a DRA naming the
+            payer differently as a change to that registration and puts a ZUS ZIPA beside it, so
+            these are copied rather than worked out. Not required to save, for the reason the
+            fields above are not.
+            {% endcomment %}
+            <div class="grid gap-4 sm:grid-cols-2">
+                <div class="sm:col-span-2">
+                    <label for="short_name" class="block text-sm font-medium text-[#666] mb-1">Nazwa skrócona</label>
+                    <input type="text" id="short_name" name="short_name" maxlength="31"
+                           value="{% firstof form_data.short_name party.short_name '' %}"
+                           class="w-full field">
+                    <div class="text-xs text-[#999] mt-1">
+                        These three, the name, the surname and the date of birth go on every DRA and
+                        have to match what ZUS holds. Copy them from eZUS,
+                        <a href="https://www.zus.pl/ezus/logowanie" target="_blank" rel="noopener" class="link">Dane płatnika</a>.
+                        Case does not matter: the DRA writes names in capitals, as ZUS holds them.
+                        The nazwa skrócona is the one ZUS registered, which need not be the name above.
+                    </div>
+                </div>
+                <div>
+                    <label for="pesel" class="block text-sm font-medium text-[#666] mb-1">PESEL</label>
+                    <input type="text" id="pesel" name="pesel" inputmode="numeric" maxlength="11"
+                           pattern="\d{11}" title="A PESEL is 11 digits."
+                           value="{% firstof form_data.pesel party.pesel '' %}"
+                           class="w-full field">
+                </div>
+                <div>
+                    <label for="regon" class="block text-sm font-medium text-[#666] mb-1">REGON</label>
+                    <input type="text" id="regon" name="regon" inputmode="numeric" maxlength="14"
+                           pattern="\d{9}|\d{14}" title="A REGON is 9 or 14 digits."
+                           value="{% firstof form_data.regon party.regon '' %}"
+                           class="w-full field">
+                </div>
+            </div>
+
+            {% comment %}
             Where the two obligations are paid. Only the second of them is a field: MF generates
             the mikrorachunek podatkowy from the NIP, so it is computed from the NIP above rather
             than stored, and a correction to that NIP carries it along instead of leaving a stale

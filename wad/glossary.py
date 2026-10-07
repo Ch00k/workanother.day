@@ -335,6 +335,26 @@ SECTIONS: Final = (
                 "trader insuring nobody but themselves files this and no report with it.",
             ),
             Term(
+                "KEDU",
+                "Kolekcja Elektronicznych Dokumentów Ubezpieczeniowych",
+                "ZUS's XML format for its forms. A month's DRA can be downloaded here as one and "
+                "loaded into ePłatnik under Dokumenty, Dokumenty ubezpieczeniowe, Import KEDU, "
+                "then checked and signed as one typed in would be.",
+            ),
+            Term(
+                "ZIPA",
+                "Zgłoszenie zmiany danych identyfikacyjnych płatnika składek",
+                "A change to how ZUS has the payer registered. ePłatnik puts one beside an "
+                "imported DRA that names the payer differently from its register; left unsent, "
+                "it changes nothing.",
+            ),
+            Term(
+                "Nazwa skrócona",
+                "",
+                "The short name ZUS holds a payer under, which every DRA states. It need not be "
+                "the trading name, and eZUS's Dane płatnika shows it.",
+            ),
+            Term(
                 "RCA",
                 "Imienny raport miesięczny o należnych składkach i wypłaconych świadczeniach",
                 "The per-person report that goes with a DRA where there are insured people to "

@@ -19,7 +19,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import NoReverseMatch, reverse
 
-from wad import contributions, nrb, obligations
+from wad import contributions, dra, nrb, obligations
 from wad.calendar_utils import today_in_poland
 from wad.models import (
     ContributionDeclaration,
@@ -1159,6 +1159,13 @@ class PageTestCase(ScheduleTestCase):
 
     def _month_url(self, month: int, year: int = YEAR) -> str:
         return reverse("month", kwargs={"pk": self.seller.pk, "year": year, "month": month})
+
+    def _guide(self, month: int, year: int = YEAR):  # noqa: ANN202
+        """The month's DRA guide, which says how its DRA is filed."""
+        return self.client.get(self._guide_url(month, year))
+
+    def _guide_url(self, month: int, year: int = YEAR) -> str:
+        return reverse("declaration_guide", kwargs={"pk": self.seller.pk, "year": year, "month": month})
 
     def _record(self, month: int, year: int = YEAR):  # noqa: ANN202
         return self.client.post(
@@ -2363,9 +2370,13 @@ class DeclarationTests(PageTestCase):
 
     def _declare(self, month: int, year: int = YEAR, filed_on: datetime.date | None = None):  # noqa: ANN202
         return self.client.post(
-            reverse("declaration_record", kwargs={"pk": self.seller.pk, "year": year, "month": month}),
+            self._record_url(month, year),
             {"filed_on": (filed_on or today_in_poland()).isoformat()},
         )
+
+    def _record_url(self, month: int, year: int = YEAR) -> str:
+        """Where the press recording the DRA as filed posts, which is how a page offering it is told."""
+        return reverse("declaration_record", kwargs={"pk": self.seller.pk, "year": year, "month": month})
 
     def _undeclare(self, month: int, year: int = YEAR):  # noqa: ANN202
         return self.client.post(
@@ -2470,20 +2481,23 @@ class DeclarationTests(PageTestCase):
 
         assert not self._month(3).is_open
 
-    def test_the_month_page_says_how_to_file_it(self) -> None:
+    def test_the_month_page_links_to_how_to_file_it(self) -> None:
+        """The card records the DRA; how it is filed is the guide's, the wizard's path included."""
         response = self._month_page(3)
 
         self.assertContains(response, "File the DRA")
-        self.assertContains(response, "Nowy komplet rozliczeniowy")
-        self.assertContains(response, "I have filed it")
+        self.assertContains(response, self._guide_url(3))
+        self.assertContains(response, f'action="{self._record_url(3)}"')
         self.assertContains(response, f'min="{YEAR}-04-01"')
+        self.assertNotContains(response, "Nowy komplet rozliczeniowy")
+        self.assertContains(self._guide(3), "Nowy komplet rozliczeniowy")
 
     def test_the_press_is_offered_only_once_the_month_is_over(self) -> None:
         with today_is(datetime.date(YEAR, 3, 15)):
             response = self._month_page(3)
 
         self.assertContains(response, "File the DRA")
-        self.assertNotContains(response, "I have filed it")
+        self.assertNotContains(response, f'action="{self._record_url(3)}"')
         self.assertContains(response, f"It can be filed from 1 April {YEAR}")
 
     def test_a_filed_dra_shows_the_day_it_was_recorded(self) -> None:
@@ -2495,17 +2509,17 @@ class DeclarationTests(PageTestCase):
 
         self.assertContains(response, "recorded 3 Apr")
         self.assertContains(response, "take it off as filed")
-        self.assertNotContains(response, "I have filed it")
+        self.assertNotContains(response, f'action="{self._record_url(3)}"')
 
     def test_a_wakacje_month_files_two_rca_with_it(self) -> None:
         self.client.post(
             reverse("contribution_holiday_record", kwargs={"pk": self.seller.pk, "year": YEAR, "month": 3}),
         )
 
-        self.assertContains(self._month_page(3), "two ZUS RCA")
-        self.assertNotContains(self._month_page(3), "no imienny raport")
-        self.assertContains(self._month_page(3), "05 14 00")
-        self.assertNotContains(self._month_page(4), "two ZUS RCA")
+        self.assertContains(self._guide(3), "two ZUS RCA")
+        self.assertNotContains(self._guide(3), "no imienny raport")
+        self.assertContains(self._guide(3), "05 14 00")
+        self.assertNotContains(self._guide(4), "two ZUS RCA")
 
     def test_a_preferential_wakacje_month_files_its_rca_on_05_74(self) -> None:
         """Each regime has its own code for the state-funded RCA."""
@@ -2515,7 +2529,7 @@ class DeclarationTests(PageTestCase):
             reverse("contribution_holiday_record", kwargs={"pk": self.seller.pk, "year": YEAR, "month": 3}),
         )
 
-        response = self._month_page(3)
+        response = self._guide(3)
 
         self.assertContains(response, "05 74 00")
         self.assertContains(response, "05 70 00")
@@ -2523,8 +2537,8 @@ class DeclarationTests(PageTestCase):
 
     def test_april_carries_the_settlement_of_the_year_before(self) -> None:
         """Only once there is a year before: the business started in January of it."""
-        self.assertContains(self._month_page(4), "annual health contribution settlement")
-        self.assertNotContains(self._month_page(3), "annual health contribution settlement")
+        self.assertContains(self._guide(4), "annual health contribution settlement")
+        self.assertNotContains(self._guide(3), "annual health contribution settlement")
 
     def test_april_2022_carries_no_settlement(self) -> None:
         """The annual settlement began with 2022's contributions, first settled in April 2023."""
@@ -2533,8 +2547,8 @@ class DeclarationTests(PageTestCase):
         self.publisher.add_country_year("PL", 2022)
         self.publisher.add_country_year("PL", 2023)
 
-        self.assertNotContains(self._month_page(4, year=2022), "annual health contribution settlement")
-        self.assertContains(self._month_page(4, year=2023), "annual health contribution settlement")
+        self.assertNotContains(self._guide(4, year=2022), "annual health contribution settlement")
+        self.assertContains(self._guide(4, year=2023), "annual health contribution settlement")
 
     def test_a_month_before_2022_owes_no_dra(self) -> None:
         """Art. 47 ust. 2a let a payer insuring only themselves skip it until then."""
@@ -2550,6 +2564,7 @@ class DeclarationTests(PageTestCase):
         response = self._month_page(3, year=2021)
         self.assertNotContains(response, "File the DRA")
         self.assertNotContains(response, "DRA overdue")
+        assert self._guide(3, year=2021).status_code == 404
 
         assert self._declare(3, year=2021).status_code == 400
         assert not ContributionDeclaration.objects.exists()
@@ -2566,7 +2581,7 @@ class DeclarationTests(PageTestCase):
         self.seller.business_started_on = datetime.date(YEAR, 1, 1)
         self.seller.save()
 
-        self.assertNotContains(self._month_page(4), "annual health contribution settlement")
+        self.assertNotContains(self._guide(4), "annual health contribution settlement")
 
     def test_the_status_says_the_dra_is_to_file_once_the_month_is_over(self) -> None:
         with today_is(datetime.date(YEAR, 3, 15)):
@@ -2598,12 +2613,6 @@ class DeclarationGuideTests(PageTestCase):
         self.seller.ulga_na_start = True
         self.seller.preferential_contributions = True
         self.seller.save()
-
-    def _guide(self, month: int):  # noqa: ANN202
-        return self.client.get(self._guide_url(month))
-
-    def _guide_url(self, month: int) -> str:
-        return reverse("declaration_guide", kwargs={"pk": self.seller.pk, "year": YEAR, "month": month})
 
     def test_an_ulga_month_declares_health_alone(self) -> None:
         self._issued(3)
@@ -2664,30 +2673,45 @@ class DeclarationGuideTests(PageTestCase):
         self.assertContains(self._guide(3), "may be outdated")
         self.assertContains(self._month_page(3), "may be outdated")
 
+    def test_either_way_is_offered_as_one_or_the_other(self) -> None:
+        """A second DRA for the month is refused, so the page says it is import or wizard."""
+        body = self._guide(3).content.decode()
+
+        assert "Either import the KEDU file, or fill in manually." in body
+        assert body.index('<div class="section-heading">Import</div>') < body.index(
+            '<div class="section-heading">Fill in manually</div>'
+        )
+
     def test_april_is_not_walked_through(self) -> None:
-        """Its wizard adds the annual health settlement's own step."""
-        assert self._guide(4).status_code == 404
-        self.assertNotContains(self._month_page(4), self._guide_url(4))
+        """Its wizard adds the annual health settlement's own step, so the page states the path."""
+        self._states_the_path_alone(4)
 
     def test_a_wakacje_month_is_not_walked_through(self) -> None:
         """It is filed with two ZUS RCA, outside the wizard's payer-only mode."""
         ContributionHoliday.objects.create(seller=self.seller, month=datetime.date(YEAR, 9, 1))
 
-        assert self._guide(9).status_code == 404
-        self.assertNotContains(self._month_page(9), self._guide_url(9))
+        self._states_the_path_alone(9)
 
     def test_full_contributions_are_not_walked_through(self) -> None:
         self.seller.ulga_na_start = False
         self.seller.preferential_contributions = False
         self.seller.save()
 
-        assert self._guide(3).status_code == 404
-        self.assertNotContains(self._month_page(3), self._guide_url(3))
+        self._states_the_path_alone(3)
 
     def test_a_month_with_no_figures_is_not_walked_through(self) -> None:
         HealthContributionYear.objects.filter(year=YEAR).delete()
 
-        assert self._guide(3).status_code == 404
+        self._states_the_path_alone(3)
+
+    def _states_the_path_alone(self, month: int) -> None:
+        """The guide is there, linked from the month, with the wizard's path and no walkthrough."""
+        response = self._guide(month)
+
+        assert response.status_code == 200
+        self.assertContains(response, "Nowy komplet rozliczeniowy")
+        self.assertNotContains(response, "1. Getting in")
+        self.assertContains(self._month_page(month), self._guide_url(month))
 
     def test_a_month_the_year_does_not_run_to_is_not_found(self) -> None:
         assert self._guide(13).status_code == 404
@@ -2696,6 +2720,136 @@ class DeclarationGuideTests(PageTestCase):
         self.client.force_login(User.objects.create_user(username="stranger"))
 
         assert self._guide(3).status_code == 404
+
+
+class DeclarationFileTests(PageTestCase):
+    """The month's DRA as a KEDU file for ePłatnik's Import KEDU, and where it is offered.
+
+    The taxpayer started this January with both reliefs and carries what blok II names, so
+    every month of the year is over and owes a DRA the file can state, April and a wakacje
+    month aside.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.seller.business_started_on = datetime.date(YEAR, 1, 1)
+        self.seller.ulga_na_start = True
+        self.seller.preferential_contributions = True
+        self.seller.pesel = "85031401237"
+        self.seller.regon = "123456785"
+        self.seller.short_name = "AY Software Services"
+        self.seller.save()
+
+    def _file(self, month: int):  # noqa: ANN202
+        return self.client.get(self._file_url(month))
+
+    def _file_url(self, month: int) -> str:
+        return reverse("declaration_file", kwargs={"pk": self.seller.pk, "year": YEAR, "month": month})
+
+    def test_the_file_is_the_months_dra_dated_today(self) -> None:
+        """Named for the payer and the month, and checked against ZUS's schema on the way out."""
+        response = self._file(8)
+
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/xml"
+        assert f'filename="ZUS_DRA-5213870274-{YEAR}-08.xml"' in response["Content-Disposition"]
+
+        dra.validate(response.content)
+        body = response.content.decode()
+        assert f"<p2>{YEAR}-08</p2>" in body
+        assert "<p1>0570</p1>" in body
+        assert f"<XIII><p1>{today_in_poland().isoformat()}</p1></XIII>" in body
+        assert "<p6>AY SOFTWARE SERVICES</p6>" in body
+
+    def test_full_contributions_have_a_file_too(self) -> None:
+        """The guide does not walk them through, and the file does not need it to."""
+        self.seller.ulga_na_start = False
+        self.seller.preferential_contributions = False
+        self.seller.save()
+
+        response = self._file(3)
+
+        assert response.status_code == 200
+        assert "<p1>0510</p1>" in response.content.decode()
+
+    def test_the_guide_offers_it_and_the_month_page_links_there(self) -> None:
+        """The file, what KEDU is and how it goes in are on the guide; the month's card links to it."""
+        response = self._guide(8)
+
+        self.assertContains(response, self._file_url(8))
+        self.assertContains(response, "Download KEDU")
+        self.assertContains(response, "Elektronicznych Dokumentów Ubezpieczeniowych")
+        self.assertContains(response, "Import KEDU")
+        self.assertContains(response, "ZUS ZIPA")
+        self.assertNotContains(self._month_page(8), self._file_url(8))
+        self.assertContains(self._month_page(8), self._guide_url(8))
+
+    def test_a_month_without_a_walkthrough_offers_it_too(self) -> None:
+        """Full contributions have no walkthrough, and the file needs none."""
+        self.seller.ulga_na_start = False
+        self.seller.preferential_contributions = False
+        self.seller.save()
+
+        response = self._guide(3)
+
+        self.assertContains(response, self._file_url(3))
+        self.assertContains(response, "Import KEDU")
+
+    def test_a_seller_missing_part_of_blok_ii_is_told_what(self) -> None:
+        self.seller.pesel = ""
+        self.seller.save()
+
+        response = self._file(8)
+
+        assert response.status_code == 409
+        assert "needs a PESEL" in response.content.decode()
+        self.assertContains(self._guide(8), "No KEDU file for this month")
+        self.assertNotContains(self._guide(8), self._file_url(8))
+
+    def test_april_settling_the_year_before_has_none(self) -> None:
+        """Its DRA carries the annual health settlement, which the file does not."""
+        self.seller.business_started_on = datetime.date(YEAR - 1, 1, 1)
+        self.seller.save()
+
+        assert self._file(4).status_code == 409
+        self.assertContains(self._guide(4), "annual health contribution settlement, which this file")
+
+    def test_the_first_april_of_a_business_has_one(self) -> None:
+        """Started this year, there is no year before for April's DRA to settle."""
+        assert self._file(4).status_code == 200
+
+    def test_a_wakacje_month_has_none(self) -> None:
+        ContributionHoliday.objects.create(seller=self.seller, month=datetime.date(YEAR, 9, 1))
+
+        response = self._file(9)
+
+        assert response.status_code == 409
+        assert "two ZUS RCA" in response.content.decode()
+
+    def test_a_month_recorded_as_filed_has_none(self) -> None:
+        """What it needs next is a correction, and a second 01 is refused by ZUS."""
+        self._declares(datetime.date(YEAR, 8, 1))
+
+        assert self._file(8).status_code == 409
+        self.assertNotContains(self._guide(8), self._file_url(8))
+
+    def test_a_schema_that_cannot_be_fetched_refuses_the_file(self) -> None:
+        """A file that could not be checked is not one that passed."""
+        self.publisher.unreachable("bip.zus.pl")
+
+        response = self._file(8)
+
+        assert response.status_code == 503
+        assert "KEDU 5.7" in response.content.decode()
+
+    def test_a_month_the_year_does_not_run_to_is_not_found(self) -> None:
+        assert self._file(13).status_code == 404
+
+    def test_another_users_taxpayer_is_not_found(self) -> None:
+        self.client.force_login(User.objects.create_user(username="stranger"))
+
+        assert self._file(8).status_code == 404
 
 
 class RegistrationTests(PageTestCase):

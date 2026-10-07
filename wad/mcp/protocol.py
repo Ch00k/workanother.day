@@ -25,6 +25,7 @@ import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any
 
+from wad import VERSION
 from wad.mcp import tools
 
 if TYPE_CHECKING:
@@ -57,7 +58,7 @@ CACHE_TTL_MS = 60 * 60 * 1000
 CACHE_SCOPE = "private"
 
 SERVER_NAME = "workanother.day"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = VERSION
 
 # What the server tells a model about itself before it has called anything. It says what the
 # tools are about rather than listing them, the list being a request away.

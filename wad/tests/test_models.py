@@ -223,3 +223,62 @@ class SellerContributionTests(TestCase):
     def test_the_start_date_is_named_when_it_is_absent(self) -> None:
         """Every regime is dated from it, so without it no month falls in one."""
         assert self._seller().missing_for_contributions == ["the day the business started"]
+
+
+class SellerDraTests(TestCase):
+    """What a taxpayer has to carry before a month's DRA can be written as a file."""
+
+    def _seller(self, **fields: object) -> Seller:
+        return Seller.objects.create(
+            user=User.objects.create_user(username="op"),
+            name="Andrii Yurchuk Software Services",
+            address="ul. X 1",
+            country="PL",
+            **fields,
+        )
+
+    def _complete(self, **overrides: object) -> Seller:
+        return self._seller(
+            **{
+                "nip": "5213870274",
+                "regon": "123456785",
+                "pesel": "85031401237",
+                "short_name": "AY SOFTWARE SERVICES",
+                "last_name": "Yurchuk",
+                "first_name": "Andrii",
+                "date_of_birth": datetime.date(1985, 3, 14),
+                **overrides,
+            }
+        )
+
+    def test_a_seller_carrying_the_payers_identity_needs_nothing(self) -> None:
+        assert self._complete().missing_for_dra == []
+
+    def test_every_part_of_blok_ii_is_named_when_absent(self) -> None:
+        """In the order blok II states them, each something its owner can go and copy from eZUS."""
+        assert self._seller().missing_for_dra == [
+            "a NIP",
+            "a REGON",
+            "a PESEL",
+            "a nazwa skrócona",
+            "a surname",
+            "a first name",
+            "a date of birth",
+        ]
+
+    def test_a_surname_longer_than_the_dra_takes_is_named(self) -> None:
+        """The column takes 81 characters and the DRA 31, and a surname cut to fit is not the
+        one ZUS holds."""
+        seller = self._complete(last_name="X" * 32)
+
+        assert seller.missing_for_dra == ["a surname of at most 31 characters"]
+
+    def test_a_first_name_longer_than_the_dra_takes_is_named(self) -> None:
+        seller = self._complete(first_name="X" * 23)
+
+        assert seller.missing_for_dra == ["a first name of at most 22 characters"]
+
+    def test_names_at_the_dra_limits_are_taken(self) -> None:
+        seller = self._complete(last_name="X" * 31, first_name="X" * 22)
+
+        assert seller.missing_for_dra == []

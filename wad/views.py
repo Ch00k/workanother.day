@@ -25,7 +25,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from ksef2 import KSeFException
 
-from wad import contributions, ewidencja, glossary, jpk, obligations, parties, throttle
+from wad import contributions, dra, ewidencja, glossary, jpk, obligations, parties, throttle
 from wad.calendar_utils import (
     POLAND_TZ,
     MonthlySummary,
@@ -2665,24 +2665,65 @@ def month_view(request: HttpRequest, pk: str, year: int, month: int) -> HttpResp
 
 @require_GET  # ty: ignore[invalid-argument-type]
 def declaration_guide(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
-    """A month's DRA, walked through ePłatnik's wizard screen by screen with its own figures.
+    """How a month's DRA is filed: as a KEDU file to import, or filled in by hand in the wizard.
 
-    The wizard asks for more than the DRA declares - a filing deadline code, the number of
-    insured, which bases are minimal - and each value follows from the month, so it is stated
-    beside the field it goes in. Only for the months `has_dra_guide` covers; any other month
-    has the card's summary alone.
+    For the months `has_dra_guide` covers, the wizard is walked through screen by screen with the
+    month's own figures: it asks for more than the DRA declares - a filing deadline code, the
+    number of insured, which bases are minimal - and each value follows from the month, so it is
+    stated beside the field it goes in. Any other month states the wizard's path. A month that
+    owes no DRA has no page.
     """
     seller = _owned_seller(request, pk)
 
-    _, due, stale = _scheduled_month(seller, year, month, today_in_poland())
-    if not due.has_dra_guide:
+    today = today_in_poland()
+    _, due, stale = _scheduled_month(seller, year, month, today)
+    if not due.owes_declaration:
         raise Http404
 
     return render(
         request,
         "wad/declaration_guide.html",
-        {"seller": seller, "month": due, "year": year, "holidays_stale": stale},
+        {
+            "seller": seller,
+            "month": due,
+            "year": year,
+            "holidays_stale": stale,
+            "dra_refusal": dra.refusal(due, seller, today=today),
+        },
     )
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def declaration_file(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """A month's DRA as a KEDU file, for ePłatnik's Import KEDU.
+
+    Rendered on each request and kept nowhere: ePłatnik keeps what was filed, and the month
+    records the day it was. Dated today, which blok XIII states as the day it was filled in, and
+    checked against ZUS's schema before it is handed over. The DRA guide offers it only where
+    `dra.refusal` gives no reason, so a refusal here is reached from a page gone stale.
+    """
+    seller = _owned_seller(request, pk)
+
+    today = today_in_poland()
+    _, due, _ = _scheduled_month(seller, year, month, today)
+
+    try:
+        xml = dra.render(due, seller, produced_on=today)
+        dra.validate(xml)
+    except dra.UnfilableError as error:
+        return HttpResponse(str(error), status=409, content_type="text/plain; charset=utf-8")
+    except SchemaValidationError as error:
+        return HttpResponse(str(error), status=500, content_type="text/plain; charset=utf-8")
+    except SchemaUnavailableError as error:
+        return HttpResponse(str(error), status=503, content_type="text/plain; charset=utf-8")
+
+    response = HttpResponse(xml, content_type="application/xml")
+    response["Content-Disposition"] = content_disposition_header(
+        as_attachment=True,
+        filename=dra.filename(seller.nip, due.date),
+    )
+
+    return response
 
 
 def _scheduled_month(
