@@ -27,6 +27,20 @@ way. Labels are given in ZUS's words, because they are what is on the screen.
         {{ month.social.regime.label }}, kod {{ month.social.regime.insurance_code }}
     </div>
 
+    {% include "wad/_holidays_stale.html" %}
+
+    {% comment %}
+    A month already recorded as filed keeps its page, which is what was declared, but a second
+    DRA for it is a correction, filed in another mode under another number.
+    {% endcomment %}
+    {% if month.is_declared %}
+    <div class="notice mt-5">
+        Recorded as filed on {{ month.dra_filed_on|date:"j F Y" }}. What follows is how it was
+        filed. A correction to it is a <strong>Korekta kompletu rozliczeniowego</strong>,
+        numbered 02, which this page does not walk through.
+    </div>
+    {% endif %}
+
     <div class="notice mt-5">
         Filed before the transfer: ZUS divides a payment up according to the last DRA it holds.
         ePłatnik writes an amount with a comma before the grosze and no gaps, so
@@ -127,12 +141,12 @@ way. Labels are given in ZUS's words, because they are what is on the screen.
                         <td class="py-2">{{ month.social.regime.insurance_code }}</td>
                     </tr>
                     {% comment %}
-                    Ticked, it fills the preferential base into the social bases. Ulga na start has
-                    no base for it to fill.
+                    Ticked, it fills the minimal base into the social bases, so it is ticked wherever
+                    the month has a base. Ulga na start has none for it to fill.
                     {% endcomment %}
                     <tr class="border-b border-[#eee]">
                         <td class="py-2 pr-4 text-[#888]">Podstawy minimalne</td>
-                        <td class="py-2">{% if month.social.regime == "ulga" %}not ticked{% else %}ticked{% endif %}</td>
+                        <td class="py-2">{% if month.social.base %}ticked{% else %}not ticked{% endif %}</td>
                     </tr>
                     <tr class="border-b border-[#eee]">
                         <td class="py-2 pr-4 text-[#888]">Informacja o przekroczeniu rocznej podstawy wymiaru</td>

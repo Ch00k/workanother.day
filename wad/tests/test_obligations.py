@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime
 import decimal
+import re
 from unittest import TestCase as PlainTestCase
 
 import pytest
@@ -55,6 +56,10 @@ UPPER_AMOUNT = D("1495.04")
 MINIMUM_WAGE = D("4806.00")
 FORECAST_WAGE = D("9420.00")
 SOCIAL_TOTAL = D("1788.29")
+
+# The DRA guide's Podstawy minimalne row and its answer, which other rows of the page share words
+# with.
+MINIMAL_BASES = r"Podstawy minimalne</td>\s*<td[^>]*>{answer}</td>"
 
 
 class WorkingDayTests(PlainTestCase):
@@ -2612,6 +2617,7 @@ class DeclarationGuideTests(PageTestCase):
         self.assertContains(response, money(LOWER))
         self.assertContains(response, money(LOWER_AMOUNT))
         self.assertNotContains(response, "Podstawy minimalne fills this in")
+        assert re.search(MINIMAL_BASES.format(answer="not ticked"), response.content.decode())
 
     def test_a_preferential_month_declares_the_preferential_base(self) -> None:
         """30 percent of the minimum wage, charging the three insurances chorobowe aside."""
@@ -2621,6 +2627,7 @@ class DeclarationGuideTests(PageTestCase):
         self.assertContains(response, money(D("1441.80")))
         self.assertContains(response, money(D("420.86")))
         self.assertContains(response, "Podstawy minimalne fills this in")
+        assert re.search(MINIMAL_BASES.format(answer="ticked"), response.content.decode())
 
     def test_elected_chorobowe_is_declared_on_the_same_base(self) -> None:
         self.seller.chorobowe = True
@@ -2639,6 +2646,23 @@ class DeclarationGuideTests(PageTestCase):
         self.assertContains(response, "How to file it")
         self.assertNotContains(response, "Nowy komplet rozliczeniowy")
         self.assertContains(response, "I have filed it")
+
+    def test_a_month_recorded_as_filed_says_a_second_dra_is_a_correction(self) -> None:
+        """What the page walks through is the first filing, and a second one is numbered 02."""
+        self._declares(datetime.date(YEAR, 3, 1))
+
+        response = self._guide(3)
+
+        self.assertContains(response, f"Recorded as filed on 5 April {YEAR}")
+        self.assertContains(response, "Korekta kompletu rozliczeniowego")
+        self.assertNotContains(self._guide(5), "Recorded as filed")
+
+    def test_holidays_that_could_not_be_refreshed_are_flagged(self) -> None:
+        """The due date stated may sit on a public holiday it should have moved off."""
+        self.publisher.unreachable("date.nager.at")
+
+        self.assertContains(self._guide(3), "may be outdated")
+        self.assertContains(self._month_page(3), "may be outdated")
 
     def test_april_is_not_walked_through(self) -> None:
         """Its wizard adds the annual health settlement's own step."""

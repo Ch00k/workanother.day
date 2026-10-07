@@ -2674,11 +2674,15 @@ def declaration_guide(request: HttpRequest, pk: str, year: int, month: int) -> H
     """
     seller = _owned_seller(request, pk)
 
-    _, due, _ = _scheduled_month(seller, year, month, today_in_poland())
+    _, due, stale = _scheduled_month(seller, year, month, today_in_poland())
     if not due.has_dra_guide:
         raise Http404
 
-    return render(request, "wad/declaration_guide.html", {"seller": seller, "month": due, "year": year})
+    return render(
+        request,
+        "wad/declaration_guide.html",
+        {"seller": seller, "month": due, "year": year, "holidays_stale": stale},
+    )
 
 
 def _scheduled_month(

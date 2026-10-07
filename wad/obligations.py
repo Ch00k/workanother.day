@@ -325,9 +325,11 @@ class Month:
         """Whether the DRA guide walks this month through ePłatnik's wizard, field by field.
 
         Only the months the wizard was researched for: a DRA for the payer alone, under ulga na
-        start or preferencyjne składki, with every figure it declares worked out here. April
-        adds the annual health settlement's own step, and a wakacje składkowe month is filed
-        with two ZUS RCA rather than for the payer alone; those keep the card's summary only.
+        start or preferencyjne składki, with every figure it declares worked out here. ePłatnik
+        puts a step of its own for the annual health settlement into every April's wizard from
+        2023, whether or not there is a year before to settle, and a wakacje składkowe month is
+        filed with two ZUS RCA rather than for the payer alone; those keep the card's summary
+        only.
         """
         return (
             self.owes_declaration

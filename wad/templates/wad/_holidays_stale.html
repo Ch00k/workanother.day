@@ -1,0 +1,11 @@
+{% comment %}
+Beside a due date worked out without Poland's holidays, the API having been out of reach with
+nothing cached: the date is right unless it lands on a public holiday, which it would have been
+moved off.
+{% endcomment %}
+{% if holidays_stale %}
+<div class="notice mt-5">
+    Holiday data may be outdated. Could not refresh from the holiday API, so a deadline that
+    should have moved off a public holiday may not have.
+</div>
+{% endif %}
