@@ -1,0 +1,366 @@
+{% extends "wad/base.html" %}
+{% load money %}
+{% block title %}DRA {{ month.date|date:"F Y" }} - {{ seller.name }} - Work Another Day{% endblock %}
+
+{% comment %}
+The month's DRA, walked through ePłatnik's Obsługa rozliczenia wizard one screen at a time, every
+field it shows with what goes in it. A value this application works out is the month's own; the
+rest are the same for every payer insuring only themselves.
+
+What the screens and their fields are called is taken from ZUS's February 2026 leaflet for payers
+settling only for themselves and from ePłatnik's own help, and checked against a DRA filed this
+way. Labels are given in ZUS's words, because they are what is on the screen.
+{% endcomment %}
+{% block body %}
+<div class="page mt-6 mb-8">
+    <nav class="crumbs print:hidden">
+        <a href="{% url 'seller_list' %}">Sellers</a> /
+        <a href="{% url 'seller_edit' pk=seller.pk %}">{{ seller.name }}</a> /
+        <a href="{% url 'obligations' pk=seller.pk year=year %}">Taxes {{ year }}</a> /
+        <a href="{% url 'month' pk=seller.pk year=year month=month.month %}">{{ month.date|date:"F" }}</a> /
+        <span aria-current="page">DRA</span>
+    </nav>
+
+    <h1 class="text-[28px] font-bold tracking-tight leading-tight">DRA for {{ month.date|date:"F Y" }}</h1>
+    <div class="text-xs text-[#888] mt-1">
+        {{ seller.name }} &middot; due {{ month.due_on|date:"j F Y" }} &middot;
+        {{ month.social.regime.label }}, kod {{ month.social.regime.insurance_code }}
+    </div>
+
+    <div class="notice mt-5">
+        Filed before the transfer: ZUS divides a payment up according to the last DRA it holds.
+        ePłatnik writes an amount with a comma before the grosze and no gaps, so
+        <span class="money">{{ "1234.50"|money }}</span> here is typed and shown there as 1234,50.
+    </div>
+
+    {% comment %}
+    Two columns, each read down, the wizard's screens running on from the left one into the
+    right one. They split where the two come out closest in height.
+    {% endcomment %}
+    <div class="mt-6 grid gap-6 lg:grid-cols-2 items-start">
+        <div>
+            <div class="card-heading">
+                <h2>1. Getting in</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 text-sm text-[#666] space-y-2">
+                <p>
+                    Log in to <a class="link text-blue-800" href="https://www.zus.pl/ezus/logowanie">eZUS</a>
+                    and open the business account, the one for the payer. ePłatnik is at the bottom of its
+                    left menu, and opens in eZUS's older green look. There: <strong>Kreatory</strong>, then
+                    <strong>Obsługa rozliczenia</strong>.
+                </p>
+                <p>
+                    ePłatnik switches itself on the first time it is opened. A notice about correction
+                    deadlines may come up on the way in; OK closes it.
+                </p>
+            </div>
+
+            <div class="card-heading">
+                <h2>2. Witamy w kreatorze</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 text-sm text-[#666]">
+                The payer's details, read only. Check the NIP is {{ seller.nip }}, then <strong>Dalej</strong>.
+            </div>
+
+            <div class="card-heading">
+                <h2>3. Wybór trybu</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 text-sm text-[#666]">
+                <strong>Nowy komplet rozliczeniowy</strong>. A first filing and a correction are told apart
+                here and by the identyfikator; there is no box for it.
+            </div>
+
+            <div class="card-heading">
+                <h2>4. Ogólne opcje deklaracji</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-2 shadow-sm border border-black/5">
+                {% comment %}
+                This card and the next, one under the other, share one split, so their answers
+                line up down the column.
+                {% endcomment %}
+                <table class="w-full table-fixed border-collapse text-sm">
+                    <colgroup><col class="w-5/8"><col></colgroup>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Identyfikator deklaracji</td>
+                        <td class="py-2">stays 01; Miesiąc {{ month.month }}, Rok {{ month.year }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Przedział numerów deklaracji</td>
+                        <td class="py-2">as it comes</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Płatnik opłaca składki wyłącznie za siebie</td>
+                        <td class="py-2">ticked: the DRA goes alone, with no ZUS RCA</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Termin przekazywania dokumentów rozliczeniowych</td>
+                        <td class="py-2">6, for a DRA filed by the 20th</td>
+                    </tr>
+                    {% comment %}
+                    It comes up empty, and refuses a zero even where the month charges nothing on a
+                    base: the rate is the payer's, held whatever the month owes.
+                    {% endcomment %}
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Stopa procentowa składek na ubezpieczenie wypadkowe</td>
+                        <td class="py-2">{{ month.social.accident_rate|floatformat:"2" }}, which may have to be typed</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Deklaracja przychodu, dochodu i podstawy wymiaru (działalność gospodarcza na mniejszą skalę)</td>
+                        <td class="py-2">not ticked, being for Mały ZUS Plus</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 pr-4 text-[#888]">Automatyzacja wyliczeń</td>
+                        <td class="py-2">ticked, which is why the last screen asks for Wylicz</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="card-heading">
+                <h2>5. Deklaracja dochodu, formy opodatkowania</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-2 shadow-sm border border-black/5">
+                <table class="w-full table-fixed border-collapse text-sm">
+                    <colgroup><col class="w-5/8"><col></colgroup>
+                    <tr><th colspan="2" class="pt-2 pb-1 text-left text-[11px] uppercase tracking-wider text-[#999] font-semibold">Deklaracja dochodu</th></tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Kod tytułu ubezpieczenia</td>
+                        <td class="py-2">{{ month.social.regime.insurance_code }}</td>
+                    </tr>
+                    {% comment %}
+                    Ticked, it fills the preferential base into the social bases. Ulga na start has
+                    no base for it to fill.
+                    {% endcomment %}
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Podstawy minimalne</td>
+                        <td class="py-2">{% if month.social.regime == "ulga" %}not ticked{% else %}ticked{% endif %}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Informacja o przekroczeniu rocznej podstawy wymiaru</td>
+                        <td class="py-2">empty</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Podstawa wymiaru składki na ubezpieczenie emerytalno-rentowe</td>
+                        <td class="py-2 money">{{ month.social.base|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Podstawa wymiaru składki na ubezpieczenie wypadkowe</td>
+                        <td class="py-2 money">{{ month.social.base|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Podstawa wymiaru składki na ubezpieczenie chorobowe</td>
+                        <td class="py-2">
+                            <span class="money">{% if month.social.sickness %}{{ month.social.base|money }}{% else %}0.00{% endif %}</span>
+                            {% if not month.social.sickness and month.social.base %}
+                            <div class="text-xs text-[#999] mt-0.5">chorobowe was not elected: where Podstawy minimalne fills this in, it goes back to 0,00</div>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 pr-4 text-[#888]">Podstawa wymiaru składek na ubezpieczenie zdrowotne</td>
+                        <td class="py-2">left alone; Oblicz below fills it</td>
+                    </tr>
+                    <tr><th colspan="2" class="pt-4 pb-1 text-left text-[11px] uppercase tracking-wider text-[#999] font-semibold">Forma opodatkowania</th></tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Ryczałt od przychodów ewidencjonowanych</td>
+                        <td class="py-2">ticked</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Suma przychodów w bieżącym roku kalendarzowym</td>
+                        <td class="py-2">
+                            <span class="money">{{ month.cumulative|money }}</span>
+                            <div class="text-xs text-[#999] mt-0.5">revenue from 1 January to the end of {{ month.date|date:"F" }}, less social contributions paid</div>
+                        </td>
+                    </tr>
+                    {% comment %}
+                    The option a payer whose business ran through the whole of the year before can
+                    take in January's DRA. Nothing here records it being taken, and the guide's
+                    figures are this year's.
+                    {% endcomment %}
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Deklaracja opłacania składek na podstawie przychodów uzyskanych w poprzednim roku kalendarzowym</td>
+                        <td class="py-2">not ticked, and the amount beside it empty</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 pr-4 text-[#888]">Bez formy opodatkowania</td>
+                        <td class="py-2">not ticked</td>
+                    </tr>
+                </table>
+                <p class="mt-2 mb-2 text-sm text-[#666]">
+                    Then <strong>Oblicz</strong>, which should come to a base of
+                    <span class="money">{{ month.bracket.base|money }}</span> and a contribution of
+                    <span class="money">{{ month.health|money }}</span>, the band at
+                    {{ month.bracket.share }}% of the average wage.
+                </p>
+            </div>
+        </div>
+
+        <div>
+            <div class="card-heading">
+                <h2>6. Zestawienie</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-2 shadow-sm border border-black/5">
+                <table class="w-full border-collapse text-sm [&_td:first-child]:w-full [&_td:last-child]:whitespace-nowrap">
+                    <tr><th colspan="2" class="pt-2 pb-1 text-left text-[11px] uppercase tracking-wider text-[#999] font-semibold">Inne informacje</th></tr>
+                    <tr>
+                        <td class="py-2 pr-4 text-[#888]">Liczba ubezpieczonych</td>
+                        <td class="py-2">1</td>
+                    </tr>
+                    <tr>
+                        <th colspan="2" class="pt-4 pb-1 text-left text-[11px] uppercase tracking-wider text-[#999] font-semibold">
+                            Należne składki
+                            <div class="text-xs font-normal normal-case tracking-normal">Worked out by the wizard, and only after Wylicz on the next screen.</div>
+                        </th>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Emerytalne</td>
+                        <td class="py-2 money">{{ month.social.pension|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Rentowe</td>
+                        <td class="py-2 money">{{ month.social.disability|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Chorobowe</td>
+                        <td class="py-2 money">{{ month.social.sickness|money }}</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 pr-4 text-[#888]">Wypadkowe</td>
+                        <td class="py-2 money">{{ month.social.accident|money }}</td>
+                    </tr>
+                    <tr><th colspan="2" class="pt-4 pb-1 text-left text-[11px] uppercase tracking-wider text-[#999] font-semibold">Należne składki cz. II</th></tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">Ubezpieczenie zdrowotne</td>
+                        <td class="py-2 money">{{ month.health|money }}</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888]">
+                            Fundusz Pracy i Fundusz Solidarnościowy
+                            <div class="text-xs text-[#999] mt-0.5">the one field here that can be typed in</div>
+                        </td>
+                        <td class="py-2 money">{{ month.social.funds|money }}</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 pr-4 text-[#888]">FGŚP, Fundusz Emerytur Pomostowych</td>
+                        <td class="py-2">greyed out</td>
+                    </tr>
+                    <tr><th colspan="2" class="pt-4 pb-1 text-left text-[11px] uppercase tracking-wider text-[#999] font-semibold">Wypłacone świadczenia</th></tr>
+                    <tr>
+                        <td colspan="2" class="py-2 text-[#888]">empty</td>
+                    </tr>
+                </table>
+                <p class="mt-2 mb-2 text-sm text-[#666]">Then <strong>Dalej</strong>.</p>
+            </div>
+
+            <div class="card-heading">
+                <h2>7. Utworzenie i walidacja dokumentów</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 text-sm text-[#666] space-y-3">
+                <p>
+                    The list holds one ZUS DRA, identyfikator 01 {{ month.date|date:"m-Y" }}, status Brak.
+                    <strong>Wylicz</strong> first, then <strong>Podgląd</strong> to see the form and check it
+                    against this:
+                </p>
+                {% comment %}
+                In the order the form prints its blocks, so it can be read down the preview beside it.
+                {% endcomment %}
+                <table class="w-full border-collapse text-sm text-[#222] [&_td:first-child]:w-full [&_td:last-child]:whitespace-nowrap">
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">I.01</td><td class="py-1.5">6</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">I.02</td><td class="py-1.5">01 {{ month.date|date:"m/Y" }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">III.01</td><td class="py-1.5">1</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">III.03</td><td class="py-1.5">{{ month.social.accident_rate|floatformat:"2" }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">IV.37, social contributions</td><td class="py-1.5 money">{{ month.social.insurances|money }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">VI.07, health contribution</td><td class="py-1.5 money">{{ month.health|money }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">VII.03, FP and FS</td><td class="py-1.5 money">{{ month.social.funds|money }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 font-semibold">IX.02, to pay</td><td class="py-1.5 money font-semibold">{{ month.dra_total|money }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">X.01</td><td class="py-1.5">{{ month.social.regime.insurance_code }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">X.02, emerytalne i rentowe base</td><td class="py-1.5 money">{{ month.social.base|money }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">X.03, chorobowe base</td><td class="py-1.5 money">{% if month.social.sickness %}{{ month.social.base|money }}{% else %}0.00{% endif %}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">X.04, wypadkowe base</td><td class="py-1.5 money">{{ month.social.base|money }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">X.05, health base</td><td class="py-1.5 money">{{ month.bracket.base|money }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">XI.12, ryczałt</td><td class="py-1.5">X</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">XI.13, revenue this year</td><td class="py-1.5 money">{{ month.cumulative|money }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">XI.16, health base</td><td class="py-1.5 money">{{ month.bracket.base|money }}</td></tr>
+                    <tr><td class="py-1.5 pr-4 text-[#888]">XI.17, health contribution</td><td class="py-1.5 money">{{ month.health|money }}</td></tr>
+                </table>
+                <p>
+                    Then <strong>Weryfikuj</strong>. <strong>Wyślij i zakończ</strong> only comes on at status
+                    OK. On an error, <strong>Edytuj</strong> opens the form with an Uwagi i błędy tab, and
+                    double-clicking an error goes to its field. <strong>Zakończ</strong> keeps the DRA in
+                    Dokumenty robocze without sending it.
+                </p>
+            </div>
+
+            <div class="card-heading">
+                <h2>8. Wyślij i zakończ</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 text-sm text-[#666]">
+                Signed with <strong>Podpis ePUAP</strong>, which is Profil Zaufany, in a window pz.gov.pl opens,
+                so it has to be let open pop-ups. A login through login.gov.pl is not asked for again. It ends
+                on Dokumenty zostały wysłane.
+            </div>
+
+            <div class="card-heading">
+                <h2>9. Afterwards</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 text-sm text-[#666]">
+                <ol class="list-decimal pl-5 space-y-1">
+                    <li>
+                        The proof is in ePłatnik under <strong>Dokumenty wysłane</strong>: the DRA, then
+                        Podgląd poświadczenia przedłożenia.
+                    </li>
+                    <li>
+                        <a class="link text-blue-800" href="{% url 'month' pk=seller.pk year=year month=month.month %}">{{ month.date|date:"F" }}'s page</a>
+                        records it with <strong>I have filed it</strong>, and states the transfer of
+                        <span class="money">{{ month.dra_total|money }}</span>.
+                    </li>
+                </ol>
+            </div>
+
+            <div class="card-heading">
+                <h2>When Weryfikuj objects</h2>
+            </div>
+            <div class="mt-2 rounded-[14px] bg-white px-5 py-2 shadow-sm border border-black/5">
+                <table class="w-full border-collapse text-sm">
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888] align-top">Payer-only mode refused</td>
+                        <td class="py-2">ZUS holds nobody insured under the payer's PESEL for the month. The ZZA or ZUA is what registers them.</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888] align-top">co najmniej jednej formy opodatkowania</td>
+                        <td class="py-2">No tax form ticked, or a revenue or income field filled that is not the ryczałt one.</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888] align-top">wszystkie i tylko wymagane podstawy</td>
+                        <td class="py-2">A base given for an insurance not held, such as chorobowe that was not elected.</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888] align-top">Brak zgłoszenia z podanym kodem tytułu</td>
+                        <td class="py-2">ZUS holds the payer under another kod. Ubezpieczenia in eZUS shows which; the registration is what has to change.</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888] align-top">Stopa procentowa składki wypadkowej jest niezgodna</td>
+                        <td class="py-2">The rate on Ogólne opcje deklaracji is not the one ZUS holds.</td>
+                    </tr>
+                    <tr class="border-b border-[#eee]">
+                        <td class="py-2 pr-4 text-[#888] align-top">Dokument o podanym lub wyższym identyfikatorze został już przekazany</td>
+                        <td class="py-2">This month's DRA has already gone. A correction to it is numbered 02.</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 pr-4 text-[#888] align-top">Nie prowadziłeś cały poprzedni rok</td>
+                        <td class="py-2">The previous year's revenue option was ticked.</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <p class="mt-6 text-xs text-[#999]">
+        From ZUS's leaflet
+        <a class="link" href="https://www.zus.pl/documents/10182/13876255/3913_25+Broszura_Obs%C5%82uga+rozlicze%C5%84_za+siebie_Kpk_WCAG.pdf/37d175c4-889b-d940-7793-0b3c205f70d7">Obsługa rozliczeń dla przedsiębiorców, którzy rozliczają składki tylko za siebie</a>,
+        its guide <a class="link" href="https://www.zus.pl/documents/10182/167567/poradnik+ZUS+DRA.pdf">Jak wypełnić i skorygować ZUS DRA</a>,
+        and <a class="link" href="https://www.zus.pl/portal/pomoc/">ePłatnik's help</a>; the error
+        messages as <a class="link" href="https://pomoc.ifirma.pl/pomoc-artykul/bledy-zwiazane-z-wysylka-do-zus-deklaracje-rozliczeniowe/">ifirma</a>
+        and <a class="link" href="https://pomoc.wfirma.pl/-komunikaty-o-bledach-w-deklaracji-zus-dra">wFirma</a> report them.
+    </p>
+</div>
+{% endblock %}

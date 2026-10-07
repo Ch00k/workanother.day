@@ -2647,12 +2647,7 @@ def month_view(request: HttpRequest, pk: str, year: int, month: int) -> HttpResp
     seller = _owned_seller(request, pk)
 
     today = today_in_poland()
-    holidays, stale = get_holidays_for_years(POLAND, [year, year + 1])
-    schedule = obligations.schedule(seller, year, {holiday.date for holiday in holidays}, today=today)
-
-    due = next((each for each in schedule.months if each.month == month), None)
-    if due is None:
-        raise Http404
+    schedule, due, stale = _scheduled_month(seller, year, month, today)
 
     return render(
         request,
@@ -2666,6 +2661,39 @@ def month_view(request: HttpRequest, pk: str, year: int, month: int) -> HttpResp
             "today": today,
         },
     )
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def declaration_guide(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
+    """A month's DRA, walked through ePłatnik's wizard screen by screen with its own figures.
+
+    The wizard asks for more than the DRA declares - a filing deadline code, the number of
+    insured, which bases are minimal - and each value follows from the month, so it is stated
+    beside the field it goes in. Only for the months `has_dra_guide` covers; any other month
+    has the card's summary alone.
+    """
+    seller = _owned_seller(request, pk)
+
+    _, due, _ = _scheduled_month(seller, year, month, today_in_poland())
+    if not due.has_dra_guide:
+        raise Http404
+
+    return render(request, "wad/declaration_guide.html", {"seller": seller, "month": due, "year": year})
+
+
+def _scheduled_month(
+    seller: Seller, year: int, month: int, today: datetime.date
+) -> tuple[obligations.Schedule, obligations.Month, bool]:
+    """A month of the taxpayer's year, its schedule, and whether the holidays it was dated
+    against are stale. A month the year does not run to is not found."""
+    holidays, stale = get_holidays_for_years(POLAND, [year, year + 1])
+    schedule = obligations.schedule(seller, year, {holiday.date for holiday in holidays}, today=today)
+
+    due = next((each for each in schedule.months if each.month == month), None)
+    if due is None:
+        raise Http404
+
+    return schedule, due, stale
 
 
 @require_POST  # ty: ignore[invalid-argument-type]

@@ -2498,6 +2498,7 @@ class DeclarationTests(PageTestCase):
         )
 
         self.assertContains(self._month_page(3), "two ZUS RCA")
+        self.assertNotContains(self._month_page(3), "no imienny raport")
         self.assertContains(self._month_page(3), "05 14 00")
         self.assertNotContains(self._month_page(4), "two ZUS RCA")
 
@@ -2575,6 +2576,102 @@ class DeclarationTests(PageTestCase):
         self._declare(3)
 
         self.assertNotContains(self._month_page(3), "DRA overdue")
+
+
+class DeclarationGuideTests(PageTestCase):
+    """The month's DRA walked through ePłatnik's wizard, with the month's own figures.
+
+    Only for a DRA declaring the payer alone under ulga na start or the preferential base, which
+    are the screens the guide was written from. The taxpayer started this January with both
+    reliefs, so January to June are ulga na start and July onwards preferential.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        self.seller.business_started_on = datetime.date(YEAR, 1, 1)
+        self.seller.ulga_na_start = True
+        self.seller.preferential_contributions = True
+        self.seller.save()
+
+    def _guide(self, month: int):  # noqa: ANN202
+        return self.client.get(self._guide_url(month))
+
+    def _guide_url(self, month: int) -> str:
+        return reverse("declaration_guide", kwargs={"pk": self.seller.pk, "year": YEAR, "month": month})
+
+    def test_an_ulga_month_declares_health_alone(self) -> None:
+        self._issued(3)
+
+        response = self._guide(3)
+
+        self.assertContains(response, "05 40 00")
+        self.assertContains(response, f"Miesiąc 3, Rok {YEAR}")
+        self.assertContains(response, f"01 03/{YEAR}")
+        self.assertContains(response, money(D("40000.00")))
+        self.assertContains(response, money(LOWER))
+        self.assertContains(response, money(LOWER_AMOUNT))
+        self.assertNotContains(response, "Podstawy minimalne fills this in")
+
+    def test_a_preferential_month_declares_the_preferential_base(self) -> None:
+        """30 percent of the minimum wage, charging the three insurances chorobowe aside."""
+        response = self._guide(8)
+
+        self.assertContains(response, "05 70 00")
+        self.assertContains(response, money(D("1441.80")))
+        self.assertContains(response, money(D("420.86")))
+        self.assertContains(response, "Podstawy minimalne fills this in")
+
+    def test_elected_chorobowe_is_declared_on_the_same_base(self) -> None:
+        self.seller.chorobowe = True
+        self.seller.save()
+
+        response = self._guide(8)
+
+        self.assertContains(response, money(D("35.32")))
+        self.assertNotContains(response, "Podstawy minimalne fills this in")
+
+    def test_the_month_page_links_to_it_in_place_of_the_path(self) -> None:
+        """The path and the deadline are on the guide, so the card says neither again."""
+        response = self._month_page(3)
+
+        self.assertContains(response, self._guide_url(3))
+        self.assertContains(response, "How to file it")
+        self.assertNotContains(response, "Nowy komplet rozliczeniowy")
+        self.assertContains(response, "I have filed it")
+
+    def test_april_is_not_walked_through(self) -> None:
+        """Its wizard adds the annual health settlement's own step."""
+        assert self._guide(4).status_code == 404
+        self.assertNotContains(self._month_page(4), self._guide_url(4))
+
+    def test_a_wakacje_month_is_not_walked_through(self) -> None:
+        """It is filed with two ZUS RCA, outside the wizard's payer-only mode."""
+        ContributionHoliday.objects.create(seller=self.seller, month=datetime.date(YEAR, 9, 1))
+
+        assert self._guide(9).status_code == 404
+        self.assertNotContains(self._month_page(9), self._guide_url(9))
+
+    def test_full_contributions_are_not_walked_through(self) -> None:
+        self.seller.ulga_na_start = False
+        self.seller.preferential_contributions = False
+        self.seller.save()
+
+        assert self._guide(3).status_code == 404
+        self.assertNotContains(self._month_page(3), self._guide_url(3))
+
+    def test_a_month_with_no_figures_is_not_walked_through(self) -> None:
+        HealthContributionYear.objects.filter(year=YEAR).delete()
+
+        assert self._guide(3).status_code == 404
+
+    def test_a_month_the_year_does_not_run_to_is_not_found(self) -> None:
+        assert self._guide(13).status_code == 404
+
+    def test_another_users_taxpayer_is_not_found(self) -> None:
+        self.client.force_login(User.objects.create_user(username="stranger"))
+
+        assert self._guide(3).status_code == 404
 
 
 class RegistrationTests(PageTestCase):

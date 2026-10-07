@@ -297,13 +297,23 @@
                     <div class="text-xs text-[#888]">recorded {{ month.dra_filed_on|date:"j M Y" }}</div>
                     {% endif %}
                 </div>
+                {% comment %}
+                A month the guide walks through has the path, the deadline and what the DRA goes
+                with on the guide's page, so the card links there and says nothing it says.
+                {% endcomment %}
+                {% if month.has_dra_guide %}
+                <p class="mt-2">
+                    <a class="link text-blue-800" href="{% url 'declaration_guide' pk=seller.pk year=month.year month=month.month %}">How to file it</a>
+                </p>
+                {% else %}
                 <p class="mt-2 text-[#666]">
                     In <a class="link text-blue-800" href="https://www.zus.pl/ezus/logowanie">eZUS</a>:
                     ePłatnik, Kreatory, Obsługa rozliczenia, Nowy komplet rozliczeniowy, then Weryfikuj
                     and Wyślij i zakończ. It declares the składki stated on this page, component by
-                    component, and goes on its own, with no imienny raport. Due
+                    component{% if not month.social.exempt %}, and goes on its own, with no imienny raport{% endif %}. Due
                     {{ month.due_on|date:"j F Y" }}, before the transfer.
                 </p>
+                {% endif %}
                 {% if month.social.exempt %}
                 <p class="mt-2 text-[#666]">
                     This month is wakacje składkowe, so the DRA goes with two ZUS RCA: one on kod
