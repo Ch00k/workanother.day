@@ -1015,7 +1015,10 @@ one by the 20th, ulga na start included, since the exemption a payer insuring on
 had was repealed for 2022; a month before that owes none here. It is filed in eZUS, which offers
 nothing a sole trader can call, so the page states the path through ePłatnik, what it declares,
 and the two ZUS RCA a wakacje month adds, on kod 05 14 or 05 74 as the regime has it, and the
-annual settlement April's carries from 2023. What is kept is the day it was filed: today unless
+annual settlement April's carries from 2023. A month under ulga na start or the preferential base,
+other than April and a wakacje month, links a page walking ePłatnik's Obsługa rozliczenia
+wizard screen by screen in place of the path, stating what goes in every field and the figures
+the preview should show; the other months' wizards add screens that page does not cover. What is kept is the day it was filed: today unless
 another is given, which is how a DRA filed before this existed goes in, and never before the month
 is over, when the press is not offered. A month whose transfers are recorded and whose DRA is not
 stays open: its status says **DRA to file** once the month is over and **DRA overdue** past its

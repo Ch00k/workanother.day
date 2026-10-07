@@ -382,7 +382,12 @@ class Social:
     @property
     def total(self) -> decimal.Decimal:
         """What the social half of the month's DRA comes to."""
-        return self.pension + self.disability + self.accident + self.sickness + self.funds
+        return self.insurances + self.funds
+
+    @property
+    def insurances(self) -> decimal.Decimal:
+        """The four insurance contributions, which a DRA sums in blok IV apart from the funds."""
+        return self.pension + self.disability + self.accident + self.sickness
 
     @property
     def not_charged(self) -> str:
