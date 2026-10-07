@@ -982,32 +982,31 @@ no symbol, ZUS allocating what arrives from the last DRA, arrears first.
 
 **What was paid and what was filed are recorded where they are worked out**, because a figure
 computed and then lost sight of sends you back to a bank statement to find out. A month's
-payments are recorded by **I have paid these** on the month's page, which records every transfer
-the month still owes at that month's own figures, dated the day it was pressed. One press per
-month rather than one per payee: the two fall due on the same day and are made in the same
-sitting, and two presses beside each other would be two chances to do half of it. Nothing is
-typed: the amounts are taken from the schedule rather than from the request, because what a
-return settles is the tax paid for the year's months and a browser is not where that number
-comes from.
+payments are recorded on the month's page by an **I have paid this** under each transfer, which
+records that transfer at the month's own figure on the day entered beside it. One press per
+payee: the ryczałt and the składki go to two accounts and need not go on the same day, and the
+day each went is what decides the year it counts in. The amount is not typed: it is taken from
+the schedule rather than from the request, because what a return settles is the tax paid for
+the year's months and a browser is not where that number comes from.
 
 The two rows it leaves behind are not one record of one act, and their dates do different work.
 A ryczałt payment belongs to the month it covers — December's is paid in January and belongs to
 the year it settles, which is how PIT-28 takes them — while a contribution belongs to the year
-it was paid in, art. 11 deducting on a cash basis, so a December pair recorded in January
+it was paid in, art. 11 deducting on a cash basis, so a December pair paid in January
 belongs to two different years. Unlike a contribution, a tax payment moves nothing above it:
 art. 11 deducts contributions, not tax.
 
-The date is the day of the press because the page is what the transfers are made from: it
-states each amount, each account and the okres the tax one carries, so the press follows the
-transfers by minutes. A transfer of nothing is not stated at all — a month that billed nothing
-owes no ryczałt, and an account beside a zero reads as something to go and do — and a half that
-cannot be worked out is named with the reason, the press recording what there is. Where one of
-the two has already been recorded the month reads as part paid, and pressing again records only
-what is left. Two things fall outside that, and are limits rather than features. A month with no
-figure at all cannot be recorded, and a payment can only ever be the whole of what the month
-owes — so a part payment, an overpayment and a month whose revenue a correction moved to zero
-after the transfer went have no representation. Neither has a typed-amount path, the amounts
-coming from the schedule being what makes the press one click.
+The date defaults to today because the page is what the transfers are made from: it states each
+amount, each account and the okres the tax one carries, so the press usually follows the
+transfer by minutes. A transfer made earlier is entered with the day it went, which can be no
+later than today and no earlier than the first of the month it covers. A transfer of nothing is
+not stated at all — a month that billed nothing owes no ryczałt, and an account beside a zero
+reads as something to go and do — and a half that cannot be worked out is named with the reason
+and offers no press. Where one of the two has been recorded the month reads as part paid. Each
+recorded transfer is taken off again under itself, the other one standing. A payment can only
+ever be the whole of what the transfer owes, so a part payment and an overpayment have no
+representation; neither has a typed-amount path, the amounts coming from the schedule being
+what keeps the press to a date and a click.
 
 **The DRA is recorded on its own press**, **I have filed it** on the month's page, because filing
 it and paying it are two acts and doing one is no evidence of the other. Every insured month owes

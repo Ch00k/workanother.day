@@ -1167,14 +1167,27 @@ class PageTestCase(ScheduleTestCase):
     def _guide_url(self, month: int, year: int = YEAR) -> str:
         return reverse("declaration_guide", kwargs={"pk": self.seller.pk, "year": year, "month": month})
 
-    def _record(self, month: int, year: int = YEAR):  # noqa: ANN202
+    def _record(  # noqa: ANN202
+        self,
+        month: int,
+        kind: obligations.Kind,
+        year: int = YEAR,
+        paid_on: datetime.date | None = None,
+    ):
+        """Record one of the month's transfers as paid, today unless a day is given."""
         return self.client.post(
-            reverse("payments_record", kwargs={"pk": self.seller.pk, "year": year, "month": month}),
+            reverse("payments_record", kwargs={"pk": self.seller.pk, "year": year, "month": month, "kind": kind}),
+            {"paid_on": (paid_on or today_in_poland()).isoformat()},
         )
 
-    def _remove(self, month: int, year: int = YEAR):  # noqa: ANN202
+    def _record_both(self, month: int, year: int = YEAR) -> None:
+        """Record both of the month's transfers as paid today, which settles it."""
+        for kind in obligations.Kind:
+            self._record(month, kind, year)
+
+    def _remove(self, month: int, kind: obligations.Kind, year: int = YEAR):  # noqa: ANN202
         return self.client.post(
-            reverse("payments_remove", kwargs={"pk": self.seller.pk, "year": year, "month": month}),
+            reverse("payments_remove", kwargs={"pk": self.seller.pk, "year": year, "month": month, "kind": kind}),
         )
 
 
@@ -1692,7 +1705,10 @@ class MonthPageTests(PageTestCase):
         went leaves a month reading as settled that nobody paid."""
         self._issued(3)
 
-        self.assertContains(self._month_page(3), 'data-confirm="Record March')
+        response = self._month_page(3)
+
+        self.assertContains(response, 'data-confirm="Record the ryczałt for March')
+        self.assertContains(response, 'data-confirm="Record the składki for March')
 
     def test_a_transfer_of_nothing_is_not_stated(self) -> None:
         """A month that billed nothing owes no ryczałt, and an account and an okres beside a
@@ -1759,13 +1775,13 @@ class MonthStatusTests(PageTestCase):
         assert self._status(3) == "Settled"
 
     def test_a_figure_entered_after_the_press_leaves_the_month_part_paid(self) -> None:
-        """The January sequence. Pressed before anybody entered the year's wages, the press
-        records the ryczałt alone and the month is settled: the contribution states no figure,
-        and an obligation with no figure is not one this application can record. Entering the
-        wages afterwards gives the month a second transfer it has not made."""
+        """The January sequence. Before anybody entered the year's wages the ryczałt is the
+        only transfer with a figure, so recording it settles the month: an obligation with no
+        figure is not one this application can record. Entering the wages afterwards gives the
+        month a second transfer it has not made."""
         SocialContributionYear.objects.all().delete()
         self._issued(3)
-        self._record(3)
+        self._record(3, obligations.Kind.RYCZALT)
 
         assert self._status(3) == "Settled"
 
@@ -1780,11 +1796,11 @@ class MonthStatusTests(PageTestCase):
         assert not ContributionPayment.objects.exists()
 
     def test_revenue_arriving_after_the_press_leaves_the_month_part_paid(self) -> None:
-        """The other way to it. A month that billed nothing owes ZUS and no ryczałt, so the
-        press records the contribution alone; an invoice issued for that month afterwards -
+        """The other way to it. A month that billed nothing owes ZUS and no ryczałt, so
+        recording the contribution settles it; an invoice issued for that month afterwards -
         or a correction moving revenue into it - gives it a ryczałt still to pay."""
         self._issued(3)
-        self._record(5)
+        self._record(5, obligations.Kind.SKLADKI)
 
         assert self._status(5) == "Settled"
 
@@ -1850,47 +1866,64 @@ class UnpublishedYearTests(PageTestCase):
 class PaymentRecordTests(PageTestCase):
     """Recording what a month owed, which is the only way it can be seen to be settled.
 
-    One press per month rather than one per payee: both transfers fall due on the same day and
-    are made in the same sitting. Nothing is typed, so there is nothing to validate - what
-    could once be entered wrongly, a month, a date, an amount, is now the month pressed,
-    today, and what this application worked out.
+    One press per transfer, each with the day it went: the ryczałt and the składki go to two
+    payees and need not go on the same day. The amount is not typed - what is kept is what this
+    application worked out.
     """
 
-    def test_one_press_records_both_transfers(self) -> None:
-        """The ryczałt to the mikrorachunek and the składki to ZUS, each at the month's own
-        figure, and the month comes back settled."""
+    def test_the_ryczalt_is_recorded_at_the_month_s_figure_on_the_day_given(self) -> None:
+        """Only the ryczałt: the składki are a transfer of their own, still to make."""
         self._issued(3)
 
-        response = self._record(3)
+        response = self._record(3, obligations.Kind.RYCZALT, paid_on=datetime.date(YEAR, 4, 15))
 
         tax = TaxPayment.objects.get()
-        contribution = ContributionPayment.objects.get()
         self.assertRedirects(response, self._month_url(3))
-        assert (tax.covers, tax.paid_on, tax.amount) == (datetime.date(YEAR, 3, 1), today_in_poland(), D(4800))
-        assert contribution.covers == datetime.date(YEAR, 3, 1)
-        assert contribution.paid_on == today_in_poland()
-        assert (contribution.social, contribution.health) == (SOCIAL_TOTAL, LOWER_AMOUNT)
-        assert self._month(3).is_settled
+        assert (tax.covers, tax.paid_on, tax.amount) == (datetime.date(YEAR, 3, 1), datetime.date(YEAR, 4, 15), D(4800))
+        assert not ContributionPayment.objects.exists()
+        assert not self._month(3).is_settled
 
-    def test_the_contribution_is_kept_split_for_the_deduction(self) -> None:
+    def test_the_skladki_are_recorded_split_for_the_deduction_on_the_day_given(self) -> None:
         """One transfer, two figures: art. 11 ust. 1 deducts social in full and ust. 1a takes
         half the health contribution, so a single total would deduct the wrong amount."""
         self._issued(3)
 
-        self._record(3)
+        response = self._record(3, obligations.Kind.SKLADKI, paid_on=datetime.date(YEAR, 4, 18))
 
         contribution = ContributionPayment.objects.get()
-        assert contribution.social + contribution.health == self._month(3).dra_total
+        self.assertRedirects(response, self._month_url(3))
+        assert (contribution.covers, contribution.paid_on) == (datetime.date(YEAR, 3, 1), datetime.date(YEAR, 4, 18))
+        assert (contribution.social, contribution.health) == (SOCIAL_TOTAL, LOWER_AMOUNT)
+        assert not TaxPayment.objects.exists()
+
+    def test_both_recorded_settle_the_month_on_the_later_day(self) -> None:
+        """Each keeps the day it went, and the month is settled on the last of them."""
+        self._issued(3)
+
+        self._record(3, obligations.Kind.RYCZALT, paid_on=datetime.date(YEAR, 4, 15))
+        self._record(3, obligations.Kind.SKLADKI, paid_on=datetime.date(YEAR, 4, 18))
+
+        month = self._month(3)
+        assert month.is_settled
+        assert (month.paid_on, month.contributions_paid_on) == (datetime.date(YEAR, 4, 15), datetime.date(YEAR, 4, 18))
+        assert month.settled_on == datetime.date(YEAR, 4, 18)
 
     def test_the_figures_are_the_schedule_s_rather_than_the_request_s(self) -> None:
         """A posted amount is not what a return settles or what a DRA declares, so none is
         read: what is kept is what this application worked out, for both rows."""
         self._issued(3)
 
-        self.client.post(
-            reverse("payments_record", kwargs={"pk": self.seller.pk, "year": YEAR, "month": 3}),
-            {"amount": "1.00", "social": "1.00", "health": "1.00", "covers": f"{YEAR}-07-01"},
-        )
+        for kind in obligations.Kind:
+            self.client.post(
+                reverse("payments_record", kwargs={"pk": self.seller.pk, "year": YEAR, "month": 3, "kind": kind}),
+                {
+                    "paid_on": today_in_poland().isoformat(),
+                    "amount": "1.00",
+                    "social": "1.00",
+                    "health": "1.00",
+                    "covers": f"{YEAR}-07-01",
+                },
+            )
 
         payment = TaxPayment.objects.get()
         assert payment.amount == D(4800)
@@ -1902,7 +1935,7 @@ class PaymentRecordTests(PageTestCase):
         what the month owes, and the payment has to stay what was paid for the two to disagree."""
         march = self._issued(3)
         self._issued(4)
-        self._record(3)
+        self._record(3, obligations.Kind.RYCZALT)
 
         march.delete()
 
@@ -1910,108 +1943,157 @@ class PaymentRecordTests(PageTestCase):
         assert self._month(3).tax == D(0)
 
     def test_december_lands_on_the_year_it_covers(self) -> None:
-        """Pressed in January, and it is the year it settles that the page for it belongs to."""
+        """Paid in January, and it is the year it settles that the page for it belongs to."""
         self._issued(12)
 
-        response = self._record(12)
+        response = self._record(12, obligations.Kind.RYCZALT, paid_on=datetime.date(YEAR + 1, 1, 20))
 
         self.assertRedirects(response, self._month_url(12))
         assert TaxPayment.objects.get().covers == datetime.date(YEAR, 12, 1)
 
-    def test_a_month_that_billed_nothing_records_its_contributions_alone(self) -> None:
+    def test_a_month_that_billed_nothing_has_no_ryczalt_to_record(self) -> None:
         """No revenue is no ryczałt, and a payment of nothing is not a payment - but the
         contributions are owed for the month whether or not it billed."""
         self._issued(3)
 
-        self._record(5)
+        assert self._record(5, obligations.Kind.RYCZALT).status_code == 400
+
+        self._record(5, obligations.Kind.SKLADKI)
 
         assert not TaxPayment.objects.exists()
         assert ContributionPayment.objects.get().covers == datetime.date(YEAR, 5, 1)
         assert self._month(5).is_settled
 
-    def test_a_month_with_nothing_to_pay_at_all_cannot_be_recorded(self) -> None:
-        """Neither figure can be worked out, so there is no transfer for a press to record."""
+    def test_a_year_whose_wages_are_missing_has_no_skladki_to_record(self) -> None:
+        """There is no figure to keep, and the ZUS column carries the dash and the reason."""
         SocialContributionYear.objects.all().delete()
+        self._issued(3)
 
-        response = self._record(3)
+        assert self._record(3, obligations.Kind.SKLADKI).status_code == 400
 
-        assert response.status_code == 400
-        assert not TaxPayment.objects.exists()
+        self._record(3, obligations.Kind.RYCZALT)
+
+        assert TaxPayment.objects.count() == 1
         assert not ContributionPayment.objects.exists()
+        assert self._month(3).is_settled
+
+    def test_a_year_at_more_than_one_rate_has_no_ryczalt_to_record(self) -> None:
+        """Art. 11 ust. 3 wants the deductions apportioned, so no month has a ryczałt figure to
+        keep - which says nothing about what ZUS is owed."""
+        self._issued(3)
+        self.contract.ryczalt_rate = D("8.50")
+        self.contract.save()
+        self._issued(4)
+
+        assert self._record(3, obligations.Kind.RYCZALT).status_code == 400
+
+        self._record(3, obligations.Kind.SKLADKI)
+
+        assert not TaxPayment.objects.exists()
+        assert ContributionPayment.objects.count() == 1
+        assert self._month(3).is_settled
 
     def test_a_month_the_year_does_not_have_cannot_be_recorded(self) -> None:
         self.seller.business_started_on = datetime.date(YEAR, 9, 1)
         self.seller.save()
         self._issued(9)
 
-        response = self._record(3)
+        response = self._record(3, obligations.Kind.RYCZALT)
 
         assert response.status_code == 400
         assert not TaxPayment.objects.exists()
 
-    def test_a_month_already_recorded_is_not_recorded_twice(self) -> None:
-        """Pressed again - a second tab, a double click - it is the same month, already settled."""
+    def test_a_transfer_already_recorded_is_not_recorded_twice(self) -> None:
+        """Pressed again - a second tab, a double click - it is the same transfer, already
+        recorded, and the day first recorded stands."""
         self._issued(3)
-        self._record(3)
+        self._record(3, obligations.Kind.RYCZALT, paid_on=datetime.date(YEAR, 4, 15))
 
-        response = self._record(3)
+        response = self._record(3, obligations.Kind.RYCZALT, paid_on=datetime.date(YEAR, 4, 16))
 
         assert response.status_code == 409
-        assert TaxPayment.objects.count() == 1
-        assert ContributionPayment.objects.count() == 1
+        assert TaxPayment.objects.get().paid_on == datetime.date(YEAR, 4, 15)
 
-    def test_a_month_with_one_of_the_two_recorded_records_the_other(self) -> None:
+    def test_the_other_transfer_can_still_be_recorded(self) -> None:
         """Half a month settled is not a conflict: the manual contribution form having been
         used for a figure that was not the computed one leaves the ryczałt still to pay."""
         self._issued(3)
-        self._paid_ryczalt(datetime.date(YEAR, 3, 1), "4800")
+        self._settles(datetime.date(YEAR, 3, 1))
 
-        response = self._record(3)
+        response = self._record(3, obligations.Kind.RYCZALT)
 
         self.assertRedirects(response, self._month_url(3))
         assert TaxPayment.objects.count() == 1
-        assert ContributionPayment.objects.count() == 1
         assert self._month(3).is_settled
 
-    def test_a_year_at_more_than_one_rate_records_the_contributions_alone(self) -> None:
-        """Art. 11 ust. 3 wants the deductions apportioned, so no month has a ryczałt figure to
-        keep - which says nothing about what ZUS is owed. Everything this application can state
-        a figure for has then been recorded, and the ryczałt column states why it cannot."""
+    def test_a_day_that_has_not_arrived_is_refused(self) -> None:
         self._issued(3)
-        self.contract.ryczalt_rate = D("8.50")
-        self.contract.save()
-        self._issued(4)
 
-        self._record(3)
+        response = self._record(3, obligations.Kind.RYCZALT, paid_on=today_in_poland() + datetime.timedelta(days=1))
 
+        assert response.status_code == 400
         assert not TaxPayment.objects.exists()
-        assert ContributionPayment.objects.count() == 1
-        assert self._month(3).is_settled
 
-    def test_a_year_whose_wages_are_missing_records_the_ryczalt_alone(self) -> None:
-        """The same the other way round: what can be worked out is recorded, and the ZUS
-        column carries the dash and the reason."""
-        SocialContributionYear.objects.all().delete()
+    def test_a_day_before_the_month_began_is_refused(self) -> None:
+        """A transfer for March cannot have gone in February."""
         self._issued(3)
 
-        self._record(3)
+        response = self._record(3, obligations.Kind.SKLADKI, paid_on=datetime.date(YEAR, 2, 28))
 
-        assert TaxPayment.objects.count() == 1
+        assert response.status_code == 400
         assert not ContributionPayment.objects.exists()
-        assert self._month(3).is_settled
 
-    def test_a_month_carries_the_press_until_it_is_recorded(self) -> None:
+    def test_the_first_of_the_month_is_accepted(self) -> None:
         self._issued(3)
 
-        self.assertContains(self._month_page(3), "I have paid these")
+        self._record(3, obligations.Kind.SKLADKI, paid_on=datetime.date(YEAR, 3, 1))
 
-        self._record(3)
+        assert ContributionPayment.objects.get().paid_on == datetime.date(YEAR, 3, 1)
 
-        self.assertNotContains(self._month_page(3), "I have paid these")
+    def test_a_day_that_is_not_a_date_is_refused(self) -> None:
+        self._issued(3)
+
+        response = self.client.post(
+            reverse("payments_record", kwargs={"pk": self.seller.pk, "year": YEAR, "month": 3, "kind": "ryczalt"}),
+            {"paid_on": "the twentieth"},
+        )
+
+        assert response.status_code == 400
+        assert not TaxPayment.objects.exists()
+
+    def test_a_transfer_that_is_neither_kind_is_not_found(self) -> None:
+        self._issued(3)
+
+        assert self._record(3, "vat").status_code == 404  # ty: ignore[invalid-argument-type]
+        assert self._remove(3, "vat").status_code == 404  # ty: ignore[invalid-argument-type]
+
+    def test_each_transfer_carries_its_own_press_until_it_is_recorded(self) -> None:
+        self._issued(3)
+
+        self.assertContains(self._month_page(3), "I have paid this", count=2)
+
+        self._record(3, obligations.Kind.RYCZALT)
+
+        self.assertContains(self._month_page(3), "I have paid this", count=1)
+        self.assertContains(self._month_page(3), '/months/3/payments/skladki/"')
+
+        self._record(3, obligations.Kind.SKLADKI)
+
+        self.assertNotContains(self._month_page(3), "I have paid this")
+
+    def test_a_month_not_yet_begun_offers_no_press(self) -> None:
+        """No transfer for it can have gone yet, so the day it can be recorded from is said."""
+        self._issued(3)
+
+        with today_is(datetime.date(YEAR, 2, 10)):
+            response = self._month_page(3)
+
+        self.assertNotContains(response, "I have paid this")
+        self.assertContains(response, f"It can be recorded as paid from 1 March {YEAR}")
 
     def test_the_month_page_states_both_of_that_month_s_transfers(self) -> None:
         """What to put in each field of each: the amounts, the two accounts, the okres the tax
-        one carries and the deadline they share. One press records both."""
+        one carries and the deadline they share."""
         self._issued(3)
 
         response = self._month_page(3)
@@ -2021,7 +2103,6 @@ class PaymentRecordTests(PageTestCase):
         self.assertContains(response, f"/TI/N{self.seller.nip}/OKR/{YEAR % 100}M03/SFP/PPE")
         self.assertContains(response, "Zakład Ubezpieczeń Społecznych")
         self.assertContains(response, money(SOCIAL_TOTAL + LOWER_AMOUNT))
-        self.assertContains(response, "I have paid these")
 
     def test_the_month_page_breaks_the_contribution_down_by_component(self) -> None:
         """It is one transfer, and the components are what its DRA is checked against."""
@@ -2060,63 +2141,79 @@ class PaymentRecordTests(PageTestCase):
     def test_a_month_already_recorded_shows_as_settled(self) -> None:
         """Nothing left to pay, so nothing to press, and the year's row says so in a word."""
         self._issued(3)
-        self._record(3)
+        self._record_both(3)
 
-        self.assertNotContains(self._month_page(3), "I have paid these")
+        self.assertNotContains(self._month_page(3), "I have paid this")
         self.assertContains(self._page(), "Settled")
 
-    def test_a_month_can_be_taken_off_as_paid(self) -> None:
-        """One marked wrongly misstates what the return settles."""
+    def test_each_transfer_can_be_taken_off_as_paid_on_its_own(self) -> None:
+        """One marked wrongly misstates what the return settles, and the other one stands."""
         self._issued(3)
-        self._record(3)
+        self._record_both(3)
 
-        response = self._remove(3)
+        response = self._remove(3, obligations.Kind.RYCZALT)
 
         self.assertRedirects(response, self._month_url(3))
         assert not TaxPayment.objects.exists()
+        assert ContributionPayment.objects.count() == 1
+
+        self._remove(3, obligations.Kind.SKLADKI)
+
         assert not ContributionPayment.objects.exists()
 
-    def test_taking_a_month_off_clears_every_payment_recorded_for_it(self) -> None:
-        """The row states the month as settled, so what comes off is the month, not one of the
-        transfers that settled it."""
+    def test_taking_the_ryczalt_off_clears_every_ryczalt_payment_recorded_for_the_month(self) -> None:
+        """The page states the transfer as paid, so what comes off is the transfer, however
+        many payments made it up."""
         self._issued(3)
         self._paid_ryczalt(datetime.date(YEAR, 3, 1), "2000")
         self._paid_ryczalt(datetime.date(YEAR, 3, 1), "2800")
 
-        self._remove(3)
+        self._remove(3, obligations.Kind.RYCZALT)
 
         assert not TaxPayment.objects.exists()
 
-    def test_taking_a_month_off_leaves_a_contribution_covering_no_month_alone(self) -> None:
+    def test_taking_the_skladki_off_leaves_a_contribution_covering_no_month_alone(self) -> None:
         """One entered by hand settled no month, so it is not one of the month's to clear -
         and it is still what a year deducts under art. 11."""
         self._issued(3)
-        self._record(3)
+        self._record(3, obligations.Kind.SKLADKI)
         self._paid_zus(datetime.date(YEAR, 3, 20), social="500", health="100")
 
-        self._remove(3)
+        self._remove(3, obligations.Kind.SKLADKI)
 
         assert [payment.covers for payment in ContributionPayment.objects.all()] == [None]
 
     def test_taking_off_a_month_leaves_the_others_alone(self) -> None:
         self._issued(3)
         self._issued(4)
-        self._record(3)
-        self._record(4)
+        self._record(3, obligations.Kind.RYCZALT)
+        self._record(4, obligations.Kind.RYCZALT)
 
-        self._remove(3)
+        self._remove(3, obligations.Kind.RYCZALT)
 
         assert [payment.covers.month for payment in TaxPayment.objects.all()] == [4]
 
     def test_a_month_that_is_not_a_month_cannot_be_taken_off(self) -> None:
-        assert self._remove(13).status_code == 400
+        assert self._remove(13, obligations.Kind.RYCZALT).status_code == 400
 
-    def test_the_press_that_takes_it_off_is_on_the_month(self) -> None:
-        """Rather than in a list of its own: the month is what was settled."""
+    def test_the_press_that_takes_it_off_is_under_the_transfer(self) -> None:
         self._issued(3)
-        self._record(3)
+        self._record(3, obligations.Kind.RYCZALT)
 
-        self.assertContains(self._month_page(3), "/months/3/payments/remove/")
+        response = self._month_page(3)
+
+        self.assertContains(response, "/months/3/payments/ryczalt/remove/")
+        self.assertNotContains(response, "/months/3/payments/skladki/remove/")
+
+    def test_a_transfer_paid_at_a_figure_now_nothing_can_still_be_taken_off(self) -> None:
+        """A correction that took the month's revenue away after the ryczałt went leaves no
+        transfer to state, and the one recorded is still there to be taken off."""
+        march = self._issued(3)
+        self._record(3, obligations.Kind.RYCZALT)
+
+        march.delete()
+
+        self.assertContains(self._month_page(3), "/months/3/payments/ryczalt/remove/")
 
     def test_a_settled_month_states_the_day_it_was_settled(self) -> None:
         """The last of its transfers to be recorded, on the month's own page; the year's table
@@ -2169,8 +2266,8 @@ class PaymentRecordTests(PageTestCase):
         payment = TaxPayment.objects.get()
         self.client.force_login(User.objects.create_user(username="stranger"))
 
-        assert self._record(4).status_code == 404
-        assert self._remove(3).status_code == 404
+        assert self._record(4, obligations.Kind.RYCZALT).status_code == 404
+        assert self._remove(3, obligations.Kind.RYCZALT).status_code == 404
         assert TaxPayment.objects.filter(pk=payment.pk).exists()
         assert TaxPayment.objects.count() == 1
 
@@ -2472,7 +2569,7 @@ class DeclarationTests(PageTestCase):
         """ZUS divides a payment up by the last declaration it holds, so a transfer with no DRA
         behind it leaves the month undone."""
         self._issued(3)
-        self._record(3)
+        self._record_both(3)
 
         assert self._month(3).is_settled
         assert self._month(3).is_open

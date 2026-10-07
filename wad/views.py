@@ -2641,8 +2641,8 @@ def month_view(request: HttpRequest, pk: str, year: int, month: int) -> HttpResp
     """One month of a taxpayer's year: what it owes, how to pay it, and what was paid.
 
     The year's table is a list of these and acts on none of them. Everything a month can be
-    acted on is here: the two transfers stated field by field, the press that records them
-    both, and the wakacje składkowe application, which is made against the month it covers.
+    acted on is here: the two transfers stated field by field, each with the press that records
+    it, and the wakacje składkowe application, which is made against the month it covers.
     """
     seller = _owned_seller(request, pk)
 
@@ -2743,32 +2743,39 @@ def _scheduled_month(
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
-def payments_record(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
-    """Record every transfer a month owes, at the figures worked out for it.
+def payments_record(request: HttpRequest, pk: str, year: int, month: int, kind: str) -> HttpResponse:
+    """Record one of a month's transfers, at the figure worked out for it, on the day it was made.
 
-    A month owes a ryczałt transfer and a składki transfer, both due on the same day and made
-    in the same sitting, so one press records all of them. The amounts come from the schedule
-    rather than from the request: there is nothing for a payer to type that this page has not
-    already computed, and what a return settles is the tax for the year's own months rather
-    than a number a browser supplied.
+    A month owes a ryczałt transfer and a składki transfer to two payees, and each is recorded
+    on its own: the two need not go on the same day, and the day each went is what its own
+    year is decided by. The amount comes from the schedule rather than from the request: there
+    is nothing for a payer to type that this page has not already computed, and what a return
+    settles is the tax for the year's own months rather than a number a browser supplied.
 
     Kept rather than recomputed on every read: a correction that later moves the month's
     revenue moves what the month owes, and the payment has to stay what was paid for the
     disagreement between the two to be visible at all.
 
-    The day is today, and is the day of the transfers because the dialog this is pressed in is
-    where they are made from: it states each amount, each account and the okres, so the press
-    follows the transfers by minutes. A month paid before any of this existed has no way in,
-    which is a limit accepted rather than an oversight.
+    The day is entered, today unless it is being recorded afterwards. Never a day that has not
+    arrived, and never one before the month it covers began.
 
-    A month with nothing to state a figure for is refused, and so is one where everything
-    payable is already recorded. A month with one of the two recorded is neither: the missing
-    one is recorded and the press succeeds. What is already recorded is read and the rows
-    written inside one transaction, which on this database begins by taking the write lock, so
-    a second submission arriving while the first is in flight waits for it and then sees what
-    it wrote - rather than both reading an unpaid month and recording it twice.
+    A transfer with no figure to state is refused, and so is one already recorded. What is
+    already recorded is read and the row written inside one transaction, which on this
+    database begins by taking the write lock, so a second submission arriving while the first
+    is in flight waits for it and then sees what it wrote - rather than both reading an unpaid
+    transfer and recording it twice.
     """
     seller = _owned_seller(request, pk)
+
+    try:
+        paying = obligations.Kind(kind)
+    except ValueError:
+        raise Http404 from None
+
+    try:
+        paid_on = datetime.date.fromisoformat(str(request.POST.get("paid_on", "")).strip())
+    except ValueError:
+        return HttpResponse("That is not a date.", status=400)
 
     with transaction.atomic():
         # Without holidays, which shift the due dates and bear on no figure: what is wanted
@@ -2776,41 +2783,47 @@ def payments_record(request: HttpRequest, pk: str, year: int, month: int) -> Htt
         schedule = obligations.schedule(seller, year, set())
 
         due = next((each for each in schedule.months if each.month == month), None)
-        if due is None or not any(obligation.amount for obligation in due.obligations):
-            return HttpResponse("Nothing is due for that month.", status=400)
+        if due is None:
+            return HttpResponse(f"No {paying.label} is due for that month.", status=400)
 
-        payable = [obligation for obligation in due.obligations if obligation.is_payable]
-        if not payable:
-            return HttpResponse("That month is already recorded as paid.", status=409)
+        obligation = next(each for each in due.obligations if each.kind is paying)
+        if not obligation.amount:
+            return HttpResponse(f"No {paying.label} is due for that month.", status=400)
 
-        _record_payments(seller, due, payable)
+        if obligation.is_settled:
+            return HttpResponse(f"That month's {paying.label} is already recorded as paid.", status=409)
+
+        if not due.date <= paid_on <= today_in_poland():
+            return HttpResponse(
+                "A payment is made on a day from the first of the month it covers to today.", status=400
+            )
+
+        _record_payment(seller, due, obligation, paid_on)
 
     return redirect("month", pk=seller.pk, year=year, month=month)
 
 
-def _record_payments(seller: Seller, due: obligations.Month, payable: list[obligations.Obligation]) -> None:
-    """Create the row each transfer leaves behind, all of them dated today.
+def _record_payment(
+    seller: Seller, due: obligations.Month, obligation: obligations.Obligation, paid_on: datetime.date
+) -> None:
+    """Create the row a transfer leaves behind.
 
-    The two rows are not one record of one act, and their dates do different work: a ryczałt
-    payment belongs to the year of the month it covers, and a contribution to the year it was
-    paid in, art. 11 ust. 1 deducting on a cash basis. A December pair recorded in January
-    therefore belongs to two different years.
+    The two kinds of row date different things: a ryczałt payment belongs to the year of the
+    month it covers, and a contribution to the year it was paid in, art. 11 ust. 1 deducting on
+    a cash basis. A December pair paid in January therefore belongs to two different years.
     """
-    paid_on = today_in_poland()
-
-    for obligation in payable:
-        if obligation.kind is obligations.Kind.RYCZALT:
-            TaxPayment.objects.create(seller=seller, covers=due.date, paid_on=paid_on, amount=obligation.amount)
-        elif due.social is not None and due.health is not None:
-            # Split as the deduction needs it: social in full under art. 11 ust. 1, health at
-            # half under ust. 1a. The transfer itself is one payment of their total.
-            ContributionPayment.objects.create(
-                seller=seller,
-                covers=due.date,
-                paid_on=paid_on,
-                social=due.social.total,
-                health=due.health,
-            )
+    if obligation.kind is obligations.Kind.RYCZALT:
+        TaxPayment.objects.create(seller=seller, covers=due.date, paid_on=paid_on, amount=obligation.amount)
+    elif due.social is not None and due.health is not None:
+        # Split as the deduction needs it: social in full under art. 11 ust. 1, health at
+        # half under ust. 1a. The transfer itself is one payment of their total.
+        ContributionPayment.objects.create(
+            seller=seller,
+            covers=due.date,
+            paid_on=paid_on,
+            social=due.social.total,
+            health=due.health,
+        )
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
@@ -2923,22 +2936,30 @@ def declaration_remove(request: HttpRequest, pk: str, year: int, month: int) -> 
 
 
 @require_POST  # ty: ignore[invalid-argument-type]
-def payments_remove(request: HttpRequest, pk: str, year: int, month: int) -> HttpResponse:
-    """Take a month's recorded payments off again, of both kinds.
+def payments_remove(request: HttpRequest, pk: str, year: int, month: int, kind: str) -> HttpResponse:
+    """Take one of a month's transfers off as paid again.
 
-    Keyed by the month rather than by the payment, because the month is what the page shows as
-    settled: everything recorded against it goes, and the month is back to owing what it owes.
-    A contribution entered by hand against no month is not touched, having settled no month.
+    Keyed by the month and the kind rather than by the payment, because that is what the page
+    shows as paid: everything of that kind recorded against the month goes, and the month is
+    back to owing it. A contribution entered by hand against no month is not touched, having
+    settled no month.
     """
     seller = _owned_seller(request, pk)
+
+    try:
+        paid = obligations.Kind(kind)
+    except ValueError:
+        raise Http404 from None
 
     try:
         covers = datetime.date(year, month, 1)
     except ValueError:
         return HttpResponse("There is no such month.", status=400)
 
-    seller.tax_payments.filter(covers=covers).delete()  # ty: ignore[unresolved-attribute]
-    seller.contribution_payments.filter(covers=covers).delete()  # ty: ignore[unresolved-attribute]
+    if paid is obligations.Kind.RYCZALT:
+        seller.tax_payments.filter(covers=covers).delete()  # ty: ignore[unresolved-attribute]
+    else:
+        seller.contribution_payments.filter(covers=covers).delete()  # ty: ignore[unresolved-attribute]
 
     return redirect("month", pk=seller.pk, year=year, month=month)
 

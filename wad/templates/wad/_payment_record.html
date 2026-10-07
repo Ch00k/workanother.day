@@ -1,0 +1,36 @@
+{% comment %}
+The press recording one of a month's transfers as made, under the transfer it records, and
+once it is recorded the one taking it off again. Each transfer has its own because the two go
+to different payees and need not go on the same day.
+
+Recorded on the day the transfer went, which is today unless it is being entered afterwards,
+and offered only once the month it covers has begun. The amount is not entered: what is kept
+is the figure stated above it.
+
+Asked about first, because what it records is that money left an account: a press made before
+the transfer was actually sent leaves a month reading as paid that nobody has paid.
+{% endcomment %}
+{% if obligation.is_settled %}
+<form method="post" class="mt-3 text-sm"
+      action="{% url 'payments_remove' pk=seller.pk year=month.year month=month.month kind=obligation.kind %}"
+      data-confirm="Take the {{ obligation.kind.label }} for {{ month.date|date:'F Y' }} off as paid?">
+    {% csrf_token %}
+    <button type="submit" class="link text-blue-800">take it off as paid</button>
+</form>
+{% elif today >= month.date %}
+<form method="post" action="{% url 'payments_record' pk=seller.pk year=month.year month=month.month kind=obligation.kind %}"
+      class="mt-3 flex items-end gap-3 flex-wrap"
+      data-confirm="Record the {{ obligation.kind.label }} for {{ month.date|date:'F Y' }} as paid? It goes in at the figure stated here.">
+    {% csrf_token %}
+    <div>
+        <label for="{{ obligation.kind }}_paid_on" class="block text-sm font-medium text-[#666] mb-1">Paid on</label>
+        <input type="date" id="{{ obligation.kind }}_paid_on" name="paid_on" required
+               min="{{ month.date|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"
+               value="{{ today|date:'Y-m-d' }}"
+               class="field">
+    </div>
+    <button type="submit" class="btn btn-primary">I have paid this</button>
+</form>
+{% else %}
+<p class="mt-3 text-sm text-[#888]">It can be recorded as paid from {{ month.date|date:"j F Y" }}, once the month has begun.</p>
+{% endif %}

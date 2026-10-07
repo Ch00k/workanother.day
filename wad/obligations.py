@@ -171,9 +171,9 @@ class Kind(enum.StrEnum):
 class Obligation:
     """One transfer a month owes: what it comes to, and whether it has been recorded as made.
 
-    Two of them, falling due on the same day and made in the same sitting. They are a sequence
+    Two of them, falling due on the same day and going to two payees. They are a sequence
     rather than two pairs of fields because everything downstream treats them alike: one column
-    lists them, one dialog states each one's transfer in full, one press records all of them.
+    lists them, one page states each one's transfer in full and records each one as paid.
     """
 
     kind: Kind
