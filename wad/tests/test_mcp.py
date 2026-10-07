@@ -510,6 +510,12 @@ class OwnershipTests(CallerMixin, TaxpayerTestCase):
 
         assert [seller["name"] for seller in found["sellers"]] == [self.seller.name]
 
+    def test_a_seller_states_what_its_dra_file_still_needs(self) -> None:
+        """Named like what a register and a contribution need, so a model can say what to fill in."""
+        found = self.found("list_sellers")
+
+        assert found["sellers"][0]["missing_for_dra"] == ["a REGON", "a PESEL", "a nazwa skrócona"]
+
 
 class CalendarToolTests(CallerMixin, TaxpayerTestCase):
     def setUp(self) -> None:

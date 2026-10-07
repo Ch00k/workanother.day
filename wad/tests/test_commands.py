@@ -11,7 +11,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, TransactionTestCase, override_settings
 
-from wad import contributions, nrb
+from wad import contributions, dra, nrb, obligations
 from wad.calendar_utils import today_in_poland
 from wad.management.commands.seed_dev import (
     ACCESS_TOKEN,
@@ -98,6 +98,7 @@ class SeedDevTests(TestCase):
         seller = Seller.objects.get(name=SELLER_NAME)
 
         assert not seller.missing_for_jpk
+        assert not seller.missing_for_dra
         assert ContributionPayment.objects.count() >= 12
         assert TimeOff.objects.exists()
         assert Delivery.objects.filter(error="").exists()
@@ -105,12 +106,12 @@ class SeedDevTests(TestCase):
 
     def test_seeds_a_taxpayer_partway_through_the_reliefs(self) -> None:
         """The first seller is on full contributions all year, which exercises none of the
-        sequence. This one starts this month with both reliefs elected, so its year runs
+        sequence. This one started last month with both reliefs elected, so its year runs
         through ulga na start and its taxes page states a regime that changes."""
         self._seed()
 
         seller = Seller.objects.get(name=RELIEF_SELLER_NAME)
-        started = today_in_poland().replace(day=1)
+        started = (today_in_poland().replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
 
         assert seller.business_started_on == started
         assert seller.ulga_na_start
@@ -118,6 +119,21 @@ class SeedDevTests(TestCase):
         assert seller.chorobowe
         assert seller.accident_rate == DEFAULT_ACCIDENT_RATE
         assert contributions.regime_on(seller, started) is contributions.Regime.ULGA
+        assert not seller.missing_for_dra
+
+    def test_the_relief_seller_has_a_month_whose_dra_is_a_file(self) -> None:
+        """Its first month is over and nothing records its DRA as filed, so the month's page
+        offers it for ePłatnik whatever day the seed is run on."""
+        self._seed()
+
+        seller = Seller.objects.get(name=RELIEF_SELLER_NAME)
+        today = today_in_poland()
+        first = seller.business_started_on
+        months = obligations.schedule(seller, first.year, frozenset(), today=today).months
+        declared = next(month for month in months if month.month == first.month)
+
+        assert dra.refusal(declared, seller, today=today) == ""
+        dra.validate(dra.render(declared, seller, produced_on=today))
 
     def test_the_seeded_zus_account_is_one_the_form_would_accept(self) -> None:
         """It carries ZUS's constant and the payer's own NIP, so the transfer card states it
@@ -138,7 +154,7 @@ class SeedDevTests(TestCase):
 
         assert contract.seller is not None
         assert contract.seller.name == RELIEF_SELLER_NAME
-        assert contract.start_date == today_in_poland().replace(day=1)
+        assert contract.start_date == contract.seller.business_started_on
         assert not Invoice.objects.filter(contract=contract).exists()
 
     def test_seeding_again_leaves_the_history_as_it_was(self) -> None:

@@ -208,7 +208,7 @@ select.field {
    alongside the year, and what settles it once the year is over. A card heading names one card,
    so this is the larger of the two, and the rule carries the eye across the group it opens. */
 .section-heading {
-  @apply mt-8 mb-1 flex items-center gap-3 text-[13px] font-semibold text-[#666];
+  @apply mt-8 mb-1 flex items-center gap-3 text-base font-semibold text-[#666];
 }
 .section-heading::after {
   @apply flex-1 border-t border-black/10;

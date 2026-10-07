@@ -1013,12 +1013,28 @@ coming from the schedule being what makes the press one click.
 it and paying it are two acts and doing one is no evidence of the other. Every insured month owes
 one by the 20th, ulga na start included, since the exemption a payer insuring only themselves once
 had was repealed for 2022; a month before that owes none here. It is filed in eZUS, which offers
-nothing a sole trader can call, so the page states the path through ePłatnik, what it declares,
-and the two ZUS RCA a wakacje month adds, on kod 05 14 or 05 74 as the regime has it, and the
-annual settlement April's carries from 2023. A month under ulga na start or the preferential base,
-other than April and a wakacje month, links a page walking ePłatnik's Obsługa rozliczenia
-wizard screen by screen in place of the path, stating what goes in every field and the figures
-the preview should show; the other months' wizards add screens that page does not cover. What is kept is the day it was filed: today unless
+nothing a sole trader can call, so the card links **How to file it**, a page of the month's own
+saying how: either import the KEDU file, or fill it in manually, ZUS refusing a second DRA for
+the month. It states the two ZUS RCA a wakacje month adds, on kod 05 14 or 05 74 as the regime
+has it, and the annual settlement April's carries from 2023. For a month under ulga na start or
+the preferential base, other than April and a wakacje month, filling it in manually walks
+ePłatnik's Obsługa rozliczenia wizard screen by screen, stating what goes in every field and the
+figures the preview should show; the other months' wizards add screens that walkthrough does not
+cover, so their page states the path through ePłatnik and what it declares.
+
+**The DRA can be downloaded as a file instead of typed in.** Once the month is over and until
+the DRA is recorded as filed, **How to file it** offers it as a KEDU file, ZUS's XML for its
+forms, which ePłatnik loads under Dokumenty, Dokumenty ubezpieczeniowe, Import KEDU; it is then
+checked with Weryfikuj and signed with Profil Zaufany as a typed one is. It is the same field
+set ePłatnik's own export of a filed DRA carries, dated the day it is downloaded, and it is
+checked against ZUS's published KEDU 5.7 schema before it is handed over. It needs the payer as
+ZUS registered them: PESEL, REGON and nazwa skrócona on the seller beside the name and date of
+birth, written in capitals as ZUS holds them. Where the file names the payer differently from
+ZUS's register, ePłatnik lists a ZUS ZIPA beside the DRA, a change to that register, and the
+page says to leave it unsent. An April settling the year before, whose DRA carries the
+annual settlement, and a wakacje month, whose DRA goes with two ZUS RCA, have no file and say
+so; a business's first April settles nothing and has one. Nothing is kept of the file:
+ePłatnik keeps what was filed. What is kept is the day it was filed: today unless
 another is given, which is how a DRA filed before this existed goes in, and never before the month
 is over, when the press is not offered. A month whose transfers are recorded and whose DRA is not
 stays open: its status says **DRA to file** once the month is over and **DRA overdue** past its
@@ -1149,6 +1165,10 @@ was never there.
   for taxpayers filing JPK_V7M and the 2027 year for everyone else, which turns on a VAT
   registration this application does not know about. The deadline is listed for every year
   with that stated beside it, rather than being guessed at either way.
+- **The DRA is not sent from here.** ZUS's web service for documents takes a qualified
+  electronic signature or the personal signature of a Polish e-dowód, and Profil Zaufany signs
+  only inside eZUS. So the file is downloaded and imported by hand, and signed there. That is a
+  limit of who can sign, not a part left unbuilt.
 - **Exchange differences on own funds are not computed.** Art. 24c ust. 2 pkt 3 raises a further
   difference whenever currency leaves the account, and computing it needs bank data and lot
   matching across inflows and outflows. That is bookkeeping rather than invoicing, so it is out

@@ -291,7 +291,29 @@
             {% if month.owes_declaration %}
             <div class="card-heading">
                 <h2>File the DRA</h2>
+                {% explainer "dra-help" %}
+                <p>
+                    The month's declaration of the contributions stated on this page, due
+                    {{ month.due_on|date:"j F Y" }}. File it before the transfer: ZUS divides a
+                    payment up according to the last DRA it holds.
+                </p>
+                <p>
+                    It is filed in ePłatnik, and <strong>How to file it</strong> says how: by importing
+                    a file downloaded there, or by filling it in by hand.
+                </p>
+                <p>
+                    Nothing is sent from here. <strong>I have filed it</strong> records the day it went,
+                    which is what keeps the month open until it has; <strong>take it off as filed</strong>
+                    undoes a day recorded by mistake.
+                </p>
+                {% endexplainer %}
             </div>
+            {% comment %}
+            The DRA's state and the press recording it, and a link to the page saying how it is
+            filed: that, the file and the wizard's path are all there.
+
+            Offered once the month is over, when a DRA for it can be filed.
+            {% endcomment %}
             <div class="mt-2 rounded-[14px] bg-white px-5 py-4 shadow-sm border border-black/5 text-sm">
                 <div class="flex items-baseline justify-between gap-3">
                     <div class="font-semibold text-[#222]">Zakład Ubezpieczeń Społecznych &mdash; ZUS DRA</div>
@@ -299,65 +321,32 @@
                     <div class="text-xs text-[#888]">recorded {{ month.dra_filed_on|date:"j M Y" }}</div>
                     {% endif %}
                 </div>
-                {% comment %}
-                A month the guide walks through has the path, the deadline and what the DRA goes
-                with on the guide's page, so the card links there and says nothing it says.
-                {% endcomment %}
-                {% if month.has_dra_guide %}
                 <p class="mt-2">
                     <a class="link text-blue-800" href="{% url 'declaration_guide' pk=seller.pk year=month.year month=month.month %}">How to file it</a>
                 </p>
+                {% if month.is_declared %}
+                <form method="post" class="mt-3"
+                      action="{% url 'declaration_remove' pk=seller.pk year=month.year month=month.month %}">
+                    {% csrf_token %}
+                    <button type="submit" class="link text-blue-800">take it off as filed</button>
+                </form>
+                {% elif today >= month.declarable_from %}
+                <form method="post" action="{% url 'declaration_record' pk=seller.pk year=month.year month=month.month %}"
+                      class="mt-3 flex items-end gap-3 flex-wrap"
+                      data-confirm="Record the DRA for {{ month.date|date:'F Y' }} as filed?">
+                    {% csrf_token %}
+                    <div>
+                        <label for="dra_filed_on" class="block text-sm font-medium text-[#666] mb-1">Filed on</label>
+                        <input type="date" id="dra_filed_on" name="filed_on" required
+                               min="{{ month.declarable_from|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"
+                               value="{{ today|date:'Y-m-d' }}"
+                               class="field">
+                    </div>
+                    <button type="submit" class="btn btn-primary">I have filed it</button>
+                </form>
                 {% else %}
-                <p class="mt-2 text-[#666]">
-                    In <a class="link text-blue-800" href="https://www.zus.pl/ezus/logowanie">eZUS</a>:
-                    ePłatnik, Kreatory, Obsługa rozliczenia, Nowy komplet rozliczeniowy, then Weryfikuj
-                    and Wyślij i zakończ. It declares the składki stated on this page, component by
-                    component{% if not month.social.exempt %}, and goes on its own, with no imienny raport{% endif %}. Due
-                    {{ month.due_on|date:"j F Y" }}, before the transfer.
-                </p>
+                <p class="mt-2 text-[#888]">It can be filed from {{ month.declarable_from|date:"j F Y" }}, once the month is over.</p>
                 {% endif %}
-                {% if month.social.exempt %}
-                <p class="mt-2 text-[#666]">
-                    This month is wakacje składkowe, so the DRA goes with two ZUS RCA: one on kod
-                    {{ month.social.regime.holiday_code }} for the contributions the state pays, and
-                    one on the usual kod, {{ month.social.regime.insurance_code }}, for the health
-                    contribution.
-                </p>
-                {% endif %}
-                {% comment %}
-                The annual settlement began with 2022's contributions, settled in April 2023.
-                {% endcomment %}
-                {% if month.month == 4 and month.year >= 2023 and seller.business_started_on.year < month.year %}
-                <p class="mt-2 text-[#666]">
-                    The DRA for April also carries the annual health contribution settlement for
-                    {{ month.year|add:"-1" }}, in blok XII.
-                </p>
-                {% endif %}
-                <div class="mt-3">
-                    {% if month.is_declared %}
-                    <form method="post" class="inline"
-                          action="{% url 'declaration_remove' pk=seller.pk year=month.year month=month.month %}">
-                        {% csrf_token %}
-                        <button type="submit" class="link text-blue-800">take it off as filed</button>
-                    </form>
-                    {% elif today >= month.declarable_from %}
-                    <form method="post" action="{% url 'declaration_record' pk=seller.pk year=month.year month=month.month %}"
-                          class="flex items-end gap-3 flex-wrap"
-                          data-confirm="Record the DRA for {{ month.date|date:'F Y' }} as filed?">
-                        {% csrf_token %}
-                        <div>
-                            <label for="dra_filed_on" class="block text-sm font-medium text-[#666] mb-1">Filed on</label>
-                            <input type="date" id="dra_filed_on" name="filed_on" required
-                                   min="{{ month.declarable_from|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"
-                                   value="{{ today|date:'Y-m-d' }}"
-                                   class="field">
-                        </div>
-                        <button type="submit" class="btn btn-primary">I have filed it</button>
-                    </form>
-                    {% else %}
-                    <p class="text-[#888]">It can be filed from {{ month.declarable_from|date:"j F Y" }}, once the month is over.</p>
-                    {% endif %}
-                </div>
             </div>
             {% endif %}
 

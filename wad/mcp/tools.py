@@ -369,6 +369,7 @@ def _seller(seller: Seller) -> dict:
         "mikrorachunek": seller.mikrorachunek,
         "can_reach_ksef": seller.can_reach_ksef,
         "missing_for_jpk": seller.missing_for_jpk,
+        "missing_for_dra": seller.missing_for_dra,
         "missing_for_contributions": seller.missing_for_contributions,
     }
 
@@ -998,8 +999,8 @@ CATALOGUE: tuple[Tool, ...] = (
         description=(
             "Every taxpayer the account issues invoices as, with the reliefs elected, the "
             "contribution regime each month falls under, where contributions and ryczalt are "
-            "paid, and what each seller still needs before a register or a contribution can "
-            "be worked out. The ids it returns are what the tax tools take."
+            "paid, and what each seller still needs before a register, a DRA file or a "
+            "contribution can be worked out. The ids it returns are what the tax tools take."
         ),
         schema=_schema(),
         answer=list_sellers,

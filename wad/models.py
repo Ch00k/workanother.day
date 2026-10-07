@@ -38,6 +38,12 @@ GROSZ: Final = decimal.Decimal("0.01")
 # figure, and this is where one nobody has told otherwise starts.
 DEFAULT_ACCIDENT_RATE: Final = decimal.Decimal("1.67")
 
+# The longest surname, first name and nazwa skrócona a DRA's blok II takes, ZUS's KEDU schema
+# limiting the names more tightly than a JPK_EWP does.
+DRA_SURNAME_LENGTH: Final = 31
+DRA_FIRST_NAME_LENGTH: Final = 22
+DRA_SHORT_NAME_LENGTH: Final = 31
+
 
 def generate_token() -> str:
     return "".join(secrets.choice(TOKEN_ALPHABET) for _ in range(TOKEN_LENGTH))
@@ -188,6 +194,15 @@ class Seller(models.Model):
     date_of_birth = models.DateField(null=True, blank=True)
     kod_urzedu = models.CharField(max_length=4, blank=True, default="")
 
+    # Who the payer is to ZUS, which a DRA states beside the name and date of birth above. A
+    # DRA whose blok II differs from what ZUS registered is imported into ePłatnik with a ZUS
+    # ZIPA beside it, a change to that registration, so each is copied from eZUS rather than
+    # derived: the nazwa skrócona ZUS holds need not be the trading name above. Kept as typed;
+    # ZUS holds names in capitals, and the DRA is where they are written that way.
+    pesel = models.CharField(max_length=11, blank=True, default="")
+    regon = models.CharField(max_length=14, blank=True, default="")
+    short_name = models.CharField(max_length=31, blank=True, default="")
+
     # The day the business started, which is the day it started owing contributions. A month
     # is insured because the activity was carried on in it, not because it billed anything: a
     # taxpayer who started in January and raised a first invoice in March still owes January
@@ -254,6 +269,35 @@ class Seller(models.Model):
         ]
 
         return [description for value, description in required if not value]
+
+    @property
+    def missing_for_dra(self) -> list[str]:
+        """What this seller still needs before a month's DRA can be written as a file.
+
+        Named the way `missing_for_jpk` names what a register needs. A name longer than the DRA
+        takes is named too: the form's columns are wider than its fields, and a name cut to fit
+        is a name ZUS does not hold. Measured in the capitals the DRA writes it in, which can be
+        longer than the name as typed: "ß" is "SS".
+        """
+        required = [
+            (self.nip, "a NIP"),
+            (self.regon, "a REGON"),
+            (self.pesel, "a PESEL"),
+            (self.short_name, "a nazwa skrócona"),
+            (self.last_name, "a surname"),
+            (self.first_name, "a first name"),
+            (self.date_of_birth, "a date of birth"),
+        ]
+        missing = [description for value, description in required if not value]
+
+        if len(self.short_name.upper()) > DRA_SHORT_NAME_LENGTH:
+            missing.append(f"a nazwa skrócona of at most {DRA_SHORT_NAME_LENGTH} characters")
+        if len(self.last_name.upper()) > DRA_SURNAME_LENGTH:
+            missing.append(f"a surname of at most {DRA_SURNAME_LENGTH} characters")
+        if len(self.first_name.upper()) > DRA_FIRST_NAME_LENGTH:
+            missing.append(f"a first name of at most {DRA_FIRST_NAME_LENGTH} characters")
+
+        return missing
 
     @property
     def missing_for_contributions(self) -> list[str]:

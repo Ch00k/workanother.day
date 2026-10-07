@@ -5,18 +5,21 @@ import datetime
 import json
 import pathlib
 import socket
+import urllib.parse
 from typing import TYPE_CHECKING
 from unittest import mock
 
 import httpx
 
+from wad import dra
 from wad.tests import gateway
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 # Every schema document the Ministry of Finance publishes that this application checks
-# against: the four FA(3) is made of, JPK_EWP(4), and the tax office codes it imports. Saved
+# against: the four FA(3) is made of, JPK_EWP(4), and the tax office codes it imports. Then
+# ZUS's KEDU 5.7, which a DRA file is checked against, and the W3C's xmldsig it imports. Saved
 # under the names they are served under, so most can be handed back by path.
 SCHEMAS = pathlib.Path(__file__).parent / "schemas"
 
@@ -27,7 +30,14 @@ NBP_API = "api.nbp.pl"
 # JPK_EWP is published on gov.pl rather than crd.gov.pl, and under an opaque attachment id
 # rather than a filename, so the one document served from there is named here.
 GOV = "www.gov.pl"
-NAMED_SCHEMAS = {"/attachment/67b55c59-e05c-42f0-be4c-28afcca460b6": "Schemat_JPK_EWP(4)_v1-0.xsd"}
+# KEDU is published on ZUS's BIP under a document id as well, and imports xmldsig from the W3C.
+ZUS_BIP = "bip.zus.pl"
+W3C = "www.w3.org"
+
+NAMED_SCHEMAS = {
+    "/attachment/67b55c59-e05c-42f0-be4c-28afcca460b6": "Schemat_JPK_EWP(4)_v1-0.xsd",
+    urllib.parse.unquote(urllib.parse.urlsplit(dra.SCHEMA_URL).path): "kedu_5_7.xsd",
+}
 
 # A routable address, so the guard on external calendar URLs sees what it sees in
 # production: a host that is somewhere else rather than somewhere inside. Tests about the
@@ -112,7 +122,7 @@ class Publisher:
             message = f"No route to {request.url.host}."
             raise httpx.ConnectError(message)
 
-        if request.url.host in (PUBLISHER, GOV):
+        if request.url.host in (PUBLISHER, GOV, ZUS_BIP, W3C):
             return self._schema(request)
 
         if request.url.host == HOLIDAY_API:

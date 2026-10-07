@@ -10,7 +10,7 @@ from django.core.validators import validate_email
 
 from wad import nrb
 from wad.countries import COUNTRIES
-from wad.models import DEFAULT_ACCIDENT_RATE, POLAND
+from wad.models import DEFAULT_ACCIDENT_RATE, DRA_SHORT_NAME_LENGTH, POLAND
 
 if TYPE_CHECKING:
     from django.http import QueryDict
@@ -22,6 +22,16 @@ NIP_PATTERN = re.compile(r"[1-9]((\d[1-9])|([1-9]\d))\d{7}")
 # so a code of the right shape but no such office is caught when the file is checked rather
 # than here.
 KOD_URZEDU_PATTERN = re.compile(r"\d{4}")
+
+# PESEL's ten weights, the eleventh digit making the weighted sum a multiple of ten.
+PESEL_WEIGHTS = (1, 3, 7, 9, 1, 3, 7, 9, 1, 3)
+
+# REGON's weights for its nine-digit form and for the fourteen-digit form of a local unit,
+# whose first nine digits are the nine-digit REGON of the entity. In both the check digit is
+# the weighted sum modulo 11, with 10 written as 0.
+REGON_9_WEIGHTS = (8, 9, 2, 3, 4, 5, 6, 7)
+REGON_14_WEIGHTS = (2, 4, 8, 5, 0, 9, 7, 3, 6, 1, 2, 4, 8)
+
 
 VALID_COUNTRIES = frozenset(code for code, _ in COUNTRIES)
 
@@ -82,6 +92,21 @@ def validate(post_data: QueryDict, *, is_seller: bool) -> list[str]:
         if born and _date(born) is None:
             errors.append("Date of birth is not a date.")
 
+        # The same for who the payer is to ZUS, which only a DRA asks for. Both numbers carry a
+        # check digit, so a typo is caught here rather than by ePłatnik, which reads a number
+        # it does not hold as a change to the payer's registration.
+        pesel = str(post_data.get("pesel", "")).strip()
+        if pesel and not valid_pesel(pesel):
+            errors.append("That is not a PESEL: it is 11 digits, the last a check digit.")
+
+        regon = str(post_data.get("regon", "")).strip()
+        if regon and not valid_regon(regon):
+            errors.append("That is not a REGON: it is 9 or 14 digits, the last a check digit.")
+
+        short_name = _spaced(post_data.get("short_name"))
+        if len(short_name) > DRA_SHORT_NAME_LENGTH:
+            errors.append(f"A nazwa skrócona is at most {DRA_SHORT_NAME_LENGTH} characters.")
+
         # Required, unlike the identity fields above, because what it decides is arithmetic
         # rather than a field on a document. Absent, the insured months of a year can only be
         # guessed at from the revenue, and a guess that comes out low understates the health
@@ -102,6 +127,42 @@ def validate(post_data: QueryDict, *, is_seller: bool) -> list[str]:
                 errors.append("The accident contribution rate is a percentage, as ZUS stated it - 1.67, say.")
 
     return errors
+
+
+def valid_pesel(value: str) -> bool:
+    """Whether value is eleven digits whose last is PESEL's check digit for the ten before it."""
+    if not re.fullmatch(r"\d{11}", value):
+        return False
+
+    weighted = sum(int(digit) * weight for digit, weight in zip(value, PESEL_WEIGHTS, strict=False))
+
+    return (10 - weighted % 10) % 10 == int(value[-1])
+
+
+def valid_regon(value: str) -> bool:
+    """Whether value is a nine- or fourteen-digit REGON whose check digits hold.
+
+    A fourteen-digit one names a local unit of the entity whose nine-digit REGON it opens with,
+    so that opening has to hold as well.
+    """
+    if re.fullmatch(r"\d{9}", value):
+        return _regon_check(value, REGON_9_WEIGHTS)
+
+    if re.fullmatch(r"\d{14}", value):
+        return _regon_check(value[:9], REGON_9_WEIGHTS) and _regon_check(value, REGON_14_WEIGHTS)
+
+    return False
+
+
+def _regon_check(value: str, weights: tuple[int, ...]) -> bool:
+    weighted = sum(int(digit) * weight for digit, weight in zip(value, weights, strict=False))
+
+    return weighted % 11 % 10 == int(value[-1])
+
+
+def _spaced(value: object) -> str:
+    """A submitted line of text with its runs of whitespace collapsed to single spaces."""
+    return " ".join(str(value or "").split())
 
 
 def address(post_data: QueryDict) -> str:
@@ -141,6 +202,10 @@ def seller_fields(post_data: QueryDict, *, stored_token: str = "") -> dict[str, 
         "last_name": str(post_data.get("last_name", "")).strip() if in_poland else "",
         "date_of_birth": _date(post_data.get("date_of_birth")) if in_poland else None,
         "kod_urzedu": str(post_data.get("kod_urzedu", "")).strip() if in_poland else "",
+        # Who the taxpayer is to ZUS, which a DRA asks for.
+        "pesel": str(post_data.get("pesel", "")).strip() if in_poland else "",
+        "regon": str(post_data.get("regon", "")).strip() if in_poland else "",
+        "short_name": _spaced(post_data.get("short_name")) if in_poland else "",
         "business_started_on": _date(post_data.get("business_started_on")) if in_poland else None,
         # The digits alone, so one number written two ways is one number stored.
         "zus_account": nrb.digits(str(post_data.get("zus_account", ""))) if in_poland else "",

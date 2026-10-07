@@ -83,6 +83,12 @@ SELLER_FIRST_NAME = "Jan"
 SELLER_LAST_NAME = "Kowalski"
 SELLER_BORN = datetime.date(1985, 3, 14)
 SELLER_KOD_URZEDU = "1211"
+
+# Who the taxpayer is to ZUS, which a DRA asks for. Fictional numbers whose check digits hold,
+# the PESEL opening with the date of birth above as a real one does.
+SELLER_PESEL = "85031401237"
+SELLER_REGON = "123456785"
+SELLER_SHORT_NAME = "KOWALSKI IT"
 SELLER_EMAIL = "billing@example.com"
 
 # The third contract, and the one the history hangs off: a Polish seller billing a Swiss
@@ -141,6 +147,9 @@ RELIEF_SELLER_NIP = "7010012345"
 RELIEF_SELLER_FIRST_NAME = "Anna"
 RELIEF_SELLER_LAST_NAME = "Nowak"
 RELIEF_SELLER_BORN = datetime.date(1990, 6, 2)
+RELIEF_SELLER_PESEL = "90060202461"
+RELIEF_SELLER_REGON = "387654322"
+RELIEF_SELLER_SHORT_NAME = "NOWAK SOFTWARE"
 RELIEF_SELLER_EMAIL = "anna@example.com"
 
 # The three digits between ZUS's constant and the NIP. ZUS allocates them and publishes no
@@ -257,6 +266,9 @@ class Command(BaseCommand):
                 "last_name": SELLER_LAST_NAME,
                 "date_of_birth": SELLER_BORN,
                 "kod_urzedu": SELLER_KOD_URZEDU,
+                "pesel": SELLER_PESEL,
+                "regon": SELLER_REGON,
+                "short_name": SELLER_SHORT_NAME,
                 # The year before the seeded history, so every year it covers runs from January
                 # and the schedule is the twelve-month one the pages are worth looking at.
                 "business_started_on": datetime.date(self.last_year, 1, 1),
@@ -268,13 +280,17 @@ class Command(BaseCommand):
     def _relief_seller(self, user: User) -> Seller:
         """A taxpayer partway through the reliefs, which is the sequence nobody types in.
 
-        Started on the first of this month, so wherever the calendar has got to the six ulga
+        Started on the first of last month, so wherever the calendar has got to the six ulga
         months are the ones being looked at: they owe the health contribution and no social
         one at all, and the preferential base follows them, and full contributions follow
         that. Chorobowe is elected, as the taxpayer this was built for intends to elect it,
         and the wypadkowe rate is left at the one a payer reporting at most nine insured pays.
+
+        Last month rather than this one so that one month is over and nothing records its DRA
+        as filed: it is the month whose DRA the page offers as a file, whatever day the seed
+        is run on.
         """
-        started = self.today.replace(day=1)
+        started = (self.today.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
 
         seller, _ = Seller.objects.update_or_create(
             user=user,
@@ -288,6 +304,9 @@ class Command(BaseCommand):
                 "last_name": RELIEF_SELLER_LAST_NAME,
                 "date_of_birth": RELIEF_SELLER_BORN,
                 "kod_urzedu": SELLER_KOD_URZEDU,
+                "pesel": RELIEF_SELLER_PESEL,
+                "regon": RELIEF_SELLER_REGON,
+                "short_name": RELIEF_SELLER_SHORT_NAME,
                 "business_started_on": started,
                 "zus_account": _zus_account(RELIEF_SELLER_NIP),
                 "ulga_na_start": True,

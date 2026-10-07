@@ -66,6 +66,11 @@ urlpatterns = [
         views.declaration_guide,
         name="declaration_guide",
     ),
+    path(  # ty: ignore[no-matching-overload]
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/declaration/file/",
+        views.declaration_file,
+        name="declaration_file",
+    ),
     # Wakacje składkowe, recorded against the month claimed: one a year, and never a month
     # under ulga na start.
     path(  # ty: ignore[no-matching-overload]
