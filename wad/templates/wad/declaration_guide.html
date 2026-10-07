@@ -52,9 +52,9 @@ way. Labels are given in ZUS's words, because they are what is on the screen.
     {% endif %}
 
     {% comment %}
-    The annual settlement began with 2022's contributions, settled in April 2023.
+    `settles` is the rule the file is refused by, so the notice and the file cannot disagree.
     {% endcomment %}
-    {% if month.month == 4 and month.year >= 2023 and seller.business_started_on.year < month.year %}
+    {% if settles %}
     <div class="notice mt-5">
         The DRA for April also carries the annual health contribution settlement for
         {{ month.year|add:"-1" }}, in blok XII.
@@ -262,7 +262,7 @@ way. Labels are given in ZUS's words, because they are what is on the screen.
                     <tr class="border-b border-[#eee]">
                         <td class="py-2 pr-4 text-[#888]">Suma przychodów w bieżącym roku kalendarzowym</td>
                         <td class="py-2">
-                            <span class="money">{{ month.cumulative|money }}</span>
+                            <span class="money">{{ month.declared_revenue|money }}</span>
                             <div class="text-xs text-[#999] mt-0.5">revenue from 1 January to the end of {{ month.date|date:"F" }}, less social contributions paid</div>
                         </td>
                     </tr>
@@ -373,7 +373,7 @@ way. Labels are given in ZUS's words, because they are what is on the screen.
                     <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">X.04, wypadkowe base</td><td class="py-1.5 money">{{ month.social.base|money }}</td></tr>
                     <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">X.05, health base</td><td class="py-1.5 money">{{ month.bracket.base|money }}</td></tr>
                     <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">XI.12, ryczałt</td><td class="py-1.5">X</td></tr>
-                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">XI.13, revenue this year</td><td class="py-1.5 money">{{ month.cumulative|money }}</td></tr>
+                    <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">XI.13, revenue this year</td><td class="py-1.5 money">{{ month.declared_revenue|money }}</td></tr>
                     <tr class="border-b border-[#eee]"><td class="py-1.5 pr-4 text-[#888]">XI.16, health base</td><td class="py-1.5 money">{{ month.bracket.base|money }}</td></tr>
                     <tr><td class="py-1.5 pr-4 text-[#888]">XI.17, health contribution</td><td class="py-1.5 money">{{ month.health|money }}</td></tr>
                 </table>

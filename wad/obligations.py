@@ -254,6 +254,17 @@ class Month:
         return ewidencja.whole_zlote(self.taxable)
 
     @property
+    def declared_revenue(self) -> decimal.Decimal:
+        """What the month's DRA states in XI.13: `cumulative`, never below nothing.
+
+        A year's running revenue less social contributions paid falls below nothing in a month
+        that paid contributions before billing anything, December's paid in January say. The
+        DRA's amounts are unsigned, and a band read off a negative revenue is the lowest one
+        either way, so the form takes nothing where the running figure is below it.
+        """
+        return max(self.cumulative, ZERO)
+
+    @property
     def health(self) -> decimal.Decimal | None:
         """The health contribution for this month, or nothing where the year's bases are unknown."""
         return self.bracket.amount if self.bracket else None

@@ -278,6 +278,16 @@ class SellerDraTests(TestCase):
 
         assert seller.missing_for_dra == ["a first name of at most 22 characters"]
 
+    def test_names_are_measured_in_the_capitals_the_dra_writes(self) -> None:
+        """ "ß" is one character typed and two in capitals, which is how the DRA writes it."""
+        seller = self._complete(first_name="ß" * 12, last_name="ß" * 16, short_name="ß" * 16)
+
+        assert seller.missing_for_dra == [
+            "a nazwa skrócona of at most 31 characters",
+            "a surname of at most 31 characters",
+            "a first name of at most 22 characters",
+        ]
+
     def test_names_at_the_dra_limits_are_taken(self) -> None:
         seller = self._complete(last_name="X" * 31, first_name="X" * 22)
 

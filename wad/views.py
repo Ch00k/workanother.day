@@ -2689,6 +2689,7 @@ def declaration_guide(request: HttpRequest, pk: str, year: int, month: int) -> H
             "year": year,
             "holidays_stale": stale,
             "dra_refusal": dra.refusal(due, seller, today=today),
+            "settles": dra.settles(due, seller),
         },
     )
 

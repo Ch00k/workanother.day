@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Final
 
 from lxml import etree
 
-from wad import VERSION, schema
+from wad import VERSION, obligations, schema
 from wad.models import GROSZ
 
 if TYPE_CHECKING:
@@ -57,9 +57,7 @@ FIRST_IDENTIFIER: Final = "01"
 # Blok III: the payer alone.
 INSURED: Final = "1"
 
-# The month whose DRA carries the previous year's annual health settlement in blok XII, and
-# the first year settled that way, in April 2023.
-APRIL: Final = 4
+# The first year whose health contributions were settled annually, in April 2023's DRA.
 FIRST_SETTLED_YEAR: Final = 2022
 
 ZERO: Final = decimal.Decimal(0)
@@ -179,7 +177,7 @@ def _uncovered(month: Month, seller: Seller) -> str:
             "it is filed through the wizard."
         )
 
-    if _settles(month, seller):
+    if settles(month, seller):
         return (
             "April's DRA carries the annual health contribution settlement, which this file does not "
             "carry yet: it is filed through the wizard."
@@ -188,7 +186,7 @@ def _uncovered(month: Month, seller: Seller) -> str:
     return ""
 
 
-def _settles(month: Month, seller: Seller) -> bool:
+def settles(month: Month, seller: Seller) -> bool:
     """Whether the month's DRA carries an annual health settlement in blok XII.
 
     April's does, for the year before, where the business was insured in it. A business started
@@ -197,7 +195,7 @@ def _settles(month: Month, seller: Seller) -> bool:
     started = seller.business_started_on
 
     return (
-        month.month == APRIL
+        month.month == obligations.APRIL
         and month.year - 1 >= FIRST_SETTLED_YEAR
         and started is not None
         and started.year < month.year
@@ -389,12 +387,12 @@ def _taxation(document: etree._Element, declared: Declared) -> None:
     """Blok XI, its ryczałt fields alone: the revenue the health band is read from, and the band.
 
     p13 is revenue from 1 January to the end of the month, less the social contributions paid,
-    which is what art. 81 ust. 2g reads the band off.
+    which is what art. 81 ust. 2g reads the band off, and never below nothing.
     """
     _fields(
         _element(document, "XI"),
         ("p12", "true"),
-        ("p13", _amount(declared.month.cumulative)),
+        ("p13", _amount(declared.month.declared_revenue)),
         ("p16", _amount(declared.bracket.base)),
         ("p17", _amount(declared.health)),
     )

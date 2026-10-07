@@ -10,7 +10,7 @@ from django.core.validators import validate_email
 
 from wad import nrb
 from wad.countries import COUNTRIES
-from wad.models import DEFAULT_ACCIDENT_RATE, POLAND
+from wad.models import DEFAULT_ACCIDENT_RATE, DRA_SHORT_NAME_LENGTH, POLAND
 
 if TYPE_CHECKING:
     from django.http import QueryDict
@@ -32,8 +32,6 @@ PESEL_WEIGHTS = (1, 3, 7, 9, 1, 3, 7, 9, 1, 3)
 REGON_9_WEIGHTS = (8, 9, 2, 3, 4, 5, 6, 7)
 REGON_14_WEIGHTS = (2, 4, 8, 5, 0, 9, 7, 3, 6, 1, 2, 4, 8)
 
-# The longest nazwa skrócona a DRA takes.
-SHORT_NAME_LENGTH = 31
 
 VALID_COUNTRIES = frozenset(code for code, _ in COUNTRIES)
 
@@ -106,8 +104,8 @@ def validate(post_data: QueryDict, *, is_seller: bool) -> list[str]:
             errors.append("That is not a REGON: it is 9 or 14 digits, the last a check digit.")
 
         short_name = _spaced(post_data.get("short_name"))
-        if len(short_name) > SHORT_NAME_LENGTH:
-            errors.append(f"A nazwa skrócona is at most {SHORT_NAME_LENGTH} characters.")
+        if len(short_name) > DRA_SHORT_NAME_LENGTH:
+            errors.append(f"A nazwa skrócona is at most {DRA_SHORT_NAME_LENGTH} characters.")
 
         # Required, unlike the identity fields above, because what it decides is arithmetic
         # rather than a field on a document. Absent, the insured months of a year can only be

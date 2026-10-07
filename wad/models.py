@@ -38,10 +38,11 @@ GROSZ: Final = decimal.Decimal("0.01")
 # figure, and this is where one nobody has told otherwise starts.
 DEFAULT_ACCIDENT_RATE: Final = decimal.Decimal("1.67")
 
-# The longest surname and first name a DRA's blok II takes, ZUS's KEDU schema limiting both
-# more tightly than a JPK_EWP does.
+# The longest surname, first name and nazwa skrócona a DRA's blok II takes, ZUS's KEDU schema
+# limiting the names more tightly than a JPK_EWP does.
 DRA_SURNAME_LENGTH: Final = 31
 DRA_FIRST_NAME_LENGTH: Final = 22
+DRA_SHORT_NAME_LENGTH: Final = 31
 
 
 def generate_token() -> str:
@@ -275,7 +276,8 @@ class Seller(models.Model):
 
         Named the way `missing_for_jpk` names what a register needs. A name longer than the DRA
         takes is named too: the form's columns are wider than its fields, and a name cut to fit
-        is a name ZUS does not hold.
+        is a name ZUS does not hold. Measured in the capitals the DRA writes it in, which can be
+        longer than the name as typed: "ß" is "SS".
         """
         required = [
             (self.nip, "a NIP"),
@@ -288,9 +290,11 @@ class Seller(models.Model):
         ]
         missing = [description for value, description in required if not value]
 
-        if len(self.last_name) > DRA_SURNAME_LENGTH:
+        if len(self.short_name.upper()) > DRA_SHORT_NAME_LENGTH:
+            missing.append(f"a nazwa skrócona of at most {DRA_SHORT_NAME_LENGTH} characters")
+        if len(self.last_name.upper()) > DRA_SURNAME_LENGTH:
             missing.append(f"a surname of at most {DRA_SURNAME_LENGTH} characters")
-        if len(self.first_name) > DRA_FIRST_NAME_LENGTH:
+        if len(self.first_name.upper()) > DRA_FIRST_NAME_LENGTH:
             missing.append(f"a first name of at most {DRA_FIRST_NAME_LENGTH} characters")
 
         return missing

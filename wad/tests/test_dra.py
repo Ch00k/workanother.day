@@ -279,6 +279,13 @@ class ArithmeticTests(DraTestCase):
                 assert amount("X/p2") == amount("X/p4")
                 assert amount("X/p3") <= amount("X/p4")
 
+    def test_revenue_below_nothing_is_declared_as_nothing(self) -> None:
+        """XI.13 is unsigned, and a running revenue below nothing still reads the lowest band."""
+        xml = self.render(dataclasses.replace(month(), cumulative=D("-1788.29")))
+
+        assert self.field(xml, "XI/p13") == "0.00"
+        dra.validate(xml)
+
     def test_full_contributions_declare_the_funds(self) -> None:
         xml = self.render(month(FULL))
 

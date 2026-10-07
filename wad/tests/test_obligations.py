@@ -2815,6 +2815,22 @@ class DeclarationFileTests(PageTestCase):
         assert self._file(4).status_code == 409
         self.assertContains(self._guide(4), "annual health contribution settlement, which this file")
 
+    def test_contributions_paid_before_any_revenue_declare_none(self) -> None:
+        """December's social contributions paid in January take the year's running revenue below
+        nothing; XI.13 takes no negative amount, so the file and the guide both state nothing."""
+        self.seller.business_started_on = datetime.date(YEAR - 1, 1, 1)
+        self.seller.save()
+        self._settles(datetime.date(YEAR - 1, 12, 1), on=datetime.date(YEAR, 1, 20))
+
+        assert self._month(1).cumulative < 0
+
+        response = self._file(1)
+
+        assert response.status_code == 200
+        assert "<p13>0.00</p13>" in response.content.decode()
+        dra.validate(response.content)
+        self.assertContains(self._guide(1), "XI.13, revenue this year")
+
     def test_the_first_april_of_a_business_has_one(self) -> None:
         """Started this year, there is no year before for April's DRA to settle."""
         assert self._file(4).status_code == 200
