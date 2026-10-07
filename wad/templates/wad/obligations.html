@@ -6,12 +6,7 @@
 <div class="page mt-6 mb-8">
     {% include "wad/_tax_year_heading.html" %}
 
-    {% if holidays_stale %}
-    <div class="notice mt-5">
-        Holiday data may be outdated. Could not refresh from the holiday API, so a deadline that
-        should have moved off a public holiday may not have.
-    </div>
-    {% endif %}
+    {% include "wad/_holidays_stale.html" %}
 
     {% comment %}
     About a year other than the one on the page: the contribution being paid month by month

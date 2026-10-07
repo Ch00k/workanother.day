@@ -55,6 +55,13 @@ SETTLEMENT_DUE = (5, PAYMENT_DAY)
 DECEMBER = 12
 DAY = datetime.timedelta(days=1)
 
+# The month whose DRA carries the annual health settlement, which ePłatnik's wizard asks for on
+# a step of its own.
+APRIL = 4
+
+# The regimes whose DRA the guide walks through ePłatnik's wizard.
+GUIDED_REGIMES = (contributions.Regime.ULGA, contributions.Regime.PREFERENTIAL)
+
 # Art. 36 ust. 4 ustawy o sus: a change of insurance title is registered within 7 days of it.
 REGISTRATION_TERM = datetime.timedelta(days=7)
 
@@ -312,6 +319,26 @@ class Month:
     def is_declared(self) -> bool:
         """Whether the month's DRA has been recorded as filed."""
         return self.dra_filed_on is not None
+
+    @property
+    def has_dra_guide(self) -> bool:
+        """Whether the DRA guide walks this month through ePłatnik's wizard, field by field.
+
+        Only the months the wizard was researched for: a DRA for the payer alone, under ulga na
+        start or preferencyjne składki, with every figure it declares worked out here. ePłatnik
+        puts a step of its own for the annual health settlement into every April's wizard from
+        2023, whether or not there is a year before to settle, and a wakacje składkowe month is
+        filed with two ZUS RCA rather than for the payer alone; those keep the card's summary
+        only.
+        """
+        return (
+            self.owes_declaration
+            and self.social is not None
+            and self.health is not None
+            and self.social.regime in GUIDED_REGIMES
+            and not self.social.exempt
+            and self.month != APRIL
+        )
 
     @property
     def declarable_from(self) -> datetime.date:
