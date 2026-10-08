@@ -26,36 +26,6 @@
         </div>
         <div class="flex items-center gap-3">
             {% include "wad/_month_status.html" %}
-            {% comment %}
-            One press for everything the month still owes, and one that takes back everything
-            recorded for it. Both act on the month rather than on a transfer: the month is what
-            a taxpayer settles, and the two transfers are made in the same sitting.
-            {% endcomment %}
-            {% if month.is_payable %}
-            {% comment %}
-            Asked about first, because what it records is that money left an account: a press
-            made before the transfer was actually sent leaves a month reading as settled that
-            nobody has paid, and the figures it keeps are the ones stated beside it.
-            {% endcomment %}
-            <form method="post" action="{% url 'payments_record' pk=seller.pk year=month.year month=month.month %}"
-                  data-confirm="Record {{ month.date|date:'F Y' }} as paid? Every transfer stated on this page goes in at the figure beside it, dated today.">
-                {% csrf_token %}
-                <button type="submit"
-                        class="btn btn-primary">
-                    I have paid these
-                </button>
-            </form>
-            {% endif %}
-            {% if month.settled_on %}
-            <form method="post" action="{% url 'payments_remove' pk=seller.pk year=month.year month=month.month %}"
-                  data-confirm="Take {{ month.date|date:'F Y' }} off as paid? Everything recorded for it goes, of both kinds.">
-                {% csrf_token %}
-                <button type="submit"
-                        class="btn btn-danger">
-                    Remove payments
-                </button>
-            </form>
-            {% endif %}
         </div>
     </div>
 
@@ -356,10 +326,11 @@
             {% comment %}
             Only the transfers there are. A month that billed nothing owes no ryczałt, and a
             transfer of nothing is not one to make: stating its account and its okres beside a
-            zero would be an instruction to do something.
+            zero would be an instruction to do something. One recorded as paid keeps its place
+            whatever it now comes to, so that what was recorded can be taken off again.
             {% endcomment %}
             <div class="mt-2 rounded-[14px] bg-white shadow-sm border border-black/5 overflow-hidden divide-y divide-[#f5f5f5]">
-                {% if month.tax %}
+                {% if month.tax or month.paid_on %}
                 <div class="px-5 py-4">
                     <div class="flex items-baseline justify-between gap-3">
                         <div class="text-sm font-semibold text-[#222]">Urząd Skarbowy &mdash; ryczałt</div>
@@ -367,10 +338,11 @@
                         <div class="text-xs text-[#888]">recorded {{ month.paid_on|date:"j M Y" }}</div>
                         {% endif %}
                     </div>
-                    <div class="mt-2">{% include "wad/_ryczalt_transfer.html" %}</div>
+                    {% if month.tax %}<div class="mt-2">{% include "wad/_ryczalt_transfer.html" %}</div>{% endif %}
+                    {% include "wad/_payment_record.html" with obligation=month.obligations.0 %}
                 </div>
                 {% endif %}
-                {% if month.dra_total %}
+                {% if month.dra_total or month.contributions_paid_on %}
                 <div class="px-5 py-4">
                     <div class="flex items-baseline justify-between gap-3">
                         <div class="text-sm font-semibold text-[#222]">Zakład Ubezpieczeń Społecznych &mdash; składki</div>
@@ -378,10 +350,11 @@
                         <div class="text-xs text-[#888]">recorded {{ month.contributions_paid_on|date:"j M Y" }}</div>
                         {% endif %}
                     </div>
-                    <div class="mt-2">{% include "wad/_zus_transfer.html" %}</div>
+                    {% if month.dra_total %}<div class="mt-2">{% include "wad/_zus_transfer.html" %}</div>{% endif %}
+                    {% include "wad/_payment_record.html" with obligation=month.obligations.1 %}
                 </div>
                 {% endif %}
-                {% if not month.tax and not month.dra_total %}
+                {% if not month.tax and not month.dra_total and not month.settled_on %}
                 <div class="px-5 py-4 text-sm text-[#666]">
                     Nothing to transfer for this month.
                 </div>

@@ -33,20 +33,20 @@ urlpatterns = [
     path("bases/<int:year>/health/remove/", views.health_bases_remove, name="health_bases_remove"),  # ty: ignore[no-matching-overload]
     path("bases/<int:year>/social/", views.social_bases_record, name="social_bases_record"),  # ty: ignore[no-matching-overload]
     path("bases/<int:year>/social/remove/", views.social_bases_remove, name="social_bases_remove"),  # ty: ignore[no-matching-overload]
-    # A month is the unit a taxpayer settles: it has a page of its own, both of its transfers
-    # are recorded by one press and taken off again by one, whichever payee each went to.
+    # A month is the unit a taxpayer settles and has a page of its own. Its two transfers go to
+    # two payees, ryczalt and skladki, and each is recorded and taken off again on its own.
     path(  # ty: ignore[no-matching-overload]
         "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/",
         views.month_view,
         name="month",
     ),
     path(  # ty: ignore[no-matching-overload]
-        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/payments/",
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/payments/<str:kind>/",
         views.payments_record,
         name="payments_record",
     ),
     path(  # ty: ignore[no-matching-overload]
-        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/payments/remove/",
+        "sellers/<uuid:pk>/taxes/<int:year>/months/<int:month>/payments/<str:kind>/remove/",
         views.payments_remove,
         name="payments_remove",
     ),
