@@ -1040,8 +1040,9 @@ stays open: its status says **DRA to file** once the month is over and **DRA ove
 date, and the calendar event, which names the DRA beside both transfers, keeps its alarms until
 both are done.
 
-**Every contribution payment is recorded where the transfer is made**: a month's pair by the
-press on the month's page, the annual health settlement by the press beside the dates. There is
+**Every contribution payment is recorded where the transfer is made**: a month's składki by the
+press under that transfer on the month's page, the annual health settlement by the press beside
+the dates. There is
 no typed way in. One existed, and it was a second chance to record a transfer already recorded
 by a press — which deducts it twice, lowering the base, the tax and the health band with
 nothing on any page disagreeing. What it cost to remove is the escape hatch: a DRA total the
@@ -1051,11 +1052,14 @@ deduction is understated until one is added back deliberately.
 **The figures are kept rather than recomputed**, and that is the point of keeping them. A
 correction invoice or a late payment can move a month's revenue after the transfer went, which
 moves what the month owes; the payment stays what was paid, and the two sit side by side in the
-same row for the disagreement to be seen. Pressing again once everything payable is recorded is
-refused, and **Remove** on the month is the way back — it clears everything recorded against
-that month, of both kinds. The refusal is a check on the way in rather than a constraint in the
-database, so two submissions racing each other — a double press, or a second tab — can both get
-past it and have the month showing the pair of them added up; removing the month clears both.
+same row for the disagreement to be seen. The same goes for a transfer entered out of order: a
+contribution recorded after a later month's ryczałt, but dated in that later month, is deducted
+there and leaves the ryczałt recorded for it above what it now owes, which its page states.
+Pressing again once a transfer is recorded is refused, and **take it off as paid** under it is
+the way back — it clears everything of that kind recorded against that month, the other kind
+standing. The refusal is a check on the way in rather than a constraint in the database, so two
+submissions racing each other — a double press, or a second tab — can both get past it and have
+the month showing the pair of them added up; taking the transfer off clears both.
 
 What a payment does move is the balance the return settles, which is the year's tax less the
 ryczałt paid for its months. That is the year's own figure rather than the twelve monthly ones added up,

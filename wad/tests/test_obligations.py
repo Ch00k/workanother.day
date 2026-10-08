@@ -2238,6 +2238,19 @@ class PaymentRecordTests(PageTestCase):
         self.assertContains(response, "The ryczałt recorded for this month is")
         self.assertContains(response, money(D("4500.00")))
 
+    def test_a_contribution_recorded_later_but_paid_earlier_shows_the_ryczalt_it_moved(self) -> None:
+        """Entered out of order: April's ryczałt first, then March's składki, which went in
+        April. Art. 11 deducts that contribution from April, so April now owes less than the
+        ryczałt recorded for it, and its page says so."""
+        self._issued(3)
+        self._issued(4)
+        self._record(4, obligations.Kind.RYCZALT, paid_on=datetime.date(YEAR, 5, 20))
+
+        self._record(3, obligations.Kind.SKLADKI, paid_on=datetime.date(YEAR, 4, 18))
+
+        assert self._month(4).tax < TaxPayment.objects.get().amount
+        self.assertContains(self._month_page(4), "The ryczałt recorded for this month is")
+
     def test_the_year_states_its_own_figure_and_the_balance(self) -> None:
         """The annual figure is taken over the whole year rather than the twelve monthly ones
         added up, and the balance is what the return settles."""
