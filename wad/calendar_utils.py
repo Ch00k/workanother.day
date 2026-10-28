@@ -314,3 +314,13 @@ def worked_days(
         day += datetime.timedelta(days=1)
 
     return days
+
+
+def days_in(contract: ContractInfo, days: Iterable[WorkedDay]) -> float:
+    """How many full working days the hours worked on `days` come to.
+
+    Counted from the days themselves, so a record's total and the rows above it can only
+    agree: time off booked on a weekend, or more of it than a day now holds, takes nothing
+    off a row and so takes nothing off the total either.
+    """
+    return sum(day.hours for day in days) / _hours_per_day(contract)

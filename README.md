@@ -380,9 +380,11 @@ the latest year the contract ran in where it did not run then. For each month th
 record listing every day worked with its hours, followed by every invoice issued for that
 month, corrections included. It is the evidence that the services were supplied, which a tax
 office asks for alongside the invoices themselves. An invoice goes with the month it bills
-rather than the day it was issued, and drafts are left out. The days are the calendar's own,
-weekdays inside the term less booked time off, so a month's total is the figure its invoice was
-raised from. Printed by `wad/templates/wad/records_page.html`, on the same Chromium path and
+rather than the day it was issued, and drafts are left out. The days are the calendar's as it
+stands when the file is printed, weekdays inside the term less booked time off. An invoice
+keeps what it billed, so time off booked after it went out makes the two differ. A month an
+invoice was issued for stays on record even where the contract's term has since been edited to
+leave it out. Printed by `wad/templates/wad/records_page.html`, on the same Chromium path and
 with the same invoice partial as `Download PDF`.
 
 ## Sending the invoice to the buyer

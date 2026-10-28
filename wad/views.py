@@ -3384,16 +3384,25 @@ def _latest_month_over() -> datetime.date:
 
 
 def _records_months(contract: Contract) -> list[datetime.date]:
-    """The months a contract's records can be asked for: those of its term that are over."""
-    current = contract.start_date.replace(day=1)
-    last = min(contract.end_date.replace(day=1), _latest_month_over())
+    """The months a contract's records can be asked for: those that are over, of its term.
 
-    months: list[datetime.date] = []
-    while current <= last:
-        months.append(current)
+    And of any invoice issued for it, which stays on record however the term is edited
+    afterwards.
+    """
+    latest = _latest_month_over()
+    months = {
+        period_start.replace(day=1)
+        for period_start in contract.invoices.filter(  # ty: ignore[unresolved-attribute]
+            state__in=Invoice.ISSUED_STATES
+        ).values_list("period_start", flat=True)
+    }
+
+    current = contract.start_date.replace(day=1)
+    while current <= contract.end_date.replace(day=1):
+        months.add(current)
         current = (current + datetime.timedelta(days=31)).replace(day=1)
 
-    return months
+    return sorted(month for month in months if month <= latest)
 
 
 def _records_choices(contract: Contract) -> dict[str, object]:
@@ -3449,8 +3458,12 @@ def contract_records(request: HttpRequest, pk: str) -> HttpResponse:
     if first > last:
         return HttpResponse("The period has to start before it ends.", status=400)
 
+    last = min(last, _latest_month_over())
+    if first > last:
+        return HttpResponse("No month of that period is over yet, so none of it is on record.", status=400)
+
     try:
-        pdf = records_pdf(contract, first, min(last, _latest_month_over()))
+        pdf = records_pdf(contract, first, last)
     except RenderError:
         logger.exception("No records could be produced for contract %s", contract.pk)
         return HttpResponse("The document could not be produced. Try again in a moment.", status=503)

@@ -12,7 +12,7 @@ from django.conf import settings
 from django.contrib.staticfiles import finders
 from django.template.loader import render_to_string
 
-from wad.calendar_utils import WorkedDay, compute_monthly_summary, worked_days
+from wad.calendar_utils import WorkedDay, compute_monthly_summary, days_in, worked_days
 from wad.countries import country_name
 from wad.ksef import verification
 from wad.models import POLAND, Contract, Invoice
@@ -131,9 +131,13 @@ def recorded_months(contract: Contract, first: datetime.date, last: datetime.dat
 
     An invoice belongs to the month it bills rather than the day it was issued, so one issued
     in January for December's work goes with December. A correction bills the period of the
-    invoice it corrects and so follows it, issued after it. Only what has been issued counts:
-    a draft or a rejected invoice was never handed to anybody, and an invoice still in flight
-    is not yet known to be one.
+    invoice it corrects and so follows it, in the order the two were issued. Only what has
+    been issued counts: a draft or a rejected invoice was never handed to anybody, and an
+    invoice still in flight is not yet known to be one.
+
+    A month an invoice was issued for is on record whatever the contract's term says now. The
+    term can be edited after the fact, and an invoice the buyer holds does not stop existing
+    because of it; its work record lists no days, the calendar counting none outside the term.
     """
     time_off = list(contract.time_off.all())  # ty: ignore[unresolved-attribute]
     last_day = last.replace(day=calendar.monthrange(last.year, last.month)[1])
@@ -145,23 +149,25 @@ def recorded_months(contract: Contract, first: datetime.date, last: datetime.dat
         )
         .select_related("corrects")
         .prefetch_related("lines", "corrects__lines")
-        .order_by("issue_date", "number")
+        .order_by("issue_date", "created_at")
     )
     billing: defaultdict[datetime.date, list[Invoice]] = defaultdict(list)
     for record in invoices:
         billing[record.period_start.replace(day=1)].append(record)
 
+    term = {
+        datetime.date(summary["year"], summary["month"], 1) for summary in compute_monthly_summary(contract, time_off)
+    }
+
     months: list[RecordedMonth] = []
-    for summary in compute_monthly_summary(contract, time_off):
-        start = datetime.date(summary["year"], summary["month"], 1)
-        if not first <= start <= last:
-            continue
+    for start in sorted({month for month in term if first <= month <= last} | billing.keys()):
+        days = worked_days(contract, time_off, start.year, start.month)
 
         months.append(
             RecordedMonth(
                 start=start,
-                days=worked_days(contract, time_off, start.year, start.month),
-                days_worked=summary["net_working_days"],
+                days=days,
+                days_worked=days_in(contract, days),
                 invoices=[
                     render_to_string("wad/_invoice_document.html", document_context(record))
                     for record in billing[start]

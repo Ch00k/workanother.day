@@ -6,6 +6,7 @@ from wad.calendar_utils import (
     WorkedDay,
     compute_monthly_summary,
     compute_stats,
+    days_in,
     get_month_calendar,
     get_weekdays_in_range,
     is_weekend,
@@ -395,3 +396,9 @@ class WorkedDaysTests(TestCase):
         april = compute_monthly_summary(contract, time_off)[3]
 
         assert sum(day.hours for day in days) / 8 == april["net_working_days"]
+
+    def test_the_days_come_to_their_hours_in_full_days(self) -> None:
+        contract = self._make_contract(working_hours_per_day=6)
+        days = [WorkedDay(date=datetime.date(2026, 4, 1), hours=6), WorkedDay(date=datetime.date(2026, 4, 2), hours=3)]
+
+        assert days_in(contract, days) == 1.5

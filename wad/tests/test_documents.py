@@ -253,9 +253,9 @@ class RecordsPageTests(RecordsTestCase):
         assert self.invoice.number not in page
         assert "NOT ISSUED" not in page.upper()
 
-    def test_a_correction_follows_the_invoice_it_corrects(self) -> None:
+    def _correction_of(self, record: Invoice) -> Invoice:
         response = self.client.post(
-            reverse("invoice_correct", kwargs={"pk": self.november.pk}),
+            reverse("invoice_correct", kwargs={"pk": record.pk}),
             {
                 "reason": "Wrong number of days",
                 "cause": Invoice.CorrectionCause.MISTAKE,
@@ -266,7 +266,11 @@ class RecordsPageTests(RecordsTestCase):
             },
         )
         assert response.status_code == 302, response.content
-        correction = self._issued(Invoice.objects.get(corrects=self.november))
+
+        return Invoice.objects.get(corrects=record)
+
+    def test_a_correction_follows_the_invoice_it_corrects(self) -> None:
+        correction = self._issued(self._correction_of(self.november))
 
         page = _body(records_html(self.contract, self.NOVEMBER, self.DECEMBER))
 
@@ -288,6 +292,38 @@ class RecordsPageTests(RecordsTestCase):
         assert len(rows) == 22
         assert "21.50 days worked" in page
         assert ">172</td>" in page
+
+    def test_a_correction_issued_the_same_day_still_follows_its_invoice(self) -> None:
+        """Issued after it, whatever the two numbers make of sorting: this one sorts before it."""
+        Invoice.objects.filter(pk=self.november.pk).update(number="INV-2025-11")
+        self.november.refresh_from_db()
+        correction = self._issued(self._correction_of(self.november))
+        assert correction.issue_date == self.november.issue_date
+        assert correction.number < self.november.number
+
+        page = _body(records_html(self.contract, self.NOVEMBER, self.NOVEMBER))
+
+        assert page.index(self.november.number) < page.index(correction.number)
+
+    def test_an_invoice_outside_the_term_as_it_now_stands_is_still_on_record(self) -> None:
+        """A term edited after the fact leaves the invoices the buyer already holds standing."""
+        self.contract.end_date = datetime.date(2025, 10, 31)
+        self.contract.save()
+
+        page = _body(records_html(self.contract, self.NOVEMBER, self.DECEMBER))
+
+        assert self.november.number in page
+        assert self.december.number in page
+        assert "No days were worked this month." in page
+
+    def test_the_total_is_what_the_days_listed_come_to(self) -> None:
+        """Time off booked on a Saturday takes nothing off a row, so nothing off the total."""
+        TimeOff.objects.create(contract=self.contract, date=datetime.date(2025, 12, 6), hours=8)
+
+        page = records_html(self.contract, self.DECEMBER, self.DECEMBER)
+
+        assert "23 days worked" in page
+        assert ">184</td>" in page
 
     def test_a_stretch_the_contract_never_ran_in_says_so(self) -> None:
         page = records_html(self.contract, datetime.date(2019, 1, 1), datetime.date(2019, 12, 1))
@@ -330,6 +366,15 @@ class RecordsDownloadTests(RecordsTestCase):
         # January's and February's work records. Nothing has been issued for either.
         assert _pages(response.content) == 2
 
+    def test_a_period_with_no_month_over_yet_is_refused_rather_than_printed_empty(self) -> None:
+        with today_is(datetime.date(2026, 3, 15)), override_settings(CHROMIUM_PATH="/nonexistent/chromium"):
+            # A browser that cannot start answers 503, so a 400 here is one never asked to print.
+            year = self.client.get(self._url(), {"period": "2027"})
+            months = self.client.get(self._url(), {"from": "2026-03", "to": "2026-05"})
+
+        assert year.status_code == 400
+        assert months.status_code == 400
+
     def test_a_year_that_is_not_one_is_refused(self) -> None:
         for value in ("20x5", "2025-01", "25", ""):
             with self.subTest(value=value):
@@ -368,6 +413,9 @@ class RecordsDownloadTests(RecordsTestCase):
         assert '<option value="2026-03"' in self._invoices_page(datetime.date(2026, 3, 31))
 
     def test_a_contract_that_started_this_year_starts_out_on_this_year(self) -> None:
+        # Nothing issued before the start either, an issued invoice being on record whatever
+        # the term says.
+        Invoice.objects.filter(contract=self.contract).delete()
         self.contract.start_date = datetime.date(2026, 1, 1)
         self.contract.save()
 
@@ -378,7 +426,20 @@ class RecordsDownloadTests(RecordsTestCase):
         assert '<option value="2026-01" selected>' in page
         assert '<option value="2026-02" selected>' in page
 
+    def test_the_months_of_invoices_outside_the_term_as_it_now_stands_are_offered(self) -> None:
+        self.contract.end_date = datetime.date(2025, 10, 31)
+        self.contract.save()
+
+        page = self._invoices_page()
+
+        assert '<option value="2025-11"' in page
+        assert '<option value="2025-12"' in page
+        assert '<option value="2026-01"' not in page
+
     def test_a_contract_with_no_month_over_offers_nothing_to_download(self) -> None:
+        # Nothing issued before the start either, an issued invoice being on record whatever
+        # the term says.
+        Invoice.objects.filter(contract=self.contract).delete()
         self.contract.start_date = datetime.date(2026, 3, 1)
         self.contract.save()
 
