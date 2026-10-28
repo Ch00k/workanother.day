@@ -1,0 +1,35 @@
+<!DOCTYPE html>{% comment %}
+A stretch of a contract's records on one page, which is what is rendered to PDF: for each
+month, the days worked in it, then every invoice issued for it. Each starts a sheet of its
+own, so the file reads month by month as the work and the documents billing it.
+
+The invoices are drawn by the same partial as an invoice's own page, so a copy found here is
+the document the buyer was sent.
+{% endcomment %}
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{{ contract.name }}, {{ first|date:"F Y" }} to {{ last|date:"F Y" }}</title>
+    {% include "wad/_document_styles.html" %}
+    <style>
+        .sheet + .sheet { break-before: page; }
+        .sheet tr { break-inside: avoid; }
+    </style>
+</head>
+<body>
+{% for month in months %}
+<section class="sheet">
+    {% include "wad/_work_record.html" %}
+</section>
+{% for document in month.invoices %}
+<section class="sheet">
+    {{ document }}
+</section>
+{% endfor %}
+{% empty %}
+<section class="sheet text-sm text-[#666]">
+    Nothing is on record for {{ contract.name }} from {{ first|date:"F Y" }} to {{ last|date:"F Y" }}.
+</section>
+{% endfor %}
+</body>
+</html>

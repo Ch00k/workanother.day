@@ -3,11 +3,13 @@ from types import SimpleNamespace
 from unittest import TestCase
 
 from wad.calendar_utils import (
+    WorkedDay,
     compute_monthly_summary,
     compute_stats,
     get_month_calendar,
     get_weekdays_in_range,
     is_weekend,
+    worked_days,
 )
 
 
@@ -343,3 +345,53 @@ class ComputeMonthlySummaryTests(TestCase):
         assert len(summary) == 1
         assert summary[0]["time_off_days"] == 1.0
         assert summary[0]["net_working_days"] == 12 - 1.0
+
+
+class WorkedDaysTests(TestCase):
+    def _make_contract(self, **kwargs: datetime.date | int) -> SimpleNamespace:
+        defaults = {
+            "start_date": datetime.date(2026, 1, 1),
+            "end_date": datetime.date(2026, 12, 31),
+            "max_working_days": 228,
+            "working_hours_per_day": 8,
+        }
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    def test_every_weekday_is_a_full_day_when_nothing_is_booked(self) -> None:
+        days = worked_days(self._make_contract(), [], 2026, 4)
+
+        # April 2026: 22 weekdays, from Wednesday the 1st
+        assert len(days) == 22
+        assert days[0] == WorkedDay(date=datetime.date(2026, 4, 1), hours=8)
+        assert all(not is_weekend(day.date) and day.hours == 8 for day in days)
+
+    def test_time_off_takes_its_hours_and_a_full_day_off_leaves_the_day_out(self) -> None:
+        time_off = [
+            SimpleNamespace(date=datetime.date(2026, 4, 6), hours=8),
+            SimpleNamespace(date=datetime.date(2026, 4, 7), hours=4),
+        ]
+
+        days = {day.date: day.hours for day in worked_days(self._make_contract(), time_off, 2026, 4)}
+
+        assert datetime.date(2026, 4, 6) not in days
+        assert days[datetime.date(2026, 4, 7)] == 4
+
+    def test_only_the_days_inside_the_term_count(self) -> None:
+        contract = self._make_contract(start_date=datetime.date(2026, 4, 15), end_date=datetime.date(2026, 4, 21))
+
+        days = worked_days(contract, [], 2026, 4)
+
+        assert [day.date.day for day in days] == [15, 16, 17, 20, 21]
+
+    def test_the_days_add_up_to_the_month_s_net_working_days(self) -> None:
+        contract = self._make_contract()
+        time_off = [
+            SimpleNamespace(date=datetime.date(2026, 4, 6), hours=8),
+            SimpleNamespace(date=datetime.date(2026, 4, 7), hours=4),
+        ]
+
+        days = worked_days(contract, time_off, 2026, 4)
+        april = compute_monthly_summary(contract, time_off)[3]
+
+        assert sum(day.hours for day in days) / 8 == april["net_working_days"]

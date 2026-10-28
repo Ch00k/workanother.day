@@ -138,6 +138,18 @@
             return;
         }
 
+        // A select that shows part of its form for one of its options. The part is disabled
+        // while hidden, so what it holds is only sent once it has been asked for: the records
+        // dialog offers whole years, and a range of months only beside them.
+        const revealer = event.target.closest('[data-reveals]');
+        if (revealer) {
+            const part = byId(revealer.dataset.reveals);
+            const shown = revealer.value === revealer.dataset.revealsFor;
+            part.hidden = !shown;
+            part.disabled = !shown;
+            return;
+        }
+
         // A select whose options are destinations: choosing one goes there. The tax year a
         // page is read at is picked this way, a taxpayer gaining one a year and a row of
         // links running out of room for them.

@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import calendar
+import dataclasses
+import datetime
 import subprocess
 import tempfile
+from collections import defaultdict
 from pathlib import Path
 
 from django.conf import settings
 from django.contrib.staticfiles import finders
 from django.template.loader import render_to_string
 
+from wad.calendar_utils import WorkedDay, compute_monthly_summary, worked_days
 from wad.countries import country_name
 from wad.ksef import verification
-from wad.models import POLAND, Invoice
+from wad.models import POLAND, Contract, Invoice
 
 # The built stylesheet, read out of the source tree rather than through the static manifest
 # so that a document renders whether or not collectstatic has run.
@@ -106,6 +111,91 @@ def invoice_html(record: Invoice) -> str:
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class RecordedMonth:
+    """A month of a contract's records: the days worked in it, and the invoices that bill it."""
+
+    start: datetime.date
+    days: list[WorkedDay]
+    days_worked: float
+    # Each invoice already drawn, by the partial a stored invoice's own page draws it with.
+    invoices: list[str]
+
+    @property
+    def hours_worked(self) -> int:
+        return sum(day.hours for day in self.days)
+
+
+def recorded_months(contract: Contract, first: datetime.date, last: datetime.date) -> list[RecordedMonth]:
+    """Every month from `first` to `last` the contract ran in, with what it billed for each.
+
+    An invoice belongs to the month it bills rather than the day it was issued, so one issued
+    in January for December's work goes with December. A correction bills the period of the
+    invoice it corrects and so follows it, issued after it. Only what has been issued counts:
+    a draft or a rejected invoice was never handed to anybody, and an invoice still in flight
+    is not yet known to be one.
+    """
+    time_off = list(contract.time_off.all())  # ty: ignore[unresolved-attribute]
+    last_day = last.replace(day=calendar.monthrange(last.year, last.month)[1])
+
+    invoices = (
+        contract.invoices.filter(  # ty: ignore[unresolved-attribute]
+            state__in=Invoice.ISSUED_STATES,
+            period_start__range=(first, last_day),
+        )
+        .select_related("corrects")
+        .prefetch_related("lines", "corrects__lines")
+        .order_by("issue_date", "number")
+    )
+    billing: defaultdict[datetime.date, list[Invoice]] = defaultdict(list)
+    for record in invoices:
+        billing[record.period_start.replace(day=1)].append(record)
+
+    months: list[RecordedMonth] = []
+    for summary in compute_monthly_summary(contract, time_off):
+        start = datetime.date(summary["year"], summary["month"], 1)
+        if not first <= start <= last:
+            continue
+
+        months.append(
+            RecordedMonth(
+                start=start,
+                days=worked_days(contract, time_off, start.year, start.month),
+                days_worked=summary["net_working_days"],
+                invoices=[
+                    render_to_string("wad/_invoice_document.html", document_context(record))
+                    for record in billing[start]
+                ],
+            )
+        )
+
+    return months
+
+
+def records_html(contract: Contract, first: datetime.date, last: datetime.date) -> str:
+    """A stretch of a contract's records as one page, each month's work followed by its invoices."""
+    return render_to_string(
+        "wad/records_page.html",
+        {
+            "contract": contract,
+            "first": first,
+            "last": last,
+            "months": recorded_months(contract, first, last),
+            "stylesheet": stylesheet(),
+        },
+    )
+
+
+def records_pdf(contract: Contract, first: datetime.date, last: datetime.date) -> bytes:
+    """Render a stretch of a contract's records to one A4 PDF.
+
+    The evidence that the services an invoice bills were supplied: the invoice itself, and a
+    record of the days worked for it. One file rather than one per invoice, because it is
+    asked for and handed over as one.
+    """
+    return _printed(records_html(contract, first, last), f"the records of {contract.name}")
+
+
 def invoice_pdf(record: Invoice) -> bytes:
     """Render an invoice to an A4 PDF, which is the document a buyer is sent.
 
@@ -113,11 +203,16 @@ def invoice_pdf(record: Invoice) -> bytes:
     document from the browser's own print command: one document, printed one way, whether
     it goes out from a screen or by mail.
     """
+    return _printed(invoice_html(record), f"invoice {record.number}")
+
+
+def _printed(html: str, what: str) -> bytes:
+    """Print a page that carries everything it needs to a PDF, naming `what` it is on failure."""
     with tempfile.TemporaryDirectory() as workspace:
         directory = Path(workspace)
-        page = directory / "invoice.html"
-        page.write_text(invoice_html(record), encoding="utf-8")
-        pdf = directory / "invoice.pdf"
+        page = directory / "document.html"
+        page.write_text(html, encoding="utf-8")
+        pdf = directory / "document.pdf"
 
         command = [
             settings.CHROMIUM_PATH,
@@ -153,7 +248,7 @@ def invoice_pdf(record: Invoice) -> bytes:
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
-            message = f"{settings.CHROMIUM_PATH} could not render invoice {record.number}: {error}"
+            message = f"{settings.CHROMIUM_PATH} could not render {what}: {error}"
             raise RenderError(message) from error
 
         # Chromium reports a page it could not print through its exit status and leaves no
@@ -161,7 +256,7 @@ def invoice_pdf(record: Invoice) -> bytes:
         # wrong, and its diagnostics go to stderr whether it succeeded or not.
         if not pdf.exists():
             details = result.stderr.decode(errors="replace").strip()
-            message = f"No document came out of {settings.CHROMIUM_PATH} for invoice {record.number}. {details}"
+            message = f"No document came out of {settings.CHROMIUM_PATH} for {what}. {details}"
             raise RenderError(message)
 
         return pdf.read_bytes()

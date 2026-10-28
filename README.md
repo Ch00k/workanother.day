@@ -371,6 +371,20 @@ The document names its own font. Left to inherit the application's stack it asks
 `ui-sans-serif` and `system-ui`, which no Linux image has, and fontconfig answers a family
 it does not hold with whatever scores best — for a slim image, a monospace face.
 
+## Records of the work
+
+`Records`, beside `Add` on a contract's invoices page, prints a whole year, or a custom range
+of months, as one PDF. Only the months of the term that are over are on record, a month still
+under way having days in it nobody has worked yet. It starts out on last calendar year, or on
+the latest year the contract ran in where it did not run then. For each month there is a work
+record listing every day worked with its hours, followed by every invoice issued for that
+month, corrections included. It is the evidence that the services were supplied, which a tax
+office asks for alongside the invoices themselves. An invoice goes with the month it bills
+rather than the day it was issued, and drafts are left out. The days are the calendar's own,
+weekdays inside the term less booked time off, so a month's total is the figure its invoice was
+raised from. Printed by `wad/templates/wad/records_page.html`, on the same Chromium path and
+with the same invoice partial as `Download PDF`.
+
 ## Sending the invoice to the buyer
 
 Sending an invoice to KSeF is not sending it to the buyer. Art. 106gb ust. 4 requires it to

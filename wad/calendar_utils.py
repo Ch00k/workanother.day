@@ -4,7 +4,7 @@ import calendar
 import datetime
 import zoneinfo
 from fractions import Fraction
-from typing import TYPE_CHECKING, Protocol, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, Protocol, TypedDict
 
 MONTHS_IN_A_YEAR = 12
 
@@ -52,6 +52,11 @@ class MonthlySummary(TypedDict):
     weekdays: int
     time_off_days: float
     net_working_days: float
+
+
+class WorkedDay(NamedTuple):
+    date: datetime.date
+    hours: int
 
 
 def is_weekend(date: datetime.date) -> bool:
@@ -282,3 +287,30 @@ def compute_monthly_summary(contract: ContractInfo, time_off_entries: Iterable[T
         current = datetime.date(year + 1, 1, 1) if month == 12 else datetime.date(year, month + 1, 1)
 
     return months
+
+
+def worked_days(
+    contract: ContractInfo, time_off_entries: Iterable[TimeOffEntry], year: int, month: int
+) -> list[WorkedDay]:
+    """The days of a month worked on a contract, each with the hours worked on it.
+
+    Worked means what every other count here means by it: a weekday inside the term, less
+    whatever time off is booked on it, so the days listed add up to the month's
+    net_working_days. A day booked off in full is left out, and a holiday is a working day
+    until it is booked off.
+    """
+    hours_per_day = _hours_per_day(contract)
+    booked = {entry.date: entry.hours for entry in time_off_entries}
+
+    day = max(datetime.date(year, month, 1), contract.start_date)
+    last = min(datetime.date(year, month, calendar.monthrange(year, month)[1]), contract.end_date)
+
+    days: list[WorkedDay] = []
+    while day <= last:
+        hours = hours_per_day - booked.get(day, 0)
+        if not is_weekend(day) and hours > 0:
+            days.append(WorkedDay(date=day, hours=hours))
+
+        day += datetime.timedelta(days=1)
+
+    return days
