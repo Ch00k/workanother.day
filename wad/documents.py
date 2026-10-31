@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import calendar
+import dataclasses
+import datetime
+from collections import defaultdict
 from pathlib import Path
 
 from django.conf import settings
@@ -8,9 +12,10 @@ from django.template.loader import render_to_string
 from weasyprint import HTML
 from weasyprint.urls import URLFetcher
 
+from wad.calendar_utils import WorkedDay, compute_monthly_summary, days_in, worked_days
 from wad.countries import country_name
 from wad.ksef import verification
-from wad.models import POLAND, Invoice
+from wad.models import POLAND, Contract, Invoice
 
 # The built stylesheet, read out of the source tree rather than through the static manifest
 # so that a document renders whether or not collectstatic has run.
@@ -98,16 +103,113 @@ def invoice_html(record: Invoice) -> str:
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class RecordedMonth:
+    """A month of a contract's records: the days worked in it, and the invoices that bill it."""
+
+    start: datetime.date
+    days: list[WorkedDay]
+    days_worked: float
+    # Each invoice already drawn, by the partial a stored invoice's own page draws it with.
+    invoices: list[str]
+
+    @property
+    def hours_worked(self) -> int:
+        return sum(day.hours for day in self.days)
+
+
+def recorded_months(contract: Contract, first: datetime.date, last: datetime.date) -> list[RecordedMonth]:
+    """Every month from `first` to `last` the contract ran in, with what it billed for each.
+
+    An invoice belongs to the month it bills rather than the day it was issued, so one issued
+    in January for December's work goes with December. A correction bills the period of the
+    invoice it corrects and so follows it, in the order the two were issued. Only what has
+    been issued counts: a draft or a rejected invoice was never handed to anybody, and an
+    invoice still in flight is not yet known to be one.
+
+    A month an invoice was issued for is on record whatever the contract's term says now. The
+    term can be edited after the fact, and an invoice the buyer holds does not stop existing
+    because of it; its work record lists no days, the calendar counting none outside the term.
+    """
+    time_off = list(contract.time_off.all())  # ty: ignore[unresolved-attribute]
+    last_day = last.replace(day=calendar.monthrange(last.year, last.month)[1])
+
+    invoices = (
+        contract.invoices.filter(  # ty: ignore[unresolved-attribute]
+            state__in=Invoice.ISSUED_STATES,
+            period_start__range=(first, last_day),
+        )
+        .select_related("corrects")
+        .prefetch_related("lines", "corrects__lines")
+        .order_by("issue_date", "created_at")
+    )
+    billing: defaultdict[datetime.date, list[Invoice]] = defaultdict(list)
+    for record in invoices:
+        billing[record.period_start.replace(day=1)].append(record)
+
+    term = {
+        datetime.date(summary["year"], summary["month"], 1) for summary in compute_monthly_summary(contract, time_off)
+    }
+
+    months: list[RecordedMonth] = []
+    for start in sorted({month for month in term if first <= month <= last} | billing.keys()):
+        days = worked_days(contract, time_off, start.year, start.month)
+
+        months.append(
+            RecordedMonth(
+                start=start,
+                days=days,
+                days_worked=days_in(contract, days),
+                invoices=[
+                    render_to_string("wad/_invoice_document.html", document_context(record))
+                    for record in billing[start]
+                ],
+            )
+        )
+
+    return months
+
+
+def records_html(contract: Contract, first: datetime.date, last: datetime.date) -> str:
+    """A stretch of a contract's records as one page, each month's work followed by its invoices."""
+    return render_to_string(
+        "wad/records_page.html",
+        {
+            "contract": contract,
+            "first": first,
+            "last": last,
+            "months": recorded_months(contract, first, last),
+            "stylesheet": stylesheet(),
+        },
+    )
+
+
+def records_pdf(contract: Contract, first: datetime.date, last: datetime.date) -> bytes:
+    """Render a stretch of a contract's records to one A4 PDF.
+
+    The evidence that the services an invoice bills were supplied: the invoice itself, and a
+    record of the days worked for it. One file rather than one per invoice, because it is
+    asked for and handed over as one.
+    """
+    return _printed(records_html(contract, first, last))
+
+
 def invoice_pdf(record: Invoice) -> bytes:
     """Render an invoice to an A4 PDF, which is the document a buyer is sent.
 
     WeasyPrint rather than a browser, because it renders inside the process in a few tens
     of megabytes, where a headless browser needs a machine three times the size for the
     sake of a document printed a few times a month.
-
-    The page carries everything it needs, so the fetcher is allowed no protocol at all: a
-    resource the page asked for could only have been named by data, and a render reading a
-    local file or calling out to a host because of what a party's address said is not one
-    to make. WeasyPrint logs a refused fetch and renders on without the resource.
     """
-    return HTML(string=invoice_html(record), url_fetcher=URLFetcher(allowed_protocols=())).write_pdf()
+    return _printed(invoice_html(record))
+
+
+def _printed(html: str) -> bytes:
+    """Print a page that carries everything it needs to a PDF.
+
+    The fetcher is allowed no protocol at all: a resource the page asked for could only have
+    been named by data, and a render reading a local file or calling out to a host because
+    of what a party's address said is not one to make. WeasyPrint logs a refused fetch as an
+    error and renders on without the resource.
+    """
+    return HTML(string=html, url_fetcher=URLFetcher(allowed_protocols=())).write_pdf()

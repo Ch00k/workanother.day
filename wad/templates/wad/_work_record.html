@@ -1,0 +1,59 @@
+{% comment %}
+One month's work on a contract, as the sheet in front of the invoices that bill it: each day
+worked, with the hours worked on it, and what they add up to. The days are the calendar's as
+it stands when the file is printed. An invoice keeps what it billed, so time off booked after
+it went out, or a billed figure typed over the one it was given, makes the two differ.
+{% endcomment %}
+<div class="text-[#222]">
+    <div class="flex items-start justify-between pb-5 border-b border-[#eee] gap-6">
+        <div>
+            <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1">Work record</div>
+            {% comment %}
+            Held on one line, which a month always fits on. WeasyPrint measures text under the
+            heading's negative letter-spacing narrower than it sets it, so a box sized to the
+            month breaks it in two - and when given room to set it on one, still keeps the
+            height of two.
+            {% endcomment %}
+            <h2 class="text-[24px] font-bold tracking-tight leading-tight whitespace-nowrap">{{ month.start|date:"F Y" }}</h2>
+        </div>
+        <div class="text-sm leading-relaxed text-right">
+            {% if contract.seller %}
+            <div><span class="text-[#888]">Supplied by</span> {{ contract.seller.name }}</div>
+            {% endif %}
+            {% if contract.buyer %}
+            <div><span class="text-[#888]">Supplied to</span> {{ contract.buyer.name }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <table class="w-full border-collapse mt-6 text-sm">
+        <thead>
+            <tr class="border-b border-[#eee]">
+                <th class="text-left py-2 px-3 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Date</th>
+                <th class="text-left py-2 px-3 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Day</th>
+                <th class="text-right py-2 px-3 text-[11px] uppercase tracking-wider text-[#999] font-semibold">Hours</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for day in month.days %}
+            <tr class="border-b border-[#f5f5f5]">
+                <td class="py-1.5 px-3 money">{{ day.date|date:"j F Y" }}</td>
+                <td class="py-1.5 px-3 text-[#666]">{{ day.date|date:"l" }}</td>
+                <td class="py-1.5 px-3 text-right money">{{ day.hours }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="3" class="py-3 px-3 text-[#666]">No days were worked this month.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="2" class="pt-3 px-3 font-semibold text-[15px] border-t-2 border-[#333]">
+                    {{ month.days_worked|floatformat:"-2" }} day{{ month.days_worked|pluralize }} worked
+                </td>
+                <td class="pt-3 px-3 text-right font-semibold text-[15px] money border-t-2 border-[#333]">{{ month.hours_worked }}</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>

@@ -257,7 +257,7 @@ class CalendarPageTests(TestCase):
         page = response.content.decode()
 
         assert page.count('data-opens="monthly-dialog"') == 1
-        assert ">\n            Add\n        </button>" in page
+        assert re.search(r">\s*Add\s*</button>", page) is not None
         assert reverse("monthly_summary", kwargs={"pk": self.contract.pk}) in page
 
 

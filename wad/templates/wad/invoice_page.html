@@ -11,61 +11,7 @@ come to disagree about what an invoice looks like.
 <head>
     <meta charset="utf-8">
     <title>{{ invoice.number }}</title>
-    <style>{{ stylesheet|safe }}</style>
-    <style>
-        {% comment %}
-        The margin belongs to the page rather than to the document, so an invoice long enough
-        to run onto a second sheet is set in from the edges there too. On screen the same
-        space is the card's own padding, which only the first sheet would have.
-        {% endcomment %}
-        @page { size: A4; margin: 14mm 18mm; }
-        {% comment %}
-        Three rules of the stylesheet restated for WeasyPrint, which drops each as written.
-
-        A border utility sets its style from --tw-border-style, whose value of solid Tailwind
-        declares through @property, with a fallback for other browsers behind @supports.
-        WeasyPrint reads neither, and a style from a variable that is never set comes out
-        as none: every rule on the document would vanish.
-
-        The reset gives every box a zero margin and a solid border of no width. Tailwind
-        writes it for a selector list that ends in ::backdrop, which WeasyPrint does not
-        know, and an unknown selector discards the whole rule.
-
-        The two columns of the parties belong to any page wider than the sm breakpoint, and
-        A4 is. WeasyPrint reads a media query's type and nothing after it, so a rule behind
-        a min-width never applies.
-
-        Each goes back into the layer it came from, so it ranks against the utilities as it
-        does in the stylesheet.
-        {% endcomment %}
-        @layer properties { *, ::before, ::after { --tw-border-style: solid; } }
-        @layer base { *, ::before, ::after { box-sizing: border-box; border: 0 solid; margin: 0; padding: 0; } }
-        @layer utilities { .sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-        {% comment %}
-        The document names its own face. The stack the application inherits from Tailwind
-        asks for ui-sans-serif and system-ui, neither of which exists on a Linux image, and
-        fontconfig answers a family it does not hold with whichever one scores best - which
-        for a slim image is a monospace face. Arial is the metric alias Liberation Sans
-        answers to, so this resolves whether or not the renderer has Arial itself.
-        {% endcomment %}
-        body { background: #fff; font-family: Arial, "Liberation Sans", Helvetica, sans-serif; }
-        .invoice-page {
-            margin: 0;
-            box-shadow: none;
-            border: none;
-            border-radius: 0;
-            max-width: none;
-            padding: 0;
-        }
-        .invoice-page .money { font-variant-numeric: tabular-nums; }
-        {% comment %}
-        Each block of the document stays on one sheet: the parties, the totals, the notes,
-        the payment details, the KSeF code. What may be split is the table of billed lines,
-        because it is the only part that can grow without limit - and its rows are held
-        together one by one so a break falls between lines rather than through one.
-        {% endcomment %}
-        .invoice-page > div, .invoice-page tr { break-inside: avoid; }
-    </style>
+    {% include "wad/_document_styles.html" %}
 </head>
 <body>
 {% include "wad/_invoice_document.html" %}

@@ -1,0 +1,45 @@
+{% comment %}
+The records a tax office asks for to see that the services were supplied, in one file.
+A plain GET: it changes nothing, and the period is what the URL says.
+
+A whole year is what is usually asked for, so that is the choice; a range of months is
+there beside it. The range is left out of the form until it is chosen, disabled as well as
+hidden, so a year is sent as a year and nothing else. The choice is not restored on a
+reload, which would bring back "Custom range" with the range it reveals still hidden.
+{% endcomment %}
+<p class="text-sm text-[#666]">
+    One PDF of every issued invoice for the months chosen, each month's preceded by a sheet
+    listing the days worked in it.
+</p>
+<form method="get" action="{% url 'contract_records' pk=contract.pk %}"
+      class="mt-4 flex flex-wrap gap-3 items-end">
+    <div>
+        <label for="records-period" class="block text-sm font-medium text-[#666] mb-1">Period</label>
+        <select id="records-period" name="period" class="field" autocomplete="off"
+                data-reveals="records-range" data-reveals-for="custom">
+            {% for year in records_years %}
+            <option value="{{ year }}" {% if year == records_year %}selected{% endif %}>{{ year }}</option>
+            {% endfor %}
+            <option value="custom">Custom range</option>
+        </select>
+    </div>
+    <fieldset id="records-range" class="flex flex-wrap gap-3 items-end border-0 p-0 m-0" hidden disabled>
+        <div>
+            <label for="records-from" class="block text-sm font-medium text-[#666] mb-1">From</label>
+            <select id="records-from" name="from" class="field">
+                {% for month in records_months %}
+                <option value="{{ month|date:'Y-m' }}" {% if month == records_range.0 %}selected{% endif %}>{{ month|date:"F Y" }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label for="records-to" class="block text-sm font-medium text-[#666] mb-1">To</label>
+            <select id="records-to" name="to" class="field">
+                {% for month in records_months %}
+                <option value="{{ month|date:'Y-m' }}" {% if month == records_range.1 %}selected{% endif %}>{{ month|date:"F Y" }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </fieldset>
+    <button type="submit" class="btn btn-primary">Download</button>
+</form>

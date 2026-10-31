@@ -356,8 +356,8 @@ that way.
 
 WeasyPrint is not a browser, and drops parts of what Tailwind writes: `@property`,
 `@supports`, media queries on anything but the media type, and any rule whose selector list
-names a pseudo-element it does not know. `invoice_page.html` restates the few rules the
-document depends on, and `PrintedLayoutTests` in `wad/tests/test_documents.py` fails when one
+names a pseudo-element it does not know. `_document_styles.html`, which every printed page
+includes, restates the few rules the documents depend on, and `PrintedLayoutTests` in `wad/tests/test_documents.py` fails when one
 of them stops applying. A change to the document partial is worth printing once to look at.
 
 Nothing is stored. Everything the document is drawn from is frozen once the invoice is
@@ -369,6 +369,22 @@ is still the browser's print command. It is the only place it can be.
 The document names its own font. Left to inherit the application's stack it asks for
 `ui-sans-serif` and `system-ui`, which no Linux image has, and fontconfig answers a family
 it does not hold with whatever scores best — for a slim image, a monospace face.
+
+## Records of the work
+
+`Records`, beside `Add` on a contract's invoices page, prints a whole year, or a custom range
+of months, as one PDF. Only the months of the term that are over are on record, a month still
+under way having days in it nobody has worked yet. It starts out on last calendar year, or on
+the latest year the contract ran in where it did not run then. For each month there is a work
+record listing every day worked with its hours, followed by every invoice issued for that
+month, corrections included. It is the evidence that the services were supplied, which a tax
+office asks for alongside the invoices themselves. An invoice goes with the month it bills
+rather than the day it was issued, and drafts are left out. The days are the calendar's as it
+stands when the file is printed, weekdays inside the term less booked time off. An invoice
+keeps what it billed, so time off booked after it went out makes the two differ. A month an
+invoice was issued for stays on record even where the contract's term has since been edited to
+leave it out. Printed by `wad/templates/wad/records_page.html`, by the same renderer and with
+the same invoice partial as `Download PDF`.
 
 ## Sending the invoice to the buyer
 
