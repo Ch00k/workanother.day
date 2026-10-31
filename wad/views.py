@@ -37,7 +37,7 @@ from wad.calendar_utils import (
     today_in_poland,
 )
 from wad.countries import COUNTRIES, country_name
-from wad.documents import RenderError, document_context, invoice_pdf, verification_url
+from wad.documents import RenderError, document_context, invoice_pdf, records_pdf, verification_url
 from wad.ical import ImportError as ICalImportError
 from wad.ical import Reminders, export_time_off, export_user_calendar, import_time_off
 from wad.invoicing import (
@@ -3365,8 +3365,143 @@ def invoice_list(request: HttpRequest, pk: str) -> HttpResponse:
                     "deliveries",
                 ).select_related("corrects")
             ),
+            **_records_choices(contract),
         },
     )
+
+
+def _latest_month_over() -> datetime.date:
+    """The latest month whose last day has come, which is the latest a record is kept of.
+
+    The same day a month becomes invoiceable on. A month still under way has days in it
+    nobody has worked yet, and a work record listing them would claim they were.
+    """
+    today = today_in_poland()
+    if today == _month_end(today.year, today.month):
+        return today.replace(day=1)
+
+    return (today.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
+
+
+def _records_months(contract: Contract) -> list[datetime.date]:
+    """The months a contract's records can be asked for: those that are over, of its term.
+
+    And of any invoice issued for it, which stays on record however the term is edited
+    afterwards.
+    """
+    latest = _latest_month_over()
+    months = {
+        period_start.replace(day=1)
+        for period_start in contract.invoices.filter(  # ty: ignore[unresolved-attribute]
+            state__in=Invoice.ISSUED_STATES
+        ).values_list("period_start", flat=True)
+    }
+
+    current = contract.start_date.replace(day=1)
+    while current <= contract.end_date.replace(day=1):
+        months.add(current)
+        current = (current + datetime.timedelta(days=31)).replace(day=1)
+
+    return sorted(month for month in months if month <= latest)
+
+
+def _records_choices(contract: Contract) -> dict[str, object]:
+    """What the records dialog offers: whole years, or a range of the months on record.
+
+    It starts out on last calendar year, the one a return has just been filed for. Where the
+    contract did not run then - it started this year, or ended before last - it starts on
+    the latest year it did run in instead, so the default never asks for a file with nothing
+    in it. The range starts out on the same months, so choosing it begins from that year.
+    """
+    months = _records_months(contract)
+    if not months:
+        return {"records_months": []}
+
+    years = sorted({month.year for month in months}, reverse=True)
+    last_year = today_in_poland().year - 1
+    year = last_year if last_year in years else years[0]
+    in_year = [month for month in months if month.year == year]
+
+    return {
+        "records_months": months,
+        "records_years": years,
+        "records_year": year,
+        "records_range": (in_year[0], in_year[-1]),
+    }
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
+def contract_records(request: HttpRequest, pk: str) -> HttpResponse:
+    """Hand over a stretch of a contract's invoices, with the days worked for each, as one PDF.
+
+    What is asked for when the services an invoice bills have to be shown to have been
+    supplied. The stretch is a whole year, given as `period`, or a range of months, given as
+    `from` and `to` inclusive, because a month is what an invoice bills. Either way it stops
+    at the latest month that is over.
+    """
+    contract = get_object_or_404(Contract, pk=pk)
+    if contract.user != request.user or not _is_account_holder(request):
+        raise Http404
+
+    period = request.GET.get("period", "custom")
+    try:
+        if period == "custom":
+            first = _month_parameter(request.GET.get("from", ""))
+            last = _month_parameter(request.GET.get("to", ""))
+            name = f"{first:%Y-%m}_to_{last:%Y-%m}"
+        else:
+            first, last = _year_parameter(period)
+            name = period
+    except ValueError:
+        return HttpResponse("A period is a year as YYYY, or a range of months as YYYY-MM.", status=400)
+
+    if first > last:
+        return HttpResponse("The period has to start before it ends.", status=400)
+
+    last = min(last, _latest_month_over())
+    if first > last:
+        return HttpResponse("No month of that period is over yet, so none of it is on record.", status=400)
+
+    try:
+        pdf = records_pdf(contract, first, last)
+    except RenderError:
+        logger.exception("No records could be produced for contract %s", contract.pk)
+        return HttpResponse("The document could not be produced. Try again in a moment.", status=503)
+
+    response = HttpResponse(pdf, content_type="application/pdf")
+    response["Content-Disposition"] = content_disposition_header(
+        as_attachment=True,
+        filename=f"{contract.name.replace(' ', '_')}_{name}.pdf",
+    )
+
+    return response
+
+
+def _month_parameter(value: str) -> datetime.date:
+    """The first day of a month given as YYYY-MM, which is what the month lists submit.
+
+    Raises ValueError for anything else.
+    """
+    match = re.fullmatch(r"(\d{4})-(\d{2})", value)
+    if match is None:
+        message = f"{value!r} is not a month."
+        raise ValueError(message)
+
+    return datetime.date(int(match[1]), int(match[2]), 1)
+
+
+def _year_parameter(value: str) -> tuple[datetime.date, datetime.date]:
+    """The first and the last month of a year given as YYYY.
+
+    Raises ValueError for anything else.
+    """
+    if re.fullmatch(r"\d{4}", value) is None:
+        message = f"{value!r} is not a year."
+        raise ValueError(message)
+
+    year = int(value)
+
+    return datetime.date(year, 1, 1), datetime.date(year, 12, 1)
 
 
 @require_GET  # ty: ignore[invalid-argument-type]

@@ -1,0 +1,39 @@
+{% comment %}
+The styles a printed document carries: the whole built stylesheet inline, because the
+renderer is handed a file and can reach nothing else, and the rules for the printed sheet.
+Shared by every page that is rendered to PDF, so an invoice prints alike on its own and
+among a contract's records.
+{% endcomment %}
+<style>{{ stylesheet|safe }}</style>
+<style>
+    {% comment %}
+    The margin belongs to the page rather than to the document, so an invoice long enough
+    to run onto a second sheet is set in from the edges there too. On screen the same
+    space is the card's own padding, which only the first sheet would have.
+    {% endcomment %}
+    @page { size: A4; margin: 14mm 18mm; }
+    {% comment %}
+    The document names its own face. The stack the application inherits from Tailwind
+    asks for ui-sans-serif and system-ui, neither of which exists on a Linux image, and
+    fontconfig answers a family it does not hold with whichever one scores best - which
+    for a slim image is a monospace face. Arial is the metric alias Liberation Sans
+    answers to, so this resolves whether or not the renderer has Arial itself.
+    {% endcomment %}
+    body { background: #fff; font-family: Arial, "Liberation Sans", Helvetica, sans-serif; }
+    .invoice-page {
+        margin: 0;
+        box-shadow: none;
+        border: none;
+        border-radius: 0;
+        max-width: none;
+        padding: 0;
+    }
+    .invoice-page .money { font-variant-numeric: tabular-nums; }
+    {% comment %}
+    Each block of the document stays on one sheet: the parties, the totals, the notes,
+    the payment details, the KSeF code. What may be split is the table of billed lines,
+    because it is the only part that can grow without limit - and its rows are held
+    together one by one so a break falls between lines rather than through one.
+    {% endcomment %}
+    .invoice-page > div, .invoice-page tr { break-inside: avoid; }
+</style>
