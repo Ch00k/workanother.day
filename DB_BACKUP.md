@@ -36,21 +36,24 @@ Two things, in this order:
 
 ## The daily copy
 
-Four steps, run from a GitHub Actions schedule because a Fly volume attaches to exactly one
+Five steps, run from a GitHub Actions schedule because a Fly volume attaches to exactly one
 machine, so nothing scheduled alongside the app can read the database file:
 
 ```bash
-curl --fail --silent --show-error --output /dev/null https://workanother.day/health/
+curl --fail --silent --show-error --retry 6 --retry-delay 5 --retry-all-errors --max-time 30 --output /dev/null https://workanother.day/health/
 flyctl ssh console -a workanotherday -C "/app/.venv/bin/python /app/manage.py backup_database /app/data/backup.sqlite3"
 flyctl sftp get /app/data/backup.sqlite3 backup.sqlite3 -a workanotherday
+curl --fail --silent --show-error --retry 6 --retry-delay 5 --retry-all-errors --max-time 30 --output /dev/null https://workanother.day/health/
 flyctl ssh console -a workanotherday -C "rm -f /app/data/backup.sqlite3"
 ```
 
 The machine is suspended when idle, and only a request through Fly's proxy wakes it: SSH does
 not, and `fly ssh console` against a suspended machine fails with "no started VMs". The request to
-`/health/` returns once the application answers. Nothing keeps the machine awake afterwards, since
-an SSH session is not traffic the proxy counts, so Fly could suspend it again mid-copy; the copy
-takes seconds, and a run cut off fails like any other.
+`/health/` returns once the application answers, retried for the half a minute a machine booting
+a fresh release takes to get there. Nothing keeps the machine awake afterwards, since an SSH
+session is not traffic the proxy counts, so Fly could suspend it again mid-copy; the copy takes
+seconds, and a run cut off fails like any other. The removal at the end comes after the uploads,
+which are not seconds, so it wakes the machine again first.
 
 `backup_database` is `VACUUM INTO`, which is safe against the live database and produces one
 self-contained file. The copy is removed from the volume whether or not the fetch worked, and
