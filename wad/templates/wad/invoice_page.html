@@ -3,8 +3,8 @@ The invoice on a page of its own, which is what is rendered to PDF and sent to t
 Nothing of the application around it: no navigation, no panel saying where the invoice
 stands, nothing but the document.
 
-The stylesheet is carried inline because the renderer is handed a file and can reach
-nothing else. The document itself is the same partial the screen draws, so the two cannot
+The stylesheet is carried inline because the renderer is handed the page as a string and
+may fetch nothing. The document itself is the same partial the screen draws, so the two cannot
 come to disagree about what an invoice looks like.
 {% endcomment %}
 <html lang="en">

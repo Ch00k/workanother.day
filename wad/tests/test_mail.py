@@ -1,9 +1,8 @@
 """Sending the invoice to the buyer, which art. 106gb ust. 4 requires and KSeF does not do.
 
-The message is built and sent here; whether a browser was available to print the document
-decides which of these can run, so the ones that need a real PDF say so. Nothing stands in
-for the mail backend beyond Django's own in-memory one, and the failure tests fail for real
-reasons: no browser to print with, and a mail server that refuses the connection.
+The message is built and sent here, with a real PDF attached. Nothing stands in for the mail
+backend beyond Django's own in-memory one, and the failure tests fail for real reasons: no
+stylesheet to render the document with, and a mail server that refuses the connection.
 """
 
 from __future__ import annotations
@@ -34,7 +33,7 @@ from wad.mail import (
 from wad.models import Buyer, Contract, Delivery, Guest, Invoice, Seller
 from wad.tests.factories import store_invoice
 from wad.tests.pages import button_disabled, button_labelled
-from wad.tests.test_documents import chromium_installed
+from wad.tests.test_documents import renderer_fails, without_stylesheet
 
 TODAY = today_in_poland()
 LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
@@ -117,7 +116,6 @@ class UndeliverableReasonTests(MailTestCase):
         assert "nothing to send it from" in undeliverable_reason(self.invoice)
 
 
-@chromium_installed
 class MessageTests(MailTestCase):
     def test_the_invoice_travels_as_a_pdf(self) -> None:
         send_invoice(self.invoice)
@@ -164,7 +162,6 @@ class MessageTests(MailTestCase):
         assert "IBAN" not in body
 
 
-@chromium_installed
 class DeliveryRecordTests(MailTestCase):
     def test_sending_records_that_it_went(self) -> None:
         delivery = send_invoice(self.invoice)
@@ -211,19 +208,27 @@ class SendFailureTests(MailTestCase):
     """A failure is recorded rather than raised: it is why an invoice is still undelivered."""
 
     def test_a_document_that_could_not_be_printed_is_not_sent(self) -> None:
-        with override_settings(CHROMIUM_PATH="/nonexistent/chromium"):
+        with without_stylesheet():
             delivery = send_invoice(self.invoice)
 
         assert not delivery.delivered
         assert mail.outbox == []
 
+    def test_a_renderer_that_fails_partway_still_records_the_attempt(self) -> None:
+        """What WeasyPrint raised is the reason the row gives for nothing having gone."""
+        with renderer_fails(), self.assertLogs("wad.mail", level="ERROR"):
+            delivery = send_invoice(self.invoice)
+
+        assert not delivery.delivered
+        assert "list index out of range" in delivery.error
+        assert mail.outbox == []
+
     def test_a_failed_render_still_records_the_attempt(self) -> None:
-        with override_settings(CHROMIUM_PATH="/nonexistent/chromium"):
+        with without_stylesheet():
             send_invoice(self.invoice)
 
         assert self.invoice.deliveries.count() == 1  # ty: ignore[unresolved-attribute]
 
-    @chromium_installed
     @override_settings(
         MAILERS={
             "default": {
@@ -241,7 +246,6 @@ class SendFailureTests(MailTestCase):
         # though nothing went: what failed is the sending, not the invoice.
         assert delivery.pdf_sha256
 
-    @chromium_installed
     def test_a_name_no_header_can_carry_is_recorded_rather_than_raised(self) -> None:
         """The seller's name goes into the subject and the From header, and only leading and
         trailing whitespace is stripped from it when it is stored - so a name with a newline
@@ -262,7 +266,6 @@ class DeliverViewTests(MailTestCase):
     def _url(self) -> str:
         return reverse("invoice_deliver", kwargs={"pk": self.invoice.pk})
 
-    @chromium_installed
     def test_sending_answers_with_the_row_the_page_would_have_drawn(self) -> None:
         """The card puts what comes back straight into the list of attempts, so it comes back
         as the row itself rather than as parts for the browser to assemble."""
@@ -279,7 +282,6 @@ class DeliverViewTests(MailTestCase):
         assert "sent" in state["html"]
         assert len(mail.outbox) == 1
 
-    @chromium_installed
     def test_the_row_it_answers_with_is_the_one_the_page_draws(self) -> None:
         """The list must not gain a row that reads unlike the rows already in it, which is the
         whole reason the endpoint returns markup rather than fields."""
@@ -288,10 +290,9 @@ class DeliverViewTests(MailTestCase):
 
         assert " ".join(state["html"].split()) in " ".join(page.split())
 
-    @chromium_installed
     def test_a_failure_is_answered_with_too(self) -> None:
         """A failed attempt is a row like any other, and the reason is what the row says."""
-        with override_settings(CHROMIUM_PATH="/nonexistent/chromium"):
+        with without_stylesheet():
             response = self.client.post(self._url())
 
         state = response.json()
@@ -545,7 +546,6 @@ class MessageWordingTests(MailTestCase):
 
         assert _body(self.invoice).startswith("Reference {ZYT} for ")
 
-    @chromium_installed
     def test_the_wording_is_what_reaches_the_buyer(self) -> None:
         self._write(subject="Invoice for {period}", body="Dear {buyer_name},\n\n{number} attached.")
 

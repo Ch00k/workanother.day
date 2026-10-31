@@ -20,7 +20,7 @@ no gap at all at document sizes, and U+00A0 is a full word space.
 The decimals keep their dot, because a comma there is what a reader outside Poland is liable to
 take for the grouping mark, and this document is written to be read by one.
 
-Chromium maps the gap to an ordinary space in the text layer of the PDF it prints, so an amount
+The printed PDF carries the gap as an ordinary space in its text layer, so an amount
 copied out of the document a buyer is sent arrives as `119 596.79` with a plain space in it. That
 is the friendliest whitespace to paste into a form that wants a figure, and nothing here can
 change it: a gap between digit groups is recovered as a space by text extraction whether a

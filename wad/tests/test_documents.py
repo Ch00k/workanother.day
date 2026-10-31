@@ -1,28 +1,34 @@
 """The invoice as a document: the page it is drawn on, and the file that comes out.
 
-Two halves, tested apart because they fail apart. The page is Django rendering a template
-and can be checked anywhere. The file needs a browser to print it, so those tests run only
-where one is installed - and when they do, they print a real PDF rather than assert against
-a stand-in for one.
+Two halves, tested apart because they fail apart. The page is Django rendering a template.
+The file is that page printed for real, by the same renderer production uses, rather than
+asserted against a stand-in for one.
 """
 
 from __future__ import annotations
 
 import datetime
-import pathlib
 import re
+import zlib
+from typing import TYPE_CHECKING
+from unittest import mock
 
 import pytest
-from django.conf import settings
 from django.contrib.auth.models import User
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
+from weasyprint import HTML
+from weasyprint.formatting_structure.boxes import Box, LineBox
 
 from wad.calendar_utils import today_in_poland
-from wad.documents import RenderError, invoice_html, invoice_pdf, records_html
+from wad.documents import RenderError, invoice_html, invoice_pdf, printable, records_html
 from wad.models import Buyer, Contract, Guest, Invoice, Seller, TimeOff
 from wad.tests.clock import today_is
 from wad.tests.factories import store_invoice
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from contextlib import AbstractContextManager
 
 TODAY = today_in_poland()
 LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
@@ -31,10 +37,37 @@ LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
 # renderer's own default paper happens to be.
 A4_POINTS = (595, 842)
 
-chromium_installed = pytest.mark.skipif(
-    not pathlib.Path(settings.CHROMIUM_PATH).exists(),
-    reason=f"no browser at {settings.CHROMIUM_PATH} to print with",
-)
+# The left margin the document page's @page rule sets, in the CSS pixels WeasyPrint lays out in.
+PAGE_MARGIN_LEFT_PX = 18 * 96 / 25.4
+
+
+def without_stylesheet() -> override_settings:
+    """Settings under which the built stylesheet cannot be found, so no document renders.
+
+    A render needs nothing outside the process but the stylesheet, so this is the one way a
+    real render fails.
+    """
+    return override_settings(STATICFILES_DIRS=[])
+
+
+def renderer_fails() -> AbstractContextManager[object]:
+    """WeasyPrint raising partway through a render, as a layout it cannot handle makes it do.
+
+    No document this application writes is known to provoke one, so the failure is put
+    where the renderer would raise it.
+    """
+    return mock.patch.object(HTML, "write_pdf", side_effect=IndexError("list index out of range"))
+
+
+def _objects(pdf: bytes) -> bytes:
+    """The file with every compressed stream inflated after it, so its objects can be searched.
+
+    The renderer packs the page tree into compressed object streams, where a dictionary such
+    as a page's /MediaBox is not in the file's bytes as written.
+    """
+    streams = re.findall(rb"stream\r?\n(.*?)\r?\nendstream", pdf, flags=re.DOTALL)
+
+    return pdf + b"".join(zlib.decompress(stream) for stream in streams)
 
 
 class DocumentTestCase(TestCase):
@@ -125,7 +158,6 @@ class DocumentPageTests(DocumentTestCase):
         assert "NOT ISSUED" in invoice_html(self.invoice).upper()
 
 
-@chromium_installed
 class PrintedDocumentTests(DocumentTestCase):
     """What the renderer actually produces, printed for real."""
 
@@ -136,7 +168,7 @@ class PrintedDocumentTests(DocumentTestCase):
 
     def test_the_page_box_is_a4(self) -> None:
         """The size comes from the document's own @page rule rather than a default."""
-        pdf = invoice_pdf(self.invoice)
+        pdf = _objects(invoice_pdf(self.invoice))
 
         box = re.search(rb"/MediaBox \[([^\]]*)\]", pdf)
         assert box is not None
@@ -145,16 +177,65 @@ class PrintedDocumentTests(DocumentTestCase):
         assert (width, height) == A4_POINTS
 
     def test_one_invoice_is_one_sheet(self) -> None:
-        pdf = invoice_pdf(self.invoice)
+        assert _pages(invoice_pdf(self.invoice)) == 1
 
-        assert re.search(rb"/Count 1\b", pdf) is not None
+
+class PrintedLayoutTests(DocumentTestCase):
+    """The parts of the stylesheet WeasyPrint drops as written, which the document page restates.
+
+    Read off the boxes the renderer lays out, since a PDF holds no trace of a rule that was
+    dropped: the document still comes out, one sheet of A4, only missing its lines or set
+    out in one column.
+    """
+
+    def _boxes(self) -> Iterator[Box]:
+        return _laid_out(invoice_html(self.invoice))
+
+    def _box(self, **attributes: str) -> Box:
+        """The first box drawn for the element carrying all of the given attributes."""
+        return next(
+            box
+            for box in self._boxes()
+            if box.element is not None and all(box.element.get(name) == value for name, value in attributes.items())
+        )
+
+    def test_the_rules_are_drawn(self) -> None:
+        """Every border utility takes its style from a variable Tailwind declares through
+        @property, so without it the line under the table header is not there at all."""
+        header = next(box for box in self._boxes() if box.element_tag == "th")
+
+        assert header.style["border_bottom_style"] == "solid"
+        assert header.style["border_bottom_width"] == 2
+
+    def test_the_parties_stand_side_by_side(self) -> None:
+        """A4 is wider than the breakpoint the two columns appear at, which WeasyPrint does not
+        read: without the page restating it, the buyer is set out under the seller."""
+        seller = self._box(**{"data-field": "from_name_body"})
+        buyer = self._box(**{"data-field": "to_name"})
+
+        assert seller.content_box_y() == buyer.content_box_y()
+        assert seller.content_box_x() < buyer.content_box_x()
+
+    def test_the_seller_name_is_set_on_one_line(self) -> None:
+        """WeasyPrint measures the heading's tightened letters narrower than it sets them, so a
+        box sized to the name breaks it in two."""
+        name = self._box(**{"data-field": "from_name"})
+
+        assert _lines(name) == 1
+
+    def test_the_document_starts_at_the_page_margin(self) -> None:
+        """The stylesheet's reset zeroes every margin, the body's included. WeasyPrint drops it
+        for its ::backdrop selector, and the body's default margin then sets the whole document
+        in from the margin the page already has."""
+        name = self._box(**{"data-field": "from_name"})
+
+        assert name.content_box_x() == pytest.approx(PAGE_MARGIN_LEFT_PX)
 
 
 class DocumentDownloadTests(DocumentTestCase):
     def _url(self, record: Invoice | None = None) -> str:
         return reverse("invoice_document", kwargs={"pk": (record or self.invoice).pk})
 
-    @chromium_installed
     def test_the_owner_is_given_the_file(self) -> None:
         response = self.client.get(self._url())
 
@@ -163,19 +244,29 @@ class DocumentDownloadTests(DocumentTestCase):
         assert f'filename="{self.invoice.number}.pdf"' in response["Content-Disposition"]
         assert response.content.startswith(b"%PDF-")
 
-    def test_a_browser_that_will_not_start_is_said_so_rather_than_crashed_on(self) -> None:
-        with override_settings(CHROMIUM_PATH="/nonexistent/chromium"):
+    def test_a_document_that_cannot_be_rendered_is_said_so_rather_than_crashed_on(self) -> None:
+        with without_stylesheet():
             response = self.client.get(self._url())
 
         assert response.status_code == 503
         assert b"could not be produced" in response.content
 
-    def test_the_reason_a_render_failed_is_not_shown_to_the_reader(self) -> None:
-        """It names a path on the server, which is neither useful nor theirs to know."""
-        with override_settings(CHROMIUM_PATH="/nonexistent/chromium"):
+    def test_a_renderer_that_fails_partway_is_said_so_rather_than_crashed_on(self) -> None:
+        """The failure is logged for whoever runs the instance, with the invoice it was for."""
+        with renderer_fails(), self.assertLogs("wad.views", level="ERROR") as logs:
             response = self.client.get(self._url())
 
-        assert b"nonexistent" not in response.content
+        assert response.status_code == 503
+        (record,) = logs.records
+        assert record.getMessage() == f"No document could be produced for invoice {self.invoice.number}"
+        assert record.exc_info is not None
+
+    def test_the_reason_a_render_failed_is_not_shown_to_the_reader(self) -> None:
+        """It names a file on the server, which is neither useful nor theirs to know."""
+        with without_stylesheet():
+            response = self.client.get(self._url())
+
+        assert b"output.css" not in response.content
 
     def test_somebody_elses_invoice_is_not_there(self) -> None:
         intruder = User.objects.create_user(username="intruder", password="pw")
@@ -195,10 +286,33 @@ class DocumentDownloadTests(DocumentTestCase):
 
 
 class RenderFailureTests(DocumentTestCase):
-    def test_a_missing_browser_is_reported_as_a_render_failure(self) -> None:
-        """Not an OSError from halfway down: the caller is deciding what to tell a reader."""
-        with override_settings(CHROMIUM_PATH="/nonexistent/chromium"), pytest.raises(RenderError):
+    def test_a_missing_stylesheet_is_reported_as_a_render_failure(self) -> None:
+        """Not an unstyled document: the caller is deciding what to tell a reader."""
+        with without_stylesheet(), pytest.raises(RenderError):
             invoice_pdf(self.invoice)
+
+    def test_a_failure_inside_the_renderer_is_reported_as_a_render_failure(self) -> None:
+        """Whatever WeasyPrint raises leaves the document as missing as a missing stylesheet
+        does, and the caller answers both the same way."""
+        with renderer_fails(), pytest.raises(RenderError, match="could not render invoice"):
+            invoice_pdf(self.invoice)
+
+
+class RefusedFetchTests(SimpleTestCase):
+    """The renderer fetches nothing, whatever a page names."""
+
+    def test_a_local_file_and_a_host_are_both_refused(self) -> None:
+        """A page naming a file on the server and a host to call is printed without either,
+        and each refusal is logged as the error WeasyPrint makes of a resource it could not
+        load."""
+        page = '<img src="file:///etc/hostname"><link rel="stylesheet" href="http://127.0.0.1:1/x.css">'
+
+        with self.assertLogs("weasyprint", level="ERROR") as logs:
+            pdf = printable(page).write_pdf()
+
+        assert pdf.startswith(b"%PDF-")
+        assert len(logs.records) == 2
+        assert all("disallowed protocol" in record.getMessage() for record in logs.records)
 
 
 class RecordsTestCase(DocumentTestCase):
@@ -220,9 +334,26 @@ class RecordsTestCase(DocumentTestCase):
         return record
 
 
+def _laid_out(html: str) -> Iterator[Box]:
+    """The boxes of a page's first sheet, as the renderer production uses lays them out.
+
+    WeasyPrint has no public API for its layout, so this and what the tests read off the
+    boxes (their style, their position, their line boxes) are its internals. An upgrade that
+    breaks these tests with an AttributeError has moved them, not the document.
+    """
+    page = printable(html).render().pages[0]
+
+    return page._page_box.descendants()
+
+
+def _lines(box: Box) -> int:
+    """How many lines a block's text is set on."""
+    return sum(isinstance(child, LineBox) for child in box.children)
+
+
 def _pages(pdf: bytes) -> int:
     """How many sheets a PDF has: the largest count in its page tree, which may be nested."""
-    return max(int(count) for count in re.findall(rb"/Count (\d+)", pdf))
+    return max(int(count) for count in re.findall(rb"/Count (\d+)", _objects(pdf)))
 
 
 def _body(page: str) -> str:
@@ -239,6 +370,18 @@ class RecordsPageTests(RecordsTestCase):
         assert page.index("November 2025") < page.index(self.november.number)
         assert page.index(self.november.number) < page.index("December 2025")
         assert page.index("December 2025") < page.index(self.december.number)
+
+    def test_the_month_a_work_record_is_for_is_set_on_one_line(self) -> None:
+        """Its heading is set with the same tightened letters as the invoice's seller name, and
+        is as liable to be broken in two by WeasyPrint measuring them narrower than it sets
+        them - or set on one line in a column still as tall as two, which leaves a gap
+        under it where the column is taller than what it holds."""
+        boxes = list(_laid_out(records_html(self.contract, self.NOVEMBER, self.NOVEMBER)))
+        heading = next(box for box in boxes if box.element_tag == "h2")
+        column = next(box for box in boxes if heading in getattr(box, "children", ()))
+
+        assert _lines(heading) == 1
+        assert column.border_height() == pytest.approx(sum(child.margin_height() for child in column.children))
 
     def test_only_the_months_asked_for_are_in_it(self) -> None:
         page = records_html(self.contract, self.DECEMBER, self.DECEMBER)
@@ -338,7 +481,6 @@ class RecordsDownloadTests(RecordsTestCase):
     def _period(self) -> dict[str, str]:
         return {"from": "2025-11", "to": "2025-12"}
 
-    @chromium_installed
     def test_the_owner_is_given_one_file_of_all_of_it(self) -> None:
         response = self.client.get(self._url(), self._period())
 
@@ -348,7 +490,6 @@ class RecordsDownloadTests(RecordsTestCase):
         # A work record and an invoice for each of the two months, a sheet apiece.
         assert _pages(response.content) == 4
 
-    @chromium_installed
     def test_a_whole_year_is_every_month_of_it(self) -> None:
         response = self.client.get(self._url(), {"period": "2025"})
 
@@ -357,7 +498,6 @@ class RecordsDownloadTests(RecordsTestCase):
         # Twelve work records, and the invoices for November and December.
         assert _pages(response.content) == 14
 
-    @chromium_installed
     def test_a_year_still_under_way_stops_at_the_last_month_that_is_over(self) -> None:
         """March has days in it nobody has worked yet, so it is not on record."""
         with today_is(datetime.date(2026, 3, 15)):
@@ -367,8 +507,8 @@ class RecordsDownloadTests(RecordsTestCase):
         assert _pages(response.content) == 2
 
     def test_a_period_with_no_month_over_yet_is_refused_rather_than_printed_empty(self) -> None:
-        with today_is(datetime.date(2026, 3, 15)), override_settings(CHROMIUM_PATH="/nonexistent/chromium"):
-            # A browser that cannot start answers 503, so a 400 here is one never asked to print.
+        with today_is(datetime.date(2026, 3, 15)), without_stylesheet():
+            # A render that cannot happen answers 503, so a 400 here is one never asked to print.
             year = self.client.get(self._url(), {"period": "2027"})
             months = self.client.get(self._url(), {"from": "2026-03", "to": "2026-05"})
 
@@ -459,12 +599,12 @@ class RecordsDownloadTests(RecordsTestCase):
 
         assert response.status_code == 400
 
-    def test_a_browser_that_will_not_start_is_said_so_rather_than_crashed_on(self) -> None:
-        with override_settings(CHROMIUM_PATH="/nonexistent/chromium"):
+    def test_a_document_that_cannot_be_rendered_is_said_so_rather_than_crashed_on(self) -> None:
+        with without_stylesheet():
             response = self.client.get(self._url(), self._period())
 
         assert response.status_code == 503
-        assert b"nonexistent" not in response.content
+        assert b"output.css" not in response.content
 
     def test_somebody_elses_contract_is_not_there(self) -> None:
         intruder = User.objects.create_user(username="intruder", password="pw")

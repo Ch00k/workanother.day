@@ -21,7 +21,12 @@ document itself is defined once.
         </div>
         {% endif %}
         <div class="flex items-start justify-between pb-5 border-b border-[#eee] gap-6">
-            <div>
+            {% comment %}
+            The name takes whatever width the dates leave. Sized to its content instead, it
+            breaks onto two lines in the PDF: WeasyPrint measures text under the heading's
+            negative letter-spacing narrower than it sets it.
+            {% endcomment %}
+            <div class="grow">
                 <h2 class="text-[24px] font-bold tracking-tight leading-tight" data-field="from_name">{{ invoice.seller_name }}</h2>
             </div>
             <div class="text-right">

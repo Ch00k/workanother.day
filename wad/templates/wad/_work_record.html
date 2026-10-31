@@ -8,7 +8,13 @@ it went out, or a billed figure typed over the one it was given, makes the two d
     <div class="flex items-start justify-between pb-5 border-b border-[#eee] gap-6">
         <div>
             <div class="text-[11px] uppercase tracking-wider text-[#888] font-medium mb-1">Work record</div>
-            <h2 class="text-[24px] font-bold tracking-tight leading-tight">{{ month.start|date:"F Y" }}</h2>
+            {% comment %}
+            Held on one line, which a month always fits on. WeasyPrint measures text under the
+            heading's negative letter-spacing narrower than it sets it, so a box sized to the
+            month breaks it in two - and when given room to set it on one, still keeps the
+            height of two.
+            {% endcomment %}
+            <h2 class="text-[24px] font-bold tracking-tight leading-tight whitespace-nowrap">{{ month.start|date:"F Y" }}</h2>
         </div>
         <div class="text-sm leading-relaxed text-right">
             {% if contract.seller %}

@@ -3,14 +3,14 @@ from __future__ import annotations
 import calendar
 import dataclasses
 import datetime
-import subprocess
-import tempfile
 from collections import defaultdict
 from pathlib import Path
 
 from django.conf import settings
 from django.contrib.staticfiles import finders
 from django.template.loader import render_to_string
+from weasyprint import HTML
+from weasyprint.urls import URLFetcher
 
 from wad.calendar_utils import WorkedDay, compute_monthly_summary, days_in, worked_days
 from wad.countries import country_name
@@ -20,14 +20,6 @@ from wad.models import POLAND, Contract, Invoice
 # The built stylesheet, read out of the source tree rather than through the static manifest
 # so that a document renders whether or not collectstatic has run.
 STYLESHEET = "css/output.css"
-
-# The page is one file of static HTML with nothing to fetch, and a browser already resident
-# prints it in a few seconds. What the cap has to cover is the browser itself: a couple of
-# hundred megabytes read off a network-attached root filesystem, which takes around
-# thirty-five seconds to fault in when nothing of it is left in the page cache - the usual
-# case here, where months pass between invoices. Anything approaching this is a browser that
-# failed to start.
-RENDER_TIMEOUT_SECONDS = 120
 
 
 class RenderError(Exception):
@@ -92,8 +84,8 @@ def document_context(record: Invoice) -> dict[str, object]:
 def stylesheet() -> str:
     """The whole built stylesheet, to be carried inside the document.
 
-    The renderer is handed a file rather than a URL and can reach nothing else, so a
-    document that linked its styles would come out unstyled.
+    The renderer is handed the page as a string and may fetch nothing, so a document that
+    linked its styles would come out unstyled.
     """
     path = finders.find(STYLESHEET)
     if path is None:
@@ -205,64 +197,34 @@ def records_pdf(contract: Contract, first: datetime.date, last: datetime.date) -
 def invoice_pdf(record: Invoice) -> bytes:
     """Render an invoice to an A4 PDF, which is the document a buyer is sent.
 
-    Chromium rather than a Python renderer, because the same engine already produces this
-    document from the browser's own print command: one document, printed one way, whether
-    it goes out from a screen or by mail.
+    WeasyPrint rather than a browser, because it renders inside the process in a few tens
+    of megabytes, where a headless browser needs a machine three times the size for the
+    sake of a document printed a few times a month.
     """
     return _printed(invoice_html(record), f"invoice {record.number}")
 
 
+def printable(html: str) -> HTML:
+    """A page that carries everything it needs, as WeasyPrint lays it out and prints it.
+
+    The fetcher is allowed no protocol at all: a resource the page asked for could only have
+    been named by data, and a render reading a local file or calling out to a host because
+    of what a party's address said is not one to make. WeasyPrint logs a refused fetch as an
+    error and renders on without the resource.
+    """
+    return HTML(string=html, url_fetcher=URLFetcher(allowed_protocols=()))
+
+
 def _printed(html: str, what: str) -> bytes:
-    """Print a page that carries everything it needs to a PDF, naming `what` it is on failure."""
-    with tempfile.TemporaryDirectory() as workspace:
-        directory = Path(workspace)
-        page = directory / "document.html"
-        page.write_text(html, encoding="utf-8")
-        pdf = directory / "document.pdf"
+    """Print a page that carries everything it needs to a PDF, naming `what` it is on failure.
 
-        command = [
-            settings.CHROMIUM_PATH,
-            "--headless",
-            # The container has no CAP_SYS_ADMIN to build a sandbox with, and /dev/shm in it
-            # is too small for Chromium's default use of it. What is being rendered is a file
-            # this application just wrote, from a template it owns, so the sandbox would be
-            # protecting us from our own bytes.
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            # Kept inside the workspace so nothing of the render survives it, and so the
-            # browser never looks for a profile in a home directory it may not own.
-            f"--user-data-dir={directory / 'profile'}",
-            # The page is a local file with nothing to fetch, so the only traffic a render can
-            # make is the browser's own: registering for push messages, asking after component
-            # updates, and the rest of what a fresh profile arranges. None of it bears on
-            # printing a document drawn entirely from bytes this application wrote.
-            "--disable-background-networking",
-            "--no-first-run",
-            "--no-pdf-header-footer",
-            f"--print-to-pdf={pdf}",
-            page.as_uri(),
-        ]
-
-        try:
-            # The command is built here from a configured path and paths inside a directory
-            # this function made, so there is nothing in it a caller can influence.
-            result = subprocess.run(  # noqa: S603
-                command,
-                capture_output=True,
-                timeout=RENDER_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            message = f"{settings.CHROMIUM_PATH} could not render {what}: {error}"
-            raise RenderError(message) from error
-
-        # Chromium reports a page it could not print through its exit status and leaves no
-        # file behind, so both are worth saying: the status alone does not name what went
-        # wrong, and its diagnostics go to stderr whether it succeeded or not.
-        if not pdf.exists():
-            details = result.stderr.decode(errors="replace").strip()
-            message = f"No document came out of {settings.CHROMIUM_PATH} for {what}. {details}"
-            raise RenderError(message)
-
-        return pdf.read_bytes()
+    Whatever stops the render comes out as RenderError, because that is what the callers
+    answer: a send records the attempt it could not make, and a download says it could not
+    be produced. A layout WeasyPrint cannot handle, a library it cannot load and memory it
+    cannot get all leave the document just as missing.
+    """
+    try:
+        return printable(html).write_pdf()
+    except Exception as error:
+        message = f"WeasyPrint could not render {what}: {error}"
+        raise RenderError(message) from error
