@@ -335,9 +335,14 @@ fly volumes snapshots list vol_r1jznjp0zpyd5jwr
 fly volumes create wad_data --snapshot-id <snapshot-id> --region fra --size 1 -a workanotherday
 fly machine cordon <machine-id> -a workanotherday
 fly machine stop <machine-id> -a workanotherday
-fly machine clone <machine-id> --attach-volume <new-volume-id>:/app/data --override-cmd "sleep inf" -a workanotherday
-fly machine update <new-machine-id> --autostop=off --yes -a workanotherday
+fly machine clone <machine-id> --attach-volume <new-volume-id>:/app/data --override-cmd "sleep inf" --detach -a workanotherday
+fly machine wait <new-machine-id> --state started -a workanotherday
+fly machine update <new-machine-id> --autostop=off --skip-health-checks --yes -a workanotherday
 ```
+
+`sleep inf` answers no health check, and both `clone` and `update` would otherwise wait for
+`/health/` until they give up: the clone is detached and waited on only until it has started, and
+the update skips the checks.
 
 Cordoning first takes the old machine out of the proxy, which would otherwise start it again on
 the next request and have two machines serving two databases. Check the clone (below), then give
@@ -370,7 +375,7 @@ account can reach; anything older is in Tigris.
 Then, either way, take the application off the database:
 
 ```bash
-fly machine update <machine-id> --command "sleep inf" --autostop=off --yes -a workanotherday
+fly machine update <machine-id> --command "sleep inf" --autostop=off --skip-health-checks --yes -a workanotherday
 ```
 
 Upload the copy and swap it in. Remove `db.sqlite3` **and** its `-wal`/`-shm`/`-journal`

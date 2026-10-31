@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 FLY = tomllib.loads((settings.BASE_DIR / "fly.toml").read_text())
-CHECK = FLY["http_service"]["checks"][0]
+CHECK = FLY["checks"]["health"]
 
 
 # As a deployment runs: plain HTTP redirected to HTTPS, and only the hosts fly.toml names served.
