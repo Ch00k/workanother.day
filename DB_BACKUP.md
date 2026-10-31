@@ -36,14 +36,21 @@ Two things, in this order:
 
 ## The daily copy
 
-Three steps, run from a GitHub Actions schedule because a Fly volume attaches to exactly one
+Four steps, run from a GitHub Actions schedule because a Fly volume attaches to exactly one
 machine, so nothing scheduled alongside the app can read the database file:
 
 ```bash
+curl --fail --silent --show-error --output /dev/null https://workanother.day/health/
 flyctl ssh console -a workanotherday -C "/app/.venv/bin/python /app/manage.py backup_database /app/data/backup.sqlite3"
 flyctl sftp get /app/data/backup.sqlite3 backup.sqlite3 -a workanotherday
 flyctl ssh console -a workanotherday -C "rm -f /app/data/backup.sqlite3"
 ```
+
+The machine is suspended when idle, and only a request through Fly's proxy wakes it: SSH does
+not, and `fly ssh console` against a suspended machine fails with "no started VMs". The request to
+`/health/` returns once the application answers. Nothing keeps the machine awake afterwards, since
+an SSH session is not traffic the proxy counts, so Fly could suspend it again mid-copy; the copy
+takes seconds, and a run cut off fails like any other.
 
 `backup_database` is `VACUUM INTO`, which is safe against the live database and produces one
 self-contained file. The copy is removed from the volume whether or not the fetch worked, and
@@ -311,7 +318,8 @@ they do: a worker holds its connection for as long as its request runs, which ca
 (a filing, an invoice by mail). Each path below takes the application off the database first, and
 brings it back only after the restored copy has been checked. Both do it the same way: the
 machine stays up, because SSH needs it running, but with a command that serves nothing in place
-of `run.sh`, which holds across restarts until it is changed back. Pick a quiet moment; whatever
+of `run.sh`, which holds across restarts until it is changed back, and with autostop off, since
+Fly's proxy suspends a machine nothing requests. Pick a quiet moment; whatever
 was written after the copy was taken is gone either way.
 
 `fly machine list -a workanotherday` gives the machine ID both paths need.
@@ -328,12 +336,13 @@ fly volumes create wad_data --snapshot-id <snapshot-id> --region fra --size 1 -a
 fly machine cordon <machine-id> -a workanotherday
 fly machine stop <machine-id> -a workanotherday
 fly machine clone <machine-id> --attach-volume <new-volume-id>:/app/data --override-cmd "sleep inf" -a workanotherday
+fly machine update <new-machine-id> --autostop=off --yes -a workanotherday
 ```
 
 Cordoning first takes the old machine out of the proxy, which would otherwise start it again on
 the next request and have two machines serving two databases. Check the clone (below), then give
-it the application's command back with
-`fly machine update <new-machine-id> --command /app/run.sh --yes -a workanotherday`, which runs
+it the application's command and autostop back with
+`fly machine update <new-machine-id> --command /app/run.sh --autostop=suspend --yes -a workanotherday`, which runs
 the migrations at boot like any start, and `fly machine destroy <machine-id>` the old one. Its
 volume stays behind, unattached, until `fly volumes destroy`; keep it until the restore has
 proved itself. Then replace the volume ID in this document with the new one.
@@ -361,7 +370,7 @@ account can reach; anything older is in Tigris.
 Then, either way, take the application off the database:
 
 ```bash
-fly machine update <machine-id> --command "sleep inf" --yes -a workanotherday
+fly machine update <machine-id> --command "sleep inf" --autostop=off --yes -a workanotherday
 ```
 
 Upload the copy and swap it in. Remove `db.sqlite3` **and** its `-wal`/`-shm`/`-journal`
@@ -375,10 +384,10 @@ fly sftp put db-20260903T023700Z.sqlite3 /app/data/import.sqlite3 -a workanother
 fly ssh console -a workanotherday -C "sh -c 'rm -f /app/data/db.sqlite3 /app/data/db.sqlite3-wal /app/data/db.sqlite3-shm /app/data/db.sqlite3-journal && mv /app/data/import.sqlite3 /app/data/db.sqlite3 && chown wad:wad /app/data/db.sqlite3'"
 ```
 
-Check it (below), and only then give the machine its own command back:
+Check it (below), and only then give the machine its own command and autostop back:
 
 ```bash
-fly machine update <machine-id> --command /app/run.sh --yes -a workanotherday
+fly machine update <machine-id> --command /app/run.sh --autostop=suspend --yes -a workanotherday
 ```
 
 ### Checking a restore

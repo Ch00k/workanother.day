@@ -91,3 +91,9 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: flyctl deploy --app workanotherday --image registry.fly.io/workanotherday:${{ github.ref_name }}
+
+      # The deploy waits for the health check only on a running machine, and the machine is usually suspended: it is
+      # updated without being started. This request boots the release as a visitor's would, so one that cannot serve
+      # fails the job.
+      - name: Check that the release serves
+        run: curl --fail --silent --show-error --output /dev/null https://workanother.day/health/

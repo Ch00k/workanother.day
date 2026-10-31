@@ -289,6 +289,12 @@ Fly.io, one machine, one volume. SQLite is a single local file, so **do not scal
 one machine**. `run.sh` migrates and collects static files at startup; CI deploys on a
 release tag. `DB_IMPORT.md` covers moving an existing database onto the volume.
 
+The machine is suspended when idle and resumed by the next request, in a fraction of a second.
+A deploy discards the suspended state, so the first request after one boots the machine afresh.
+SSH does not wake it: anything run over `fly ssh console` needs a request to `/health/` first,
+which is what the backup workflow and the deploy job do. The 512mb is for printing: a year of a
+contract's records takes a gunicorn worker to about 235 MB.
+
 Set the secrets before the first deploy:
 
 ```bash

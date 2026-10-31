@@ -404,6 +404,18 @@ def index(request: HttpRequest) -> HttpResponse:
 
 
 @require_GET  # ty: ignore[invalid-argument-type]
+def health(request: HttpRequest) -> HttpResponse:  # noqa: ARG001
+    """What Fly's health check asks for, and what wakes a suspended machine on purpose.
+
+    It answers only once the database does, which no page a visitor without a session gets
+    touches: a release that boots but cannot read its tables fails here.
+    """
+    Contract.objects.exists()
+
+    return HttpResponse("ok", content_type="text/plain")
+
+
+@require_GET  # ty: ignore[invalid-argument-type]
 def glossary_view(request: HttpRequest) -> HttpResponse:
     """The Polish names the rest of the application uses, and what each of them is.
 

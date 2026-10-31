@@ -30,6 +30,11 @@ jobs:
     steps:
       - uses: superfly/flyctl-actions/setup-flyctl@v1
 
+      # The machine is suspended when idle, and only a request through Fly's proxy wakes it; SSH does
+      # not. The proxy answers once the app does, so the machine is up when this returns.
+      - name: Wake the machine
+        run: curl --fail --silent --show-error --output /dev/null https://workanother.day/health/
+
       # Absolute paths because a command given to ssh console does not run through the image's
       # entrypoint, so neither the working directory nor the PATH that puts the virtualenv first
       # can be assumed.
