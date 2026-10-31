@@ -204,6 +204,17 @@ def invoice_pdf(record: Invoice) -> bytes:
     return _printed(invoice_html(record), f"invoice {record.number}")
 
 
+def printable(html: str) -> HTML:
+    """A page that carries everything it needs, as WeasyPrint lays it out and prints it.
+
+    The fetcher is allowed no protocol at all: a resource the page asked for could only have
+    been named by data, and a render reading a local file or calling out to a host because
+    of what a party's address said is not one to make. WeasyPrint logs a refused fetch as an
+    error and renders on without the resource.
+    """
+    return HTML(string=html, url_fetcher=URLFetcher(allowed_protocols=()))
+
+
 def _printed(html: str, what: str) -> bytes:
     """Print a page that carries everything it needs to a PDF, naming `what` it is on failure.
 
@@ -211,14 +222,9 @@ def _printed(html: str, what: str) -> bytes:
     answer: a send records the attempt it could not make, and a download says it could not
     be produced. A layout WeasyPrint cannot handle, a library it cannot load and memory it
     cannot get all leave the document just as missing.
-
-    The fetcher is allowed no protocol at all: a resource the page asked for could only have
-    been named by data, and a render reading a local file or calling out to a host because
-    of what a party's address said is not one to make. WeasyPrint logs a refused fetch as an
-    error and renders on without the resource.
     """
     try:
-        return HTML(string=html, url_fetcher=URLFetcher(allowed_protocols=())).write_pdf()
+        return printable(html).write_pdf()
     except Exception as error:
         message = f"WeasyPrint could not render {what}: {error}"
         raise RenderError(message) from error

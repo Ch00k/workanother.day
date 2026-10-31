@@ -15,13 +15,13 @@ from unittest import mock
 
 import pytest
 from django.contrib.auth.models import User
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from weasyprint import HTML
 from weasyprint.formatting_structure.boxes import Box, LineBox
 
 from wad.calendar_utils import today_in_poland
-from wad.documents import RenderError, invoice_html, invoice_pdf, records_html
+from wad.documents import RenderError, invoice_html, invoice_pdf, printable, records_html
 from wad.models import Buyer, Contract, Guest, Invoice, Seller, TimeOff
 from wad.tests.clock import today_is
 from wad.tests.factories import store_invoice
@@ -298,6 +298,23 @@ class RenderFailureTests(DocumentTestCase):
             invoice_pdf(self.invoice)
 
 
+class RefusedFetchTests(SimpleTestCase):
+    """The renderer fetches nothing, whatever a page names."""
+
+    def test_a_local_file_and_a_host_are_both_refused(self) -> None:
+        """A page naming a file on the server and a host to call is printed without either,
+        and each refusal is logged as the error WeasyPrint makes of a resource it could not
+        load."""
+        page = '<img src="file:///etc/hostname"><link rel="stylesheet" href="http://127.0.0.1:1/x.css">'
+
+        with self.assertLogs("weasyprint", level="ERROR") as logs:
+            pdf = printable(page).write_pdf()
+
+        assert pdf.startswith(b"%PDF-")
+        assert len(logs.records) == 2
+        assert all("disallowed protocol" in record.getMessage() for record in logs.records)
+
+
 class RecordsTestCase(DocumentTestCase):
     """Two months of last year, invoiced and issued, against the contract's calendar."""
 
@@ -318,8 +335,13 @@ class RecordsTestCase(DocumentTestCase):
 
 
 def _laid_out(html: str) -> Iterator[Box]:
-    """The boxes of a page's first sheet, as WeasyPrint lays them out."""
-    page = HTML(string=html).render().pages[0]
+    """The boxes of a page's first sheet, as the renderer production uses lays them out.
+
+    WeasyPrint has no public API for its layout, so this and what the tests read off the
+    boxes (their style, their position, their line boxes) are its internals. An upgrade that
+    breaks these tests with an AttributeError has moved them, not the document.
+    """
+    page = printable(html).render().pages[0]
 
     return page._page_box.descendants()
 
