@@ -1,13 +1,20 @@
 app = "workanotherday"
 primary_region = "fra"
+# gunicorn finishes the requests in progress on SIGTERM; Fly's default SIGINT drops them. The
+# longest request, a JPK_EWP filing, can take minutes, so the machine is given the most time
+# Fly allows, which run.sh gives gunicorn too. Nothing waits that long unless a request is
+# still running.
+kill_signal = "SIGTERM"
+kill_timeout = 300
 
 [build]
   dockerfile = "Dockerfile"
 
-# A volume attaches to a single machine, so a new machine cannot start
-# alongside the old one during a deploy. Stop and replace in place.
+# A volume attaches to a single machine, so the machine is replaced in place. A rolling deploy
+# waits for the health check only when the machine is running; CI's deploy job checks a release
+# that lands on a suspended one.
 [deploy]
-  strategy = "immediate"
+  strategy = "rolling"
 
 # migrate and collectstatic run at container startup via run.sh, so no
 # separate release/deploy steps are needed here.
@@ -32,8 +39,38 @@ primary_region = "fra"
 [http_service]
   internal_port = 8080
   force_https = true
-  min_machines_running = 1
+  # Suspended when idle, which Fly bills like a stopped machine: storage only. It resumes from a
+  # memory snapshot in a fraction of a second; a deploy discards the snapshot, so the first
+  # request after one boots the machine afresh, through migrate and collectstatic.
+  min_machines_running = 0
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
 
+# fly runs no health checks unless they are declared. This one is what makes a deploy notice a
+# release that starts but cannot serve. The grace period covers run.sh's migrate and
+# collectstatic, which run before gunicorn listens.
+#
+# A top-level check rather than one on the service, because a failing service check takes the
+# machine out of routing: the one gunicorn worker is legitimately busy for minutes filing a
+# JPK_EWP, a check times out meanwhile, and the only machine would stop being sent requests.
+# Deploys and machine updates wait for this one all the same.
+[checks]
+  [checks.health]
+    type = "http"
+    port = 8080
+    grace_period = "30s"
+    interval = "30s"
+    method = "GET"
+    path = "/health/"
+    timeout = "5s"
+    # As Fly's proxy forwards a visitor's request: for a host Django serves, over HTTPS, which keeps
+    # the check from being redirected there.
+    [checks.health.headers]
+      Host = "workanother.day"
+      X-Forwarded-Proto = "https"
+
+# One gunicorn worker grows to about 235 MB printing a year of a contract's records, and the
+# master takes another 30. Memory is billed only while the machine is awake.
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "768mb"
+  memory = "512mb"

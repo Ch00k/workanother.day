@@ -12,4 +12,7 @@ python manage.py collectstatic --noinput
 # The bound is a JPK_EWP submission, at three gateway calls of 60 seconds each around the
 # packaging and the writes between them. Sending an invoice by mail is the next longest: a
 # render of well under a second, followed by an SMTP conversation whose every step is given 30.
-exec gunicorn config.wsgi:application --bind [::]:8080 --timeout 300
+#
+# The same bound is how long a deploy's SIGTERM waits for the requests in progress to finish,
+# which is fly.toml's kill_timeout.
+exec gunicorn config.wsgi:application --bind [::]:8080 --timeout 300 --graceful-timeout 300

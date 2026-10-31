@@ -27,8 +27,16 @@ jobs:
     # create ssh` mints exactly that, for this app alone, and it cannot deploy.
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_SSH_TOKEN }}
+      # The machine is suspended when idle, and only a request through Fly's proxy wakes it; SSH
+      # does not. The proxy answers once the app does, so the machine is up when this returns. The
+      # first request after a deploy boots the release through migrate and collectstatic, which
+      # the retries wait out.
+      WAKE: curl --fail --silent --show-error --retry 6 --retry-delay 5 --retry-all-errors --max-time 30 --output /dev/null https://workanother.day/health/
     steps:
       - uses: superfly/flyctl-actions/setup-flyctl@v1
+
+      - name: Wake the machine
+        run: $WAKE
 
       # Absolute paths because a command given to ssh console does not run through the image's
       # entrypoint, so neither the working directory nor the PATH that puts the virtualenv first
@@ -109,6 +117,8 @@ jobs:
       # copy, not for one per run. Removed even when the fetch failed, which is when it is left
       # behind. Last, so a failed removal cannot keep a copy already fetched from being stored;
       # a leftover is replaced by the next run's backup_database anyway.
+      # Woken again: an SSH session is not traffic the proxy counts, so the machine may have been
+      # suspended again during the uploads.
       - name: Remove the copy from the machine
         if: always()
-        run: flyctl ssh console -a workanotherday -C "rm -f /app/data/backup.sqlite3"
+        run: $WAKE && flyctl ssh console -a workanotherday -C "rm -f /app/data/backup.sqlite3"
