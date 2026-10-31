@@ -191,7 +191,7 @@ def records_pdf(contract: Contract, first: datetime.date, last: datetime.date) -
     record of the days worked for it. One file rather than one per invoice, because it is
     asked for and handed over as one.
     """
-    return _printed(records_html(contract, first, last))
+    return _printed(records_html(contract, first, last), f"the records of {contract.name}")
 
 
 def invoice_pdf(record: Invoice) -> bytes:
@@ -201,15 +201,24 @@ def invoice_pdf(record: Invoice) -> bytes:
     of megabytes, where a headless browser needs a machine three times the size for the
     sake of a document printed a few times a month.
     """
-    return _printed(invoice_html(record))
+    return _printed(invoice_html(record), f"invoice {record.number}")
 
 
-def _printed(html: str) -> bytes:
-    """Print a page that carries everything it needs to a PDF.
+def _printed(html: str, what: str) -> bytes:
+    """Print a page that carries everything it needs to a PDF, naming `what` it is on failure.
+
+    Whatever stops the render comes out as RenderError, because that is what the callers
+    answer: a send records the attempt it could not make, and a download says it could not
+    be produced. A layout WeasyPrint cannot handle, a library it cannot load and memory it
+    cannot get all leave the document just as missing.
 
     The fetcher is allowed no protocol at all: a resource the page asked for could only have
     been named by data, and a render reading a local file or calling out to a host because
     of what a party's address said is not one to make. WeasyPrint logs a refused fetch as an
     error and renders on without the resource.
     """
-    return HTML(string=html, url_fetcher=URLFetcher(allowed_protocols=())).write_pdf()
+    try:
+        return HTML(string=html, url_fetcher=URLFetcher(allowed_protocols=())).write_pdf()
+    except Exception as error:
+        message = f"WeasyPrint could not render {what}: {error}"
+        raise RenderError(message) from error

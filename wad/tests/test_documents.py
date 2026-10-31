@@ -11,6 +11,7 @@ import datetime
 import re
 import zlib
 from typing import TYPE_CHECKING
+from unittest import mock
 
 import pytest
 from django.contrib.auth.models import User
@@ -27,6 +28,7 @@ from wad.tests.factories import store_invoice
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from contextlib import AbstractContextManager
 
 TODAY = today_in_poland()
 LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
@@ -46,6 +48,15 @@ def without_stylesheet() -> override_settings:
     real render fails.
     """
     return override_settings(STATICFILES_DIRS=[])
+
+
+def renderer_fails() -> AbstractContextManager[object]:
+    """WeasyPrint raising partway through a render, as a layout it cannot handle makes it do.
+
+    No document this application writes is known to provoke one, so the failure is put
+    where the renderer would raise it.
+    """
+    return mock.patch.object(HTML, "write_pdf", side_effect=IndexError("list index out of range"))
 
 
 def _objects(pdf: bytes) -> bytes:
@@ -240,6 +251,16 @@ class DocumentDownloadTests(DocumentTestCase):
         assert response.status_code == 503
         assert b"could not be produced" in response.content
 
+    def test_a_renderer_that_fails_partway_is_said_so_rather_than_crashed_on(self) -> None:
+        """The failure is logged for whoever runs the instance, with the invoice it was for."""
+        with renderer_fails(), self.assertLogs("wad.views", level="ERROR") as logs:
+            response = self.client.get(self._url())
+
+        assert response.status_code == 503
+        (record,) = logs.records
+        assert record.getMessage() == f"No document could be produced for invoice {self.invoice.number}"
+        assert record.exc_info is not None
+
     def test_the_reason_a_render_failed_is_not_shown_to_the_reader(self) -> None:
         """It names a file on the server, which is neither useful nor theirs to know."""
         with without_stylesheet():
@@ -268,6 +289,12 @@ class RenderFailureTests(DocumentTestCase):
     def test_a_missing_stylesheet_is_reported_as_a_render_failure(self) -> None:
         """Not an unstyled document: the caller is deciding what to tell a reader."""
         with without_stylesheet(), pytest.raises(RenderError):
+            invoice_pdf(self.invoice)
+
+    def test_a_failure_inside_the_renderer_is_reported_as_a_render_failure(self) -> None:
+        """Whatever WeasyPrint raises leaves the document as missing as a missing stylesheet
+        does, and the caller answers both the same way."""
+        with renderer_fails(), pytest.raises(RenderError, match="could not render invoice"):
             invoice_pdf(self.invoice)
 
 

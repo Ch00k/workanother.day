@@ -33,7 +33,7 @@ from wad.mail import (
 from wad.models import Buyer, Contract, Delivery, Guest, Invoice, Seller
 from wad.tests.factories import store_invoice
 from wad.tests.pages import button_disabled, button_labelled
-from wad.tests.test_documents import without_stylesheet
+from wad.tests.test_documents import renderer_fails, without_stylesheet
 
 TODAY = today_in_poland()
 LAST_MONTH = (TODAY.replace(day=1) - datetime.timedelta(days=1)).replace(day=1)
@@ -212,6 +212,15 @@ class SendFailureTests(MailTestCase):
             delivery = send_invoice(self.invoice)
 
         assert not delivery.delivered
+        assert mail.outbox == []
+
+    def test_a_renderer_that_fails_partway_still_records_the_attempt(self) -> None:
+        """What WeasyPrint raised is the reason the row gives for nothing having gone."""
+        with renderer_fails(), self.assertLogs("wad.mail", level="ERROR"):
+            delivery = send_invoice(self.invoice)
+
+        assert not delivery.delivered
+        assert "list index out of range" in delivery.error
         assert mail.outbox == []
 
     def test_a_failed_render_still_records_the_attempt(self) -> None:
