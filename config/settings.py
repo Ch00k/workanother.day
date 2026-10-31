@@ -162,6 +162,11 @@ LOGGING = {
         "django": {"handlers": ["stderr"], "level": "INFO"},
         "django.request": {"handlers": ["stderr"], "level": "ERROR", "propagate": False},
         "wad": {"handlers": ["stderr"], "level": "INFO"},
+        # Errors are how WeasyPrint reports a resource it could not load, which for an invoice
+        # that may fetch nothing is a document gone out without something it asked for. Its
+        # warnings are each piece of the stylesheet it does not understand, a hundred and
+        # more per render, of which the document page restates the few it needs.
+        "weasyprint": {"handlers": ["stderr"], "level": "ERROR"},
     },
 }
 
@@ -258,12 +263,6 @@ if MAIL_CONFIGURED:
     }
 else:
     MAILERS = {"default": {"BACKEND": "django.core.mail.backends.console.EmailBackend"}}
-
-# Documents
-# The browser that prints an invoice to PDF, which is the same engine the Download PDF
-# button uses from the screen. Installed in the image; configurable because a development
-# machine keeps it somewhere else.
-CHROMIUM_PATH = os.environ.get("DJANGO_CHROMIUM_PATH", "/usr/bin/chromium")
 
 # Auth
 LOGIN_URL = "/login/"

@@ -3449,7 +3449,7 @@ def invoice_document(request: HttpRequest, pk: str) -> HttpResponse:
         pdf = invoice_pdf(record)
     except RenderError:
         # The reason is for whoever runs the instance rather than for the reader: it names a
-        # browser that would not start, which is nothing the reader can act on.
+        # file on the server, which is nothing the reader can act on.
         logger.exception("No document could be produced for invoice %s", record.number)
         return HttpResponse("The document could not be produced. Try again in a moment.", status=503)
 

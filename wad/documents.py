@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import subprocess
-import tempfile
 from pathlib import Path
 
 from django.conf import settings
 from django.contrib.staticfiles import finders
 from django.template.loader import render_to_string
+from weasyprint import HTML
+from weasyprint.urls import URLFetcher
 
 from wad.countries import country_name
 from wad.ksef import verification
@@ -15,14 +15,6 @@ from wad.models import POLAND, Invoice
 # The built stylesheet, read out of the source tree rather than through the static manifest
 # so that a document renders whether or not collectstatic has run.
 STYLESHEET = "css/output.css"
-
-# The page is one file of static HTML with nothing to fetch, and a browser already resident
-# prints it in a few seconds. What the cap has to cover is the browser itself: a couple of
-# hundred megabytes read off a network-attached root filesystem, which takes around
-# thirty-five seconds to fault in when nothing of it is left in the page cache - the usual
-# case here, where months pass between invoices. Anything approaching this is a browser that
-# failed to start.
-RENDER_TIMEOUT_SECONDS = 120
 
 
 class RenderError(Exception):
@@ -87,8 +79,8 @@ def document_context(record: Invoice) -> dict[str, object]:
 def stylesheet() -> str:
     """The whole built stylesheet, to be carried inside the document.
 
-    The renderer is handed a file rather than a URL and can reach nothing else, so a
-    document that linked its styles would come out unstyled.
+    The renderer is handed the page as a string and may fetch nothing, so a document that
+    linked its styles would come out unstyled.
     """
     path = finders.find(STYLESHEET)
     if path is None:
@@ -109,59 +101,13 @@ def invoice_html(record: Invoice) -> str:
 def invoice_pdf(record: Invoice) -> bytes:
     """Render an invoice to an A4 PDF, which is the document a buyer is sent.
 
-    Chromium rather than a Python renderer, because the same engine already produces this
-    document from the browser's own print command: one document, printed one way, whether
-    it goes out from a screen or by mail.
+    WeasyPrint rather than a browser, because it renders inside the process in a few tens
+    of megabytes, where a headless browser needs a machine three times the size for the
+    sake of a document printed a few times a month.
+
+    The page carries everything it needs, so the fetcher is allowed no protocol at all: a
+    resource the page asked for could only have been named by data, and a render reading a
+    local file or calling out to a host because of what a party's address said is not one
+    to make. WeasyPrint logs a refused fetch and renders on without the resource.
     """
-    with tempfile.TemporaryDirectory() as workspace:
-        directory = Path(workspace)
-        page = directory / "invoice.html"
-        page.write_text(invoice_html(record), encoding="utf-8")
-        pdf = directory / "invoice.pdf"
-
-        command = [
-            settings.CHROMIUM_PATH,
-            "--headless",
-            # The container has no CAP_SYS_ADMIN to build a sandbox with, and /dev/shm in it
-            # is too small for Chromium's default use of it. What is being rendered is a file
-            # this application just wrote, from a template it owns, so the sandbox would be
-            # protecting us from our own bytes.
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            # Kept inside the workspace so nothing of the render survives it, and so the
-            # browser never looks for a profile in a home directory it may not own.
-            f"--user-data-dir={directory / 'profile'}",
-            # The page is a local file with nothing to fetch, so the only traffic a render can
-            # make is the browser's own: registering for push messages, asking after component
-            # updates, and the rest of what a fresh profile arranges. None of it bears on
-            # printing a document drawn entirely from bytes this application wrote.
-            "--disable-background-networking",
-            "--no-first-run",
-            "--no-pdf-header-footer",
-            f"--print-to-pdf={pdf}",
-            page.as_uri(),
-        ]
-
-        try:
-            # The command is built here from a configured path and paths inside a directory
-            # this function made, so there is nothing in it a caller can influence.
-            result = subprocess.run(  # noqa: S603
-                command,
-                capture_output=True,
-                timeout=RENDER_TIMEOUT_SECONDS,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            message = f"{settings.CHROMIUM_PATH} could not render invoice {record.number}: {error}"
-            raise RenderError(message) from error
-
-        # Chromium reports a page it could not print through its exit status and leaves no
-        # file behind, so both are worth saying: the status alone does not name what went
-        # wrong, and its diagnostics go to stderr whether it succeeded or not.
-        if not pdf.exists():
-            details = result.stderr.decode(errors="replace").strip()
-            message = f"No document came out of {settings.CHROMIUM_PATH} for invoice {record.number}. {details}"
-            raise RenderError(message)
-
-        return pdf.read_bytes()
+    return HTML(string=invoice_html(record), url_fetcher=URLFetcher(allowed_protocols=())).write_pdf()

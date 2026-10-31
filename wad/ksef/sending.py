@@ -27,8 +27,9 @@ FIRST_ERROR_CODE = 400
 #
 # Known problem: this wait is synchronous, and the deployment runs a single gunicorn worker,
 # so a rehearsal KSeF does not settle quickly makes the whole instance unresponsive for the
-# duration - not only the tab that asked. The worker count is what keeps exactly one Chromium
-# alive at a time on a 768mb machine, which is why the fix is not simply to add workers.
+# duration - not only the tab that asked. Each worker is a whole copy of the application and
+# its renderer, upward of a hundred megabytes while a render is under way, so adding workers
+# is paid for in machine size, which is why the fix is not simply to add them.
 # Accepted rather than solved: a rehearsal is a deliberate act performed a handful of times,
 # by the one person the instance serves.
 REHEARSAL_ATTEMPTS = 15

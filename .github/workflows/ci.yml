@@ -23,11 +23,6 @@ jobs:
     env:
       DJANGO_SECRET_KEY: ci-only-key-4Xn7QpZm2LwVtR9sHgKdBjF6yCeA3uNiPoTr8ZxWqMvSbE5D
       DJANGO_KSEF_TOKEN_KEY: rXevUkBPASjAGdFZDd0mIj-SukHMTv-SxRKx1uGmbCY=
-      # The tests that print an invoice need a browser to print it with, and skip
-      # themselves where there is none. The image ships Chromium; the runner ships
-      # Chrome, which takes the same flags, so pointing at it is what makes those
-      # tests run here rather than quietly pass by being skipped.
-      DJANGO_CHROMIUM_PATH: /usr/bin/google-chrome
       # The KSeF sandbox pair. A token is issued for one NIP in one KSeF, so it cannot live in
       # the repository. The test that issues an invoice there fails rather than skipping when
       # they are missing here, because a skip is a green build: rotated, revoked or simply

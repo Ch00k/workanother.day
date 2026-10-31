@@ -91,7 +91,7 @@ grouping mark for the same one. `test_money.py` holds the two to each other, bec
 already drifted: the preview grouped its thousands and the saved document did not, so the same
 invoice looked like two depending on whether it had been saved yet.
 
-Chromium maps that gap to an ordinary space in the text layer of the PDF it prints, so an amount
+The printed PDF carries that gap as an ordinary space in its text layer, so an amount
 copied out of the document a buyer is sent arrives with a plain space in it. Nothing can change
 that — text extraction recovers a space from any gap between digit groups, whether a character was
 written there or not — and a plain space is the whitespace a form expecting a figure is likeliest
@@ -213,7 +213,6 @@ above "the applicable workload limits" are not payable without prior written app
 | `KSEF_ENVIRONMENT` | no | `TEST` | `TEST`, `DEMO` or `PRODUCTION`. Decides which KSeF invoices are sent to. A rehearsal always goes to demo, whatever this says. |
 | `JPK_GATEWAY_ENVIRONMENT` | no | `TEST` | `TEST` or `PRODUCTION`. Decides which document gateway a JPK_EWP is filed through, and which certificate its payload is sealed to. |
 | `DJANGO_JPK_GATEWAY_CERTIFICATE` | no | the one shipped for the environment | The Ministry's public key certificate, in PEM. Point this at a reissued one without waiting for a release. |
-| `DJANGO_CHROMIUM_PATH` | no | `/usr/bin/chromium` | The browser that prints an invoice to PDF. The image installs one there; point this at a local Chromium or Chrome to render outside it. |
 | `DJANGO_EMAIL_HOST` | to send invoices | — | The submission host of the mail provider invoices go out through. It has to be allowed to send as the seller's own address. |
 | `DJANGO_EMAIL_PORT` | no | `587` | `465` is submitted to over TLS from the first byte; anything else is plaintext upgraded by STARTTLS. Fly blocks outbound port 25, so delivery goes through a provider rather than straight to the buyer's MX. |
 | `DJANGO_EMAIL_USER` | to send invoices | — | Submission username. |
@@ -273,8 +272,8 @@ it is about to do beside the field the token goes in.
 **Known problem:** a rehearsal waits for KSeF synchronously, up to 28 seconds, and the
 deployment runs a single gunicorn worker - so a rehearsal KSeF is slow to settle makes the
 whole instance unresponsive for that long, not only the tab that asked. Adding workers is not
-the fix: one worker is what keeps exactly one Chromium alive at a time on a 768mb machine, and
-two concurrent PDF renders would exhaust it. Accepted for now, a rehearsal being a deliberate
+free: each is a whole copy of the application and its renderer, upward of a hundred megabytes
+while a render is under way, and is paid for in machine size. Accepted for now, a rehearsal being a deliberate
 act performed a handful of times by the one person the instance serves. `--threads` with a
 lock serializing the renderer, or polling the verdict from the browser the way sending is
 polled, are the ways out if it ever matters.
@@ -289,13 +288,6 @@ in demo as it would be in production.
 Fly.io, one machine, one volume. SQLite is a single local file, so **do not scale beyond
 one machine**. `run.sh` migrates and collects static files at startup; CI deploys on a
 release tag. `DB_IMPORT.md` covers moving an existing database onto the volume.
-
-The machine needs **768mb of memory**, and the reason is Chromium rather than the
-application: V8 reserves a code range of over half a gigabyte, and the kernel's heuristic
-overcommit refuses any writable mapping larger than the machine's whole memory. Below this,
-the renderer dies at startup and every invoice PDF times out. A container on a large host
-does not reproduce it, because a cgroup limit leaves `/proc/meminfo` reporting the host's
-memory, which is what that check reads.
 
 Set the secrets before the first deploy:
 
@@ -355,14 +347,21 @@ would read back.
 
 ## The printed invoice
 
-`Download PDF` on a stored invoice is printed by the server, by Chromium, from
+`Download PDF` on a stored invoice is printed by the server, by WeasyPrint, from
 `wad/templates/wad/invoice_page.html` — the same document partial the screen draws, on a
-page of its own with the stylesheet inlined because the renderer is handed a file and can
-reach nothing else. A browser's own print command would produce whatever that browser and
-its settings made of the page, and the document a buyer is given cannot vary that way.
+page of its own with the stylesheet inlined because the renderer is handed the page as a
+string and may fetch nothing. A browser's own print command would produce whatever that
+browser and its settings made of the page, and the document a buyer is given cannot vary
+that way.
+
+WeasyPrint is not a browser, and drops parts of what Tailwind writes: `@property`,
+`@supports`, media queries on anything but the media type, and any rule whose selector list
+names a pseudo-element it does not know. `invoice_page.html` restates the few rules the
+document depends on, and `PrintedLayoutTests` in `wad/tests/test_documents.py` fails when one
+of them stops applying. A change to the document partial is worth printing once to look at.
 
 Nothing is stored. Everything the document is drawn from is frozen once the invoice is
-issued, so it renders the same every time, and a render costs about half a second.
+issued, so it renders the same every time, and a render costs a fraction of a second.
 
 A guest is the exception: their invoice never reaches the server, so their `Download PDF`
 is still the browser's print command. It is the only place it can be.
