@@ -49,6 +49,10 @@ jobs:
           DJANGO_EMAIL_HOST: smtp.example.com
           DJANGO_EMAIL_USER: ci@example.com
           DJANGO_EMAIL_PASSWORD: ci-only-password
+      # The runner has Pango, which WeasyPrint needs to render at all, but not HarfBuzz's
+      # subsetter, which it falls back from with a deprecation warning on every run. The image
+      # installs the same library.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libharfbuzz-subset0
       - run: uv run pytest
 
   deploy:
