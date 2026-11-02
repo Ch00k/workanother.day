@@ -15,4 +15,6 @@ python manage.py collectstatic --noinput
 #
 # The same bound is how long a deploy's SIGTERM waits for the requests in progress to finish,
 # which is fly.toml's kill_timeout.
-exec gunicorn config.wsgi:application --bind [::]:8080 --timeout 300 --graceful-timeout 300
+#
+# gunicorn.conf.py holds the access log.
+exec gunicorn config.wsgi:application --config gunicorn.conf.py --bind [::]:8080 --timeout 300 --graceful-timeout 300
