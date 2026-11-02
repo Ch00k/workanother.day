@@ -295,6 +295,11 @@ SSH does not wake it: anything run over `fly ssh console` needs a request to `/h
 which is what the backup workflow and the deploy job do. The 512mb is for printing: a year of a
 contract's records takes a gunicorn worker to about 235 MB.
 
+gunicorn writes one line per request (`gunicorn.conf.py`): method, path, status, bytes, time
+taken and user agent, which is how to tell what woke the machine. It keeps no client address and
+no query string. `wad/access_log.py` shows any route that takes a token, such as a calendar
+subscription's, as its pattern, and escapes control characters so a request stays one line.
+
 Set the secrets before the first deploy:
 
 ```bash
