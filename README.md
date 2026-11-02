@@ -297,7 +297,8 @@ contract's records takes a gunicorn worker to about 235 MB.
 
 gunicorn writes one line per request (`gunicorn.conf.py`): method, path, status, bytes, time
 taken and user agent, which is how to tell what woke the machine. It keeps no client address and
-no query string, and `wad/access_log.py` masks a calendar subscription's token in the path.
+no query string. `wad/access_log.py` shows any route that takes a token, such as a calendar
+subscription's, as its pattern, and escapes control characters so a request stays one line.
 
 Set the secrets before the first deploy:
 
