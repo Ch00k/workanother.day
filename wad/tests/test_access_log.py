@@ -88,6 +88,11 @@ class AccessLogTests(SimpleTestCase):
         assert "/probe\\x0aGET /forged" in line
         assert "agent\\x0d\\x0aGET /forged" in line
 
+        nel = self._line("/probe\x85GET /forged")
+
+        assert "\x85" not in nel
+        assert "/probe\\x85GET /forged" in nel
+
     def test_a_request_gunicorn_could_not_parse_is_still_logged(self) -> None:
         """gunicorn logs it with an environment that names no path, before it answers the error."""
         assert self._line(None) == f'GET - 200 2048 125ms "{USER_AGENT}"'

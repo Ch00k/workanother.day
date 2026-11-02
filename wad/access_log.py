@@ -17,8 +17,10 @@ if TYPE_CHECKING:
     import datetime
 
 # gunicorn percent-decodes the path, so a request for /a%0Ab arrives holding a newline, which
-# written as it is would split its line in two and let a request write lines of its own.
-CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
+# written as it is would split its line in two and let a request write lines of its own. It
+# decodes as latin-1, so %85 arrives as NEL, which some readers take for a line break too, and
+# the other C1 controls as what some terminals act on.
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 def escaped(text: str) -> str:
